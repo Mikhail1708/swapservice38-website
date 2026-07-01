@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?
+  firstName     String?
+  lastName      String?
+  phone         String?
+  address       String?
+  isVerified    Boolean  @default(false)
+  role          String   @default("user") // user, manager, admin
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orders        Order[]
+  appointments  Appointment[]
+  sessions      Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id             String   @id @default(cuid())
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id])
+  guestEmail     String?  // для гостевых заказов
+  guestPhone     String?
+  guestName      String?
+  items          Json     // храним массив товаров (id, название, цена, кол-во)
+  total          Float
+  status         String   @default("pending") // paid, confirmed, packing, shipped, delivered, cancelled
+  deliveryMethod String
+  deliveryAddress String?
+  comment        String?
+  crmOrderId     String?  // ID заказа в CRM
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Appointment {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  serviceId    String   // ссылка на услугу (можем хранить ID из своей таблицы услуг)
+  carInfo      String?  // марка, модель, год, госномер
+  dateTime     DateTime
+  status       String   @default("pending") // pending, confirmed, in_progress, completed, cancelled
+  assignedTo   String?  // ID сотрудника (можем хранить)
+  crmAppointmentId String? // ID в CRM
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model News {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String
+  imageUrl    String?
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float?   // "от N руб."
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String?  // если авторизован
+  guestId   String?  // если гость (генерируем UUID)
+  items     Json     // массив товаров [{ productId, name, price, quantity, image? }]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId])
+  @@unique([guestId])
+}
