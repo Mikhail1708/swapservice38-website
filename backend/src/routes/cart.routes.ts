@@ -1,18 +1,18 @@
+// backend/src/routes/cart.routes.ts
 import { Router } from 'express';
 import {
-  addToCartController,
-  getCartController,
-  updateCartItemController,
-  clearCartController,
+  getCart,
+  addToCart,
+  updateCart,
+  clearCart,
 } from '../controllers/cart.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Для авторизованных и гостей
-router.get('/', getCartController);
-router.post('/add', addToCartController);
-router.put('/update', updateCartItemController);
-router.delete('/clear', clearCartController);
+// Все эндпоинты публичные (с guestId)
+router.get('/', getCart);
+router.post('/add', addToCart);
+router.put('/update', updateCart);
+router.delete('/clear', clearCart);
 
 export default router;

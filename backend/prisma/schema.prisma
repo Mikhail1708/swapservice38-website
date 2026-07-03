@@ -20,6 +20,10 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // ===== OAuth поля =====
+  yandexId      String?  @unique  // ID пользователя в Яндексе
+  maxId         String?  @unique  // ID пользователя в MAX
+
   orders        Order[]
   appointments  Appointment[]
   sessions      Session[]
@@ -36,18 +40,20 @@ model Session {
 
 model Order {
   id             String   @id @default(cuid())
-  userId         String?
-  user           User?    @relation(fields: [userId], references: [id])
-  guestEmail     String?  // для гостевых заказов
+  userId         String   // ✅ ОБЯЗАТЕЛЬНО (только авторизованные)
+  user           User     @relation(fields: [userId], references: [id])
+  guestEmail     String?
   guestPhone     String?
   guestName      String?
-  items          Json     // храним массив товаров (id, название, цена, кол-во)
+  items          Json
   total          Float
-  status         String   @default("pending") // paid, confirmed, packing, shipped, delivered, cancelled
+  status         String   @default("pending") // pending | paid | cancelled
   deliveryMethod String
   deliveryAddress String?
   comment        String?
-  crmOrderId     String?  // ID заказа в CRM
+  crmOrderId     String?
+  orderNumber    String?
+  paymentId      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
@@ -56,12 +62,12 @@ model Appointment {
   id           String   @id @default(cuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id])
-  serviceId    String   // ссылка на услугу (можем хранить ID из своей таблицы услуг)
-  carInfo      String?  // марка, модель, год, госномер
+  serviceId    String
+  carInfo      String?
   dateTime     DateTime
-  status       String   @default("pending") // pending, confirmed, in_progress, completed, cancelled
-  assignedTo   String?  // ID сотрудника (можем хранить)
-  crmAppointmentId String? // ID в CRM
+  status       String   @default("pending")
+  assignedTo   String?
+  crmAppointmentId String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -81,17 +87,18 @@ model Service {
   id          String   @id @default(cuid())
   name        String
   description String?
-  price       Float?   // "от N руб."
+  price       Float?
   imageUrl    String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
 model Cart {
   id        String   @id @default(cuid())
-  userId    String?  // если авторизован
-  guestId   String?  // если гость (генерируем UUID)
-  items     Json     // массив товаров [{ productId, name, price, quantity, image? }]
+  userId    String?
+  guestId   String?
+  items     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

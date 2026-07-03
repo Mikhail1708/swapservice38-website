@@ -1,3 +1,4 @@
+// backend/src/services/crm.service.ts
 import axios from 'axios';
 import redis from '../config/redis';
 
@@ -16,7 +17,7 @@ export const getProductsFromCRM = async (filters?: { category?: string; search?:
   }
   
   try {
-    const response = await axios.get(`${CRM_API_URL}/api/products`, { 
+    const response = await axios.get(`${CRM_API_URL}/api/public/products`, { 
       params: filters,
       timeout: 5000,
       headers: {
@@ -45,7 +46,7 @@ export const getProductFromCRM = async (productId: number) => {
   }
   
   try {
-    const response = await axios.get(`${CRM_API_URL}/api/products/${productId}`, {
+    const response = await axios.get(`${CRM_API_URL}/api/public/products/${productId}`, {
       timeout: 5000,
       headers: {
         'Content-Type': 'application/json'
@@ -79,9 +80,12 @@ export const createOrderInCRM = async (orderData: {
   source?: string;
 }) => {
   try {
+    const url = 'http://localhost:5000/api/sale-documents/public';
+    console.log('🌐 URL запроса в CRM (жестко задан):', url);
+    console.log('🌐 URL запроса в CRM:', url);
     console.log('📤 Отправка заказа в CRM:', JSON.stringify(orderData, null, 2));
     
-    const response = await axios.post(`${CRM_API_URL}/api/sale-documents/public`, orderData, {
+    const response = await axios.post(url, orderData, {
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json'
@@ -93,7 +97,8 @@ export const createOrderInCRM = async (orderData: {
   } catch (error) {
     console.error('❌ Ошибка создания заказа в CRM:', error);
     if (axios.isAxiosError(error) && error.response) {
-      console.error('Ответ CRM:', error.response.data);
+      console.error('📦 Ответ CRM:', error.response.data);
+      console.error('📦 Статус CRM:', error.response.status);
       throw new Error(error.response.data?.message || 'Ошибка создания заказа в CRM');
     }
     throw new Error('Ошибка создания заказа в CRM');

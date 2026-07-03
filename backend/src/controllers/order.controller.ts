@@ -1,187 +1,276 @@
+// backend/src/controllers/order.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { getCart, clearCart, getCartWithTotal } from '../services/cart.service';
-import { createOrderInCRM } from '../services/crm.service';
+import { clearCart } from '../services/cart.service';
 
 const prisma = new PrismaClient();
 
-// Создание локального заказа (для истории на сайте)
-const createLocalOrder = async (
-  userId: string | undefined,
-  guestId: string | undefined,
-  cartItems: any[],
-  orderData: any
-) => {
-  const total = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+// ============================================================
+// ПОЛУЧЕНИЕ КОРЗИНЫ С ПОДСЧЁТОМ
+// ============================================================
+const getCartWithTotal = async (userId?: string) => {
+  console.log('🔍 getCartWithTotal:', { userId });
   
-  return prisma.order.create({
-    data: {
-      userId: userId || null,
-      guestEmail: orderData.client.email || null,
-      guestPhone: orderData.client.phone || null,
-      guestName: orderData.client.firstName || null,
-      items: cartItems,
-      total,
-      status: 'paid',
-      deliveryMethod: orderData.deliveryMethod,
-      deliveryAddress: orderData.deliveryAddress || null,
-      comment: orderData.comment || null,
-    }
+  if (!userId) {
+    console.log('ℹ️ Нет userId, возвращаем пустую корзину');
+    return { id: null, items: [], total: 0, itemsCount: 0 };
+  }
+  
+  const cart = await prisma.cart.findUnique({
+    where: { userId: String(userId) },
   });
+
+  console.log('📦 Корзина найдена для userId:', cart ? 'да (id: ' + cart.id + ')' : 'нет');
+
+  if (!cart) {
+    return { id: null, items: [], total: 0, itemsCount: 0 };
+  }
+
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  const total = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
+  const itemsCount = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+
+  console.log('🛒 Товаров в корзине (БД):', items.length);
+
+  return {
+    id: cart.id,
+    items: items,
+    total: total,
+    itemsCount: itemsCount,
+  };
 };
 
-/**
- * POST /api/orders
- * Создание заказа с отправкой в CRM
- */
-export const createOrderController = async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id;
-    const guestId = req.cookies?.guestId; // 👈 Получаем из cookies
-    
-    console.log('📝 Creating order...');
-    console.log('  userId:', userId);
-    console.log('  guestId:', guestId);
-    console.log('  body:', req.body);
+// ============================================================
+// ПЕРЕНОС КОРЗИНЫ С guestId НА userId
+// ============================================================
+const mergeCart = async (userId: string, guestId: string | undefined) => {
+  if (!guestId) {
+    console.log('ℹ️ Нет guestId, корзина не переносится');
+    return;
+  }
 
-    // Если нет guestId и нет userId - ошибка
-    if (!userId && !guestId) {
-      return res.status(400).json({ error: 'Необходим userId или guestId' });
+  try {
+    console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
+
+    // Находим корзину гостя
+    const guestCart = await prisma.cart.findUnique({
+      where: { guestId: guestId },
+    });
+
+    if (!guestCart || !guestCart.items || (guestCart.items as any[]).length === 0) {
+      console.log('ℹ️ Корзина гостя пуста');
+      return;
+    }
+
+    const guestItems = guestCart.items as any[];
+    console.log(`📦 Товаров в гостевой корзине: ${guestItems.length}`);
+
+    // Находим корзину пользователя
+    let userCart = await prisma.cart.findUnique({
+      where: { userId: userId },
+    });
+
+    if (userCart) {
+      // Объединяем корзины
+      const userItems = userCart.items as any[];
+      const mergedItems = [...userItems];
+      
+      for (const guestItem of guestItems) {
+        const existingIndex = mergedItems.findIndex(
+          (item) => String(item.productId) === String(guestItem.productId)
+        );
+        
+        if (existingIndex !== -1) {
+          mergedItems[existingIndex].quantity += guestItem.quantity;
+          console.log(`🔄 Обновлено количество: ${guestItem.name} -> ${mergedItems[existingIndex].quantity}`);
+        } else {
+          mergedItems.push(guestItem);
+          console.log(`➕ Добавлен товар: ${guestItem.name}`);
+        }
+      }
+      
+      await prisma.cart.update({
+        where: { userId: userId },
+        data: { items: mergedItems },
+      });
+      console.log(`✅ Корзина пользователя обновлена, ${mergedItems.length} товаров`);
+    } else {
+      // Создаём корзину пользователя с товарами гостя
+      await prisma.cart.create({
+        data: {
+          userId: userId,
+          items: guestItems,
+        },
+      });
+      console.log(`✅ Создана корзина пользователя, ${guestItems.length} товаров`);
+    }
+
+    // Удаляем корзину гостя
+    await prisma.cart.delete({
+      where: { guestId: guestId },
+    });
+
+    console.log(`✅ Корзина успешно перенесена!`);
+  } catch (error) {
+    console.error('❌ Ошибка переноса корзины:', error);
+  }
+};
+
+// ============================================================
+// POST /api/orders — СОЗДАНИЕ ЗАКАЗА (ТОЛЬКО АВТОРИЗОВАННЫЕ)
+// ============================================================
+export const createOrderController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // ✅ ТОЛЬКО АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ
+    const userId = (req as any).user?.id;
+    const guestId = req.query.guestId as string || req.cookies?.guestId;
+    
+    if (!userId) {
+      console.log('❌ Пользователь не авторизован');
+      res.status(401).json({ error: 'Необходимо авторизоваться' });
+      return;
+    }
+
+    console.log('📝 Создание заказа для пользователя:', userId);
+    console.log('  guestId из запроса:', guestId);
+
+    // ✅ ЕСЛИ ЕСТЬ guestId — ПЕРЕНЕСИ КОРЗИНУ
+    if (guestId) {
+      await mergeCart(userId, guestId);
+      // Удаляем guestId cookie
+      res.clearCookie('guestId', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+      });
     }
 
     const {
       deliveryMethod,
       deliveryAddress,
       comment,
-      guestEmail,
-      guestPhone,
-      guestName,
-      city
+      client,
     } = req.body;
 
-    // 1. Получаем корзину (используем существующую функцию getCartWithTotal)
-    const cart = await getCartWithTotal(userId, guestId);
-    
-    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
-      return res.status(400).json({ error: 'Корзина пуста' });
+    if (!client) {
+      res.status(400).json({ error: 'Данные клиента обязательны' });
+      return;
     }
 
-    console.log('🛒 Cart found:', cart.items.length, 'items');
+    if (!client.phone) {
+      res.status(400).json({ error: 'Телефон клиента обязателен' });
+      return;
+    }
 
-    // 2. Формируем данные для CRM
-    const orderData = {
-      items: cart.items.map((item: any) => ({
-        productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
-        quantity: item.quantity,
-        price: item.price
-      })),
-      client: {
-        firstName: guestName || 'Гость',
-        lastName: '',
-        phone: guestPhone || '',
-        email: guestEmail || '',
-        city: city || '',
-        address: deliveryAddress || ''
-      },
-      deliveryMethod: deliveryMethod || 'pickup',
-      deliveryAddress: deliveryAddress || '',
-      comment: comment || '',
-      source: 'website'
-    };
+    // ===== ПОЛУЧАЕМ КОРЗИНУ =====
+    const cart = await getCartWithTotal(userId);
+    
+    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+      console.error('❌ Корзина пуста');
+      res.status(400).json({ error: 'Корзина пуста' });
+      return;
+    }
 
-    console.log('📤 Sending to CRM:', JSON.stringify(orderData, null, 2));
+    console.log('🛒 Корзина:', cart.items.length, 'товаров');
 
-    // 3. Создаём заказ в CRM
-    const crmResult = await createOrderInCRM(orderData);
+    // ===== СОЗДАЁМ ЗАКАЗ СО СТАТУСОМ PENDING =====
+    const total = cart.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    
+    const localOrder = await prisma.order.create({
+      data: {
+        userId: userId,
+        guestEmail: client.email || null,
+        guestPhone: client.phone || null,
+        guestName: client.firstName || null,
+        items: cart.items,
+        total,
+        status: 'pending',
+        deliveryMethod: deliveryMethod || 'pickup',
+        deliveryAddress: deliveryAddress || null,
+        comment: comment || null,
+      }
+    });
 
-    // 4. Сохраняем локальный заказ (для истории на сайте)
-    const localOrder = await createLocalOrder(
-      userId, 
-      guestId, 
-      cart.items, 
-      { ...orderData, client: { ...orderData.client, email: guestEmail } }
-    );
+    console.log('✅ Локальный заказ создан (pending):', localOrder.id);
 
-    // 5. Очищаем корзину
-    await clearCart(cart.id);
-
-    // 6. Возвращаем результат
     res.status(201).json({
       success: true,
       order: {
         id: localOrder.id,
-        crmOrderId: crmResult.orderId,
-        documentNumber: crmResult.documentNumber,
-        total: crmResult.total,
-        status: 'paid'
+        total: localOrder.total,
+        status: localOrder.status,
       },
-      message: 'Заказ успешно создан'
+      message: 'Заказ создан, ожидает оплаты'
     });
 
   } catch (error: any) {
-    console.error('❌ Order creation error:', error);
+    console.error('❌ Ошибка создания заказа:', error);
     res.status(400).json({ 
       error: error.message || 'Ошибка создания заказа' 
     });
   }
 };
 
-/**
- * GET /api/orders/:id
- * Получение заказа
- */
-export const getOrderController = async (req: Request, res: Response) => {
+// ============================================================
+// GET /api/orders/:id — ПОЛУЧЕНИЕ ЗАКАЗА (ТОЛЬКО СВОЙ)
+// ============================================================
+export const getOrderController = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const userId = (req as any).user?.id;
 
+    if (!userId) {
+      res.status(401).json({ error: 'Не авторизован' });
+      return;
+    }
+
+    console.log(`📦 Запрос заказа ${id} для пользователя ${userId}`);
+
     const order = await prisma.order.findFirst({
       where: {
-        id,
-        ...(userId ? { userId } : {})
+        id: id,
+        userId: userId,
       }
     });
 
     if (!order) {
-      return res.status(404).json({ error: 'Заказ не найден' });
+      console.log(`❌ Заказ ${id} не найден для пользователя ${userId}`);
+      res.status(404).json({ error: 'Заказ не найден' });
+      return;
     }
 
+    console.log(`✅ Заказ ${id} найден`);
     res.json({ order });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('❌ Ошибка получения заказа:', error);
+    res.status(500).json({ error: error.message || 'Ошибка получения заказа' });
   }
 };
 
-/**
- * GET /api/orders/status/:crmOrderId
- * Получение статуса заказа из CRM
- */
-export const getOrderStatusFromCRMController = async (req: Request, res: Response) => {
+// ============================================================
+// GET /api/orders — ВСЕ ЗАКАЗЫ ПОЛЬЗОВАТЕЛЯ
+// ============================================================
+export const getUserOrdersController = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { crmOrderId } = req.params;
     const userId = (req as any).user?.id;
 
-    // Проверяем, что заказ принадлежит пользователю
-    const localOrder = await prisma.order.findFirst({
-      where: {
-        crmOrderId,
-        ...(userId ? { userId } : {})
-      }
-    });
-
-    if (!localOrder) {
-      return res.status(404).json({ error: 'Заказ не найден' });
+    if (!userId) {
+      res.status(401).json({ error: 'Не авторизован' });
+      return;
     }
 
-    // Получаем статус из CRM
-    const status = await getOrderStatusFromCRM(parseInt(crmOrderId));
-    
-    res.json({ 
-      orderId: localOrder.id,
-      crmOrderId,
-      status: status.orderStatus || 'ordered'
+    console.log(`📋 Получение заказов пользователя ${userId}`);
+
+    const orders = await prisma.order.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
     });
+
+    console.log(`✅ Найдено ${orders.length} заказов`);
+    res.json({ orders });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('❌ Ошибка получения заказов:', error);
+    res.status(500).json({ error: error.message || 'Ошибка получения заказов' });
   }
 };

@@ -16,36 +16,36 @@
   }
 
   body {
-    background: #0a0a0a;
-    color: #ffffff;
+    background: #ffffff;
+    color: #000000;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
   }
 
-  /* ВЕСЬ ТЕКСТ — БЕЛЫЙ */
+  /* ВЕСЬ ТЕКСТ — ЧЁРНЫЙ */
   h1, h2, h3, h4, h5, h6, p, span, a, li, div {
-    color: #ffffff;
+    color: #000000;
   }
 
   ::selection {
-    background: rgba(255, 255, 255, 0.15);
-    color: #ffffff;
+    background: rgba(0, 0, 0, 0.1);
+    color: #000000;
   }
 
   ::-webkit-scrollbar {
     width: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #141414;
+    background: #f0f0f0;
   }
   ::-webkit-scrollbar-thumb {
-    background: #333;
+    background: #cccccc;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: #999999;
   }
 }
 
@@ -56,8 +56,20 @@
     padding: 0 30px;
   }
 
-  .text-white-soft {
-    color: #ffffff;
+  .text-graphite {
+    color: #555555;
+  }
+
+  .border-graphite {
+    border-color: #e0e0e0;
+  }
+
+  .bg-graphite-light {
+    background: #f5f5f5;
+  }
+
+  .bg-graphite-dark {
+    background: #333333;
   }
 
   @media (max-width: 768px) {
