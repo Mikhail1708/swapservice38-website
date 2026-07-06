@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -16,7 +16,13 @@ import {
   Truck,
   Clock,
   X,
-  CheckCircle2
+  CheckCircle2,
+  MapPin,
+  Search,
+  Phone,
+  AlertCircle,
+  Building,
+  Home
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -30,61 +36,83 @@ interface CartItem {
 }
 
 // ============================================================
-// ФУНКЦИЯ ОЧИСТКИ ТЕЛЕФОНА
+// ЖЁСТКАЯ ВАЛИДАЦИЯ ТЕЛЕФОНА
 // ============================================================
+const validatePhoneStrict = (phone: string): { valid: boolean; error: string; formatted: string } => {
+  const digits = phone.replace(/\D/g, '');
+  
+  if (!digits) {
+    return { valid: false, error: 'Введите номер телефона', formatted: '' };
+  }
+  
+  if (digits.length < 10) {
+    return { valid: false, error: `Нужно ещё ${10 - digits.length} цифр`, formatted: '' };
+  }
+  
+  if (digits.length > 11) {
+    return { valid: false, error: 'Номер слишком длинный (максимум 11 цифр)', formatted: '' };
+  }
+  
+  let formatted = '';
+  let normalized = digits;
+  
+  if (digits.length === 10 && !['7', '8', '9'].includes(digits[0])) {
+    normalized = '7' + digits;
+  }
+  
+  if (digits.length === 11 && digits[0] === '8') {
+    normalized = '7' + digits.slice(1);
+  }
+  
+  if (digits.length === 11 && digits[0] === '9') {
+    normalized = '7' + digits;
+  }
+  
+  if (digits.length === 10 && (digits[0] === '7' || digits[0] === '9')) {
+    normalized = '7' + digits;
+  }
+  
+  if (normalized.length !== 11 || normalized[0] !== '7') {
+    if (normalized.length === 10) {
+      normalized = '7' + normalized;
+    } else if (normalized.length === 12) {
+      normalized = normalized.slice(0, 11);
+    } else {
+      return { valid: false, error: 'Неверный формат номера', formatted: '' };
+    }
+  }
+  
+  formatted = `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)}-${normalized.slice(7, 9)}-${normalized.slice(9, 11)}`;
+  
+  return { valid: true, error: '', formatted };
+};
+
 const cleanPhone = (phone: string): string => {
   if (!phone) return '';
-  
-  // Удаляем все кроме цифр
-  let cleaned = phone.replace(/\D/g, '');
-  
-  // Если номер начинается с 8, заменяем на 7
-  if (cleaned.startsWith('8') && cleaned.length === 11) {
-    cleaned = '7' + cleaned.substring(1);
-  }
-  
-  // Если номер начинается с 7 и длина 11 цифр
-  if (cleaned.startsWith('7') && cleaned.length === 11) {
-    return '+' + cleaned;
-  }
-  
-  // Если номер начинается с 7 и длина 10 цифр
-  if (cleaned.startsWith('7') && cleaned.length === 10) {
-    return '+' + cleaned;
-  }
-  
-  // Если номер из 10 цифр без кода страны
-  if (cleaned.length === 10) {
-    return '+7' + cleaned;
-  }
-  
-  // Если номер из 11 цифр без +
-  if (cleaned.length === 11) {
-    return '+' + cleaned;
-  }
-  
-  // Если уже есть + или другой формат
-  if (phone.startsWith('+')) {
-    return phone;
-  }
-  
-  // Возвращаем как есть
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '7') return '+' + digits;
+  if (digits.length === 10) return '+7' + digits;
+  if (digits.length === 11 && digits[0] === '8') return '+7' + digits.slice(1);
   return phone;
 };
 
-// ============================================================
-// ФУНКЦИЯ ФОРМАТИРОВАНИЯ ТЕЛЕФОНА ПРИ ВВОДЕ
-// ============================================================
 const formatPhoneInput = (value: string): string => {
   const digits = value.replace(/\D/g, '');
-  
   if (digits.length === 0) return '';
   
   let formatted = '';
+  let rest = digits;
   
-  if (digits.startsWith('7') || digits.startsWith('8')) {
+  if (digits.startsWith('7') || digits.startsWith('8') || digits.startsWith('9')) {
     formatted = '+7';
-    const rest = digits.slice(1);
+    if (digits.startsWith('8')) {
+      rest = digits.slice(1);
+    } else if (digits.startsWith('7')) {
+      rest = digits.slice(1);
+    } else {
+      formatted = '+7';
+      rest = digits;
+    }
     
     if (rest.length > 0) {
       formatted += ' (' + rest.slice(0, 3);
@@ -105,6 +133,413 @@ const formatPhoneInput = (value: string): string => {
   return formatted;
 };
 
+// ============================================================
+// ПОИСК АДРЕСОВ ЧЕРЕЗ DADATA
+// ============================================================
+interface Suggestion {
+  value: string;
+  city: string;
+  street: string;
+  house: string;
+  postal_code?: string;
+  coordinates?: { lat: number; lon: number };
+}
+
+// ✅ ПОИСК ГОРОДОВ (ТОЛЬКО ГОРОДА)
+const searchCities = async (query: string): Promise<Suggestion[]> => {
+  if (!query || query.length < 2) return [];
+  
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_DADATA_API_KEY || '';
+    const response = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Token ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: query,
+        count: 10,
+        from_bound: { value: 'city' },
+        to_bound: { value: 'city' },
+      }),
+    });
+
+    if (!response.ok) throw new Error('DaData API error');
+    
+    const data = await response.json();
+    
+    return data.suggestions.map((s: any) => ({
+      value: s.value,
+      city: s.value,
+      street: '',
+      house: '',
+      postal_code: s.data?.postal_code,
+    }));
+  } catch (error) {
+    console.warn('DaData API error (cities):', error);
+    return [];
+  }
+};
+
+// ✅ ПОИСК АДРЕСОВ (С УЧЁТОМ ГОРОДА)
+const searchAddresses = async (query: string, city?: string): Promise<Suggestion[]> => {
+  if (!query || query.length < 2) return [];
+  
+  // Если есть город — ищем в нём
+  const searchQuery = city ? `${city}, ${query}` : query;
+  
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_DADATA_API_KEY || '';
+    const response = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Token ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: searchQuery,
+        count: 10,
+        from_bound: { value: 'street' },
+        to_bound: { value: 'house' },
+      }),
+    });
+
+    if (!response.ok) throw new Error('DaData API error');
+    
+    const data = await response.json();
+    
+    return data.suggestions.map((s: any) => ({
+      value: s.value,
+      city: s.data?.city || s.data?.settlement || '',
+      street: s.data?.street || '',
+      house: s.data?.house || '',
+      postal_code: s.data?.postal_code,
+      coordinates: s.data?.geo_lat && s.data?.geo_lon 
+        ? { lat: parseFloat(s.data.geo_lat), lon: parseFloat(s.data.geo_lon) }
+        : undefined,
+    }));
+  } catch (error) {
+    console.warn('DaData API error (addresses):', error);
+    return [];
+  }
+};
+
+// ============================================================
+// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ ГОРОДА
+// ============================================================
+function CityAutocomplete({ 
+  value, 
+  onChange, 
+  onBlur,
+  error,
+  touched,
+}: { 
+  value: string; 
+  onChange: (val: string) => void; 
+  onBlur: () => void;
+  error?: string;
+  touched?: boolean;
+}) {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (value.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setIsLoading(true);
+      try {
+        const results = await searchCities(value);
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (error) {
+        console.error('Error searching cities:', error);
+        setSuggestions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [value]);
+
+  const handleInputChange = (val: string) => {
+    onChange(val);
+    if (val.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSelectSuggestion = (suggestion: Suggestion) => {
+    onChange(suggestion.value);
+    setShowSuggestions(false);
+    if (inputRef.current) {
+      inputRef.current.blur();
+    }
+  };
+
+  const getFieldStatus = () => {
+    if (!touched) return 'idle';
+    if (error) return 'error';
+    if (value && value.length > 1) return 'success';
+    return 'idle';
+  };
+
+  const status = getFieldStatus();
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={(e) => handleInputChange(e.target.value)}
+          onFocus={() => {
+            if (value.length > 1 && suggestions.length > 0) {
+              setShowSuggestions(true);
+            }
+          }}
+          onBlur={() => {
+            onBlur();
+            setTimeout(() => setShowSuggestions(false), 300);
+          }}
+          className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+            status === 'error' 
+              ? 'border-red-400 ring-red-100' 
+              : status === 'success'
+              ? 'border-green-400 ring-green-100'
+              : 'border-gray-200 focus:ring-black/10'
+          }`}
+          placeholder="Иркутск"
+          autoComplete="off"
+        />
+        {isLoading && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+        )}
+        {!isLoading && value && status === 'success' && (
+          <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+        )}
+      </div>
+      {showSuggestions && suggestions.length > 0 && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+          {suggestions.map((suggestion, index) => (
+            <button
+              key={index}
+              onClick={() => handleSelectSuggestion(suggestion)}
+              className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition flex items-center gap-2 border-b border-gray-50 last:border-0"
+            >
+              <MapPin className="w-3 h-3 text-gray-400" />
+              <span className="text-black">{suggestion.value}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {error && touched && (
+        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ АДРЕСА (С УЧЁТОМ ГОРОДА)
+// ============================================================
+function AddressAutocomplete({ 
+  value, 
+  city,
+  onChange, 
+  onBlur,
+  error,
+  touched,
+  placeholder = 'Начните вводить адрес...',
+}: { 
+  value: string; 
+  city: string;
+  onChange: (val: string, suggestion?: Suggestion) => void; 
+  onBlur: () => void;
+  error?: string;
+  touched?: boolean;
+  placeholder?: string;
+}) {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (value.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setIsLoading(true);
+      try {
+        const results = await searchAddresses(value, city);
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (error) {
+        console.error('Error searching addresses:', error);
+        setSuggestions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [value, city]);
+
+  const handleInputChange = (val: string) => {
+    onChange(val);
+    if (val.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSelectSuggestion = (suggestion: Suggestion) => {
+    // Если выбран адрес — автоматически заполняем город
+    if (suggestion.city && !city) {
+      // Город обновится через onChange в родителе
+    }
+    onChange(suggestion.value, suggestion);
+    setShowSuggestions(false);
+    if (inputRef.current) {
+      inputRef.current.blur();
+    }
+  };
+
+  const getFieldStatus = () => {
+    if (!touched) return 'idle';
+    if (error) return 'error';
+    if (value && value.length > 1) return 'success';
+    return 'idle';
+  };
+
+  const status = getFieldStatus();
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={(e) => handleInputChange(e.target.value)}
+          onFocus={() => {
+            if (value.length > 1 && suggestions.length > 0) {
+              setShowSuggestions(true);
+            }
+          }}
+          onBlur={() => {
+            onBlur();
+            setTimeout(() => setShowSuggestions(false), 300);
+          }}
+          className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+            status === 'error' 
+              ? 'border-red-400 ring-red-100' 
+              : status === 'success'
+              ? 'border-green-400 ring-green-100'
+              : 'border-gray-200 focus:ring-black/10'
+          }`}
+          placeholder={placeholder}
+          autoComplete="off"
+        />
+        {isLoading && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+        )}
+        {!isLoading && value && status === 'success' && (
+          <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+        )}
+      </div>
+      {showSuggestions && suggestions.length > 0 && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+          {suggestions.map((suggestion, index) => (
+            <button
+              key={index}
+              onClick={() => handleSelectSuggestion(suggestion)}
+              className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition flex flex-col border-b border-gray-50 last:border-0"
+            >
+              <span className="text-black font-medium">{suggestion.value}</span>
+              <span className="text-xs text-gray-400 mt-0.5">
+                {suggestion.city && <span>🏙️ {suggestion.city}</span>}
+                {suggestion.street && <span>📍 {suggestion.street}</span>}
+                {suggestion.house && <span>🏠 д. {suggestion.house}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {error && touched && (
+        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ОСНОВНАЯ СТРАНИЦА
+// ============================================================
 export default function CartPage() {
   const { cart, isLoading, updateQuantity, clearCart } = useCart();
   const { user } = useAuth();
@@ -124,11 +559,9 @@ export default function CartPage() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Безопасное получение items
   const items = cart?.items || [];
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
 
-  // Автозаполнение из профиля
   useEffect(() => {
     if (user) {
       setFormData(prev => ({
@@ -165,9 +598,8 @@ export default function CartPage() {
         return '';
       case 'phone':
         if (!value.trim()) return 'Укажите телефон';
-        const cleaned = cleanPhone(value).replace(/\D/g, '');
-        if (cleaned.length < 10) return 'Введите полный номер телефона (10 цифр)';
-        if (cleaned.length > 11) return 'Номер телефона слишком длинный';
+        const result = validatePhoneStrict(value);
+        if (!result.valid) return result.error;
         return '';
       case 'email':
         if (!value.trim()) return 'Укажите email';
@@ -188,11 +620,21 @@ export default function CartPage() {
     }
   };
 
-  const handleFieldChange = (field: string, value: string) => {
+  const handleFieldChange = (field: string, value: string, suggestion?: Suggestion) => {
     let formattedValue = value;
     
     if (field === 'phone') {
       formattedValue = formatPhoneInput(value);
+    }
+    
+    // Если есть предложение от геокодера — обновляем город автоматически
+    if (field === 'address' && suggestion && suggestion.city) {
+      setFormData(prev => ({
+        ...prev,
+        address: formattedValue,
+        city: suggestion.city || prev.city,
+      }));
+      return;
     }
     
     setFormData(prev => ({ ...prev, [field]: formattedValue }));
@@ -224,7 +666,6 @@ export default function CartPage() {
 
   const handleClearCart = async () => {
     if (!confirm('Вы уверены, что хотите очистить корзину?')) return;
-    
     try {
       await clearCart();
     } catch (error) {
@@ -234,6 +675,12 @@ export default function CartPage() {
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!user) {
+      setOrderError('Для оформления заказа необходимо авторизоваться');
+      router.push('/login?redirect=/cart');
+      return;
+    }
     
     if (!validateForm()) return;
     if (items.length === 0) {
@@ -342,10 +789,39 @@ export default function CartPage() {
     );
   }
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-white pt-32 pb-20">
+        <div className="container-custom max-w-4xl">
+          <div className="text-center py-16">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-10 h-10 text-gray-300" />
+            </div>
+            <h2 className="text-2xl font-bold text-black">Требуется авторизация</h2>
+            <p className="text-gray-400 mt-2">Для оформления заказа необходимо войти в аккаунт</p>
+            <div className="flex flex-wrap justify-center gap-4 mt-6">
+              <Link 
+                href="/login?redirect=/cart" 
+                className="px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
+              >
+                Войти
+              </Link>
+              <Link 
+                href="/register?redirect=/cart" 
+                className="px-8 py-3 border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-100 transition"
+              >
+                Зарегистрироваться
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pt-32 pb-20">
       <div className="container-custom max-w-7xl">
-        {/* Заголовок */}
         <div className="flex items-center gap-4 mb-8">
           <Link href="/catalog" className="text-gray-400 hover:text-black transition p-2 hover:bg-gray-100 rounded-xl">
             <ArrowLeft className="w-5 h-5" />
@@ -364,7 +840,6 @@ export default function CartPage() {
         )}
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Товары в корзине */}
           <div className="lg:col-span-2 space-y-4">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
               {items.map((item: CartItem, index: number) => (
@@ -376,11 +851,11 @@ export default function CartPage() {
                 >
                   <div className="w-24 h-24 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0">
                     <Image
-                      src={item.image || '/images/placeholder.svg'}
+                      src={item.image || '/images/logo/logo.png'}
                       alt={item.name || 'Товар'}
                       width={96}
                       height={96}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain p-2"
                       unoptimized
                     />
                   </div>
@@ -440,7 +915,6 @@ export default function CartPage() {
               Очистить корзину
             </button>
 
-            {/* Преимущества */}
             <div className="grid grid-cols-3 gap-4 mt-6">
               <div className="bg-white rounded-xl p-4 text-center border border-gray-100">
                 <ShieldCheck className="w-6 h-6 text-black mx-auto mb-2" />
@@ -457,7 +931,6 @@ export default function CartPage() {
             </div>
           </div>
 
-          {/* Форма оформления */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-32">
               <h2 className="text-xl font-bold text-black mb-6 flex items-center gap-2">
@@ -523,25 +996,35 @@ export default function CartPage() {
                   <label className="block text-sm text-gray-600 font-medium mb-1.5">
                     Телефон <span className="text-red-400">*</span>
                   </label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => handleFieldChange('phone', e.target.value)}
-                    onBlur={() => handleFieldBlur('phone')}
-                    className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                      getFieldStatus('phone') === 'error' 
-                        ? 'border-red-400 ring-red-100' 
-                        : getFieldStatus('phone') === 'success'
-                        ? 'border-green-400 ring-green-100'
-                        : 'border-gray-200 focus:ring-black/10'
-                    }`}
-                    placeholder="+7 (999) 999-99-99"
-                  />
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => handleFieldChange('phone', e.target.value)}
+                      onBlur={() => handleFieldBlur('phone')}
+                      className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                        getFieldStatus('phone') === 'error' 
+                          ? 'border-red-400 ring-red-100' 
+                          : getFieldStatus('phone') === 'success'
+                          ? 'border-green-400 ring-green-100'
+                          : 'border-gray-200 focus:ring-black/10'
+                      }`}
+                      placeholder="+7 (999) 999-99-99"
+                      maxLength={18}
+                    />
+                    {formData.phone && getFieldStatus('phone') === 'success' && (
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                    )}
+                  </div>
                   {formErrors.phone && (
                     <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                       <X className="w-3 h-3" />
                       {formErrors.phone}
                     </p>
+                  )}
+                  {!formErrors.phone && formData.phone && getFieldStatus('phone') === 'success' && (
+                    <p className="text-xs text-green-500 mt-1">✅ Номер корректен</p>
                   )}
                 </div>
 
@@ -571,56 +1054,34 @@ export default function CartPage() {
                   )}
                 </div>
 
+                {/* ✅ ГОРОД — АВТОДОПОЛНЕНИЕ ОТ DADATA */}
                 <div>
                   <label className="block text-sm text-gray-600 font-medium mb-1.5">
                     Город <span className="text-red-400">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <CityAutocomplete
                     value={formData.city}
-                    onChange={(e) => handleFieldChange('city', e.target.value)}
+                    onChange={(val) => handleFieldChange('city', val)}
                     onBlur={() => handleFieldBlur('city')}
-                    className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                      getFieldStatus('city') === 'error' 
-                        ? 'border-red-400 ring-red-100' 
-                        : getFieldStatus('city') === 'success'
-                        ? 'border-green-400 ring-green-100'
-                        : 'border-gray-200 focus:ring-black/10'
-                    }`}
-                    placeholder="Иркутск"
+                    error={formErrors.city}
+                    touched={touched.city}
                   />
-                  {formErrors.city && (
-                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                      <X className="w-3 h-3" />
-                      {formErrors.city}
-                    </p>
-                  )}
                 </div>
 
+                {/* ✅ АДРЕС — АВТОДОПОЛНЕНИЕ С УЧЁТОМ ГОРОДА */}
                 <div>
                   <label className="block text-sm text-gray-600 font-medium mb-1.5">
                     Адрес доставки <span className="text-red-400">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <AddressAutocomplete
                     value={formData.address}
-                    onChange={(e) => handleFieldChange('address', e.target.value)}
+                    city={formData.city}
+                    onChange={(val, suggestion) => handleFieldChange('address', val, suggestion)}
                     onBlur={() => handleFieldBlur('address')}
-                    className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                      getFieldStatus('address') === 'error' 
-                        ? 'border-red-400 ring-red-100' 
-                        : getFieldStatus('address') === 'success'
-                        ? 'border-green-400 ring-green-100'
-                        : 'border-gray-200 focus:ring-black/10'
-                    }`}
+                    error={formErrors.address}
+                    touched={touched.address}
                     placeholder="ул. Ленина, д. 1, кв. 1"
                   />
-                  {formErrors.address && (
-                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                      <X className="w-3 h-3" />
-                      {formErrors.address}
-                    </p>
-                  )}
                 </div>
 
                 <div>

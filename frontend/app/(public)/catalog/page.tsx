@@ -31,6 +31,18 @@ interface Product {
   reviews?: number;
 }
 
+// ✅ ЛОГО КАК ЗАГЛУШКА
+const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
+
+// ✅ ФУНКЦИЯ ПОЛУЧЕНИЯ КОРРЕКТНОГО URL ИЗОБРАЖЕНИЯ
+const getImageUrl = (images: string[] | undefined): string => {
+  if (!images || images.length === 0) return PLACEHOLDER_IMAGE;
+  
+  // Ищем первое непустое изображение
+  const firstImage = images.find(img => img && img.trim() !== '');
+  return firstImage || PLACEHOLDER_IMAGE;
+};
+
 export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,13 +146,6 @@ export default function CatalogPage() {
   const clearFilters = () => {
     setSearch('');
     setSelectedCategory('');
-  };
-
-  // Заглушка для фото
-  const getImageSrc = (url: string) => {
-    if (!url) return '/images/placeholder.jpg';
-    // Всегда используем заглушку, чтобы не было ошибок
-    return '/images/placeholder.jpg';
   };
 
   // Переключение страниц
@@ -367,19 +372,29 @@ function ProductCard({
   onImageError: (id: string | number) => void;
   hasImageError?: boolean;
 }) {
-  // Всегда используем заглушку
-  const imageSrc = '/images/placeholder.jpg';
+  // ✅ ПОЛУЧАЕМ ИЗОБРАЖЕНИЕ
+  const imageUrl = getImageUrl(product.images);
+  const [imgError, setImgError] = useState(false);
+  
+  // ✅ ЕСЛИ ЕСТЬ ОШИБКА — ПОКАЗЫВАЕМ ЛОГО
+  const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
 
   return (
     <div className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:border-gray-400 transition hover:shadow-lg flex flex-col">
-      <Link href={`/catalog/${product.id}`} className="block aspect-square bg-gray-100 relative overflow-hidden">
-        <Image
-          src={imageSrc}
-          alt={product.name}
-          fill
-          className="object-cover group-hover:scale-105 transition duration-500"
-          unoptimized
-        />
+      <Link href={`/catalog/${product.id}`} className="block aspect-square bg-gray-50 relative overflow-hidden">
+        <div className="relative w-full h-full">
+          <Image
+            src={finalImageUrl}
+            alt={product.name}
+            fill
+            className="object-contain p-4 group-hover:scale-105 transition duration-500"
+            onError={() => {
+              setImgError(true);
+              onImageError(product.id);
+            }}
+            unoptimized
+          />
+        </div>
         {!product.inStock && (
           <div className="absolute top-3 right-3 bg-red-500 text-white text-xs px-3 py-1 rounded-full font-medium">
             Нет в наличии

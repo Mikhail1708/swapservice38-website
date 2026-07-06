@@ -10,8 +10,8 @@ export default function Footer() {
             <Image 
               src="/images/logo/logo.png" 
               alt="SWAP SERVICE 38" 
-              width={160} 
-              height={40} 
+              width={500} 
+              height={500} 
               className="h-8 w-auto brightness-0"
             />
           </div>

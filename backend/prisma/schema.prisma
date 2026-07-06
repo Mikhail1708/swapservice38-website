@@ -7,6 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// ПОЛЬЗОВАТЕЛИ
+// ============================================================
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
@@ -20,15 +23,22 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // ===== OAuth поля =====
-  yandexId      String?  @unique  // ID пользователя в Яндексе
-  maxId         String?  @unique  // ID пользователя в MAX
+  // OAuth
+  yandexId      String?  @unique
+  maxId         String?  @unique
 
+  // Связи
   orders        Order[]
   appointments  Appointment[]
   sessions      Session[]
+  articles      Article[]
+  comments      Comment[]
+  likes         Like[]
 }
 
+// ============================================================
+// СЕССИИ
+// ============================================================
 model Session {
   id        String   @id @default(cuid())
   userId    String
@@ -38,16 +48,122 @@ model Session {
   createdAt DateTime @default(now())
 }
 
+// ============================================================
+// СТАТЬИ (ПОСТЫ)
+// ============================================================
+model Article {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?   // Краткое описание для карточки
+  content     String   // HTML контент статьи
+  imageUrl    String?   // Главное изображение
+  views       Int      @default(0)
+  likesCount  Int      @default(0)
+  readTime    Int?     // Время чтения в минутах
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Связи
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  tags        ArticleTagRelation[]
+  images      ArticleImage[]
+  comments    Comment[]
+  likes       Like[]
+}
+
+// ============================================================
+// ТЕГИ СТАТЕЙ
+// ============================================================
+model ArticleTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  articles  ArticleTagRelation[]
+}
+
+model ArticleTagRelation {
+  id         String   @id @default(cuid())
+  articleId  String
+  tagId      String
+  article    Article  @relation(fields: [articleId], references: [id])
+  tag        ArticleTag @relation(fields: [tagId], references: [id])
+
+  @@unique([articleId, tagId])
+}
+
+// ============================================================
+// ИЗОБРАЖЕНИЯ СТАТЕЙ (ГАЛЕРЕЯ)
+// ============================================================
+model ArticleImage {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id])
+  url       String
+  filename  String
+  size      Int?
+  sortOrder Int      @default(0)
+  isMain    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// КОММЕНТАРИИ (С ВЛОЖЕННОСТЬЮ)
+// ============================================================
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Связи
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id])
+  
+  // ✅ ВЛОЖЕННОСТЬ: parentId указывает на родительский комментарий
+  parentId  String?
+  parent    Comment? @relation("CommentHierarchy", fields: [parentId], references: [id])
+  
+  // ✅ ДОЧЕРНИЕ КОММЕНТАРИИ
+  replies   Comment[] @relation("CommentHierarchy")
+
+  likesCount Int     @default(0)
+  isHidden  Boolean  @default(false)
+}
+
+// ============================================================
+// ЛАЙКИ
+// ============================================================
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, articleId])
+}
+
+// ============================================================
+// ЗАКАЗЫ
+// ============================================================
 model Order {
   id             String   @id @default(cuid())
-  userId         String   // ✅ ОБЯЗАТЕЛЬНО (только авторизованные)
+  userId         String
   user           User     @relation(fields: [userId], references: [id])
   guestEmail     String?
   guestPhone     String?
   guestName      String?
   items          Json
   total          Float
-  status         String   @default("pending") // pending | paid | cancelled
+  status         String   @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled
   deliveryMethod String
   deliveryAddress String?
   comment        String?
@@ -58,20 +174,28 @@ model Order {
   updatedAt      DateTime @updatedAt
 }
 
+// ============================================================
+// ЗАПИСИ НА РЕМОНТ
+// ============================================================
 model Appointment {
   id           String   @id @default(cuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id])
   serviceId    String
-  carInfo      String?
+  service      Service  @relation(fields: [serviceId], references: [id])
+  carInfo      String?  // Марка, модель, год, госномер
   dateTime     DateTime
-  status       String   @default("pending")
+  status       String   @default("pending") // pending | confirmed | in_progress | completed | cancelled
   assignedTo   String?
   crmAppointmentId String?
+  comment      String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
+// ============================================================
+// НОВОСТИ (для главной)
+// ============================================================
 model News {
   id          String   @id @default(cuid())
   title       String
@@ -83,6 +207,9 @@ model News {
   updatedAt   DateTime @updatedAt
 }
 
+// ============================================================
+// УСЛУГИ
+// ============================================================
 model Service {
   id          String   @id @default(cuid())
   name        String
@@ -92,8 +219,13 @@ model Service {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
 }
 
+// ============================================================
+// КОРЗИНА
+// ============================================================
 model Cart {
   id        String   @id @default(cuid())
   userId    String?

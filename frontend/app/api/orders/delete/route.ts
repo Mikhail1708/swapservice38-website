@@ -1,14 +1,14 @@
-// frontend/app/api/orders/details/route.ts
+// frontend/app/api/orders/delete/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001';
 
-export async function GET(request: NextRequest) {
+export async function DELETE(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');
 
-    console.log(`📦 API route: Получение заказа по ID: ${id}`);
+    console.log(`🗑️ DELETE /api/orders/delete?id=${id}`);
 
     if (!id) {
       return NextResponse.json(
@@ -19,8 +19,6 @@ export async function GET(request: NextRequest) {
 
     const token = request.cookies.get('token')?.value;
 
-    console.log(`  Token: ${token ? 'есть' : 'нет'}`);
-
     if (!token) {
       return NextResponse.json(
         { error: 'Не авторизован' },
@@ -28,11 +26,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const url = `${BACKEND_URL}/api/orders/${id}`;
-    console.log(`📤 URL: ${url}`);
-
-    const response = await fetch(url, {
-      method: 'GET',
+    const response = await fetch(`${BACKEND_URL}/api/orders/${id}`, {
+      method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
@@ -40,33 +35,19 @@ export async function GET(request: NextRequest) {
       credentials: 'include',
     });
 
-    const text = await response.text();
-    console.log(`📦 Статус: ${response.status}`);
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.error('❌ Ответ не JSON:', text.substring(0, 200));
-      return NextResponse.json(
-        { error: 'Ошибка сервера' },
-        { status: 500 }
-      );
-    }
+    const data = await response.json();
 
     if (!response.ok) {
-      console.error(`❌ Ошибка: ${response.status}`, data);
       return NextResponse.json(
-        { error: data.error || 'Заказ не найден' },
+        { error: data.error || 'Ошибка удаления заказа' },
         { status: response.status }
       );
     }
 
-    console.log('✅ Заказ получен');
     return NextResponse.json(data);
 
   } catch (error: any) {
-    console.error('❌ Ошибка:', error);
+    console.error('❌ Ошибка DELETE:', error);
     return NextResponse.json(
       { error: error.message || 'Внутренняя ошибка' },
       { status: 500 }
