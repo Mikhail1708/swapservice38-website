@@ -9,6 +9,7 @@ import productRoutes from './routes/product.routes';
 import cartRoutes from './routes/cart.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
+import webhookRoutes from './routes/webhook.routes';
 
 dotenv.config();
 
@@ -75,6 +76,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // ============================================================
 // 5. HEALTH CHECK
@@ -85,6 +87,10 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'development'
   });
+});
+
+app.get('/api/webhooks/health', (req, res) => {
+  res.json({ status: 'ok', service: 'webhook-receiver' });
 });
 
 // ============================================================

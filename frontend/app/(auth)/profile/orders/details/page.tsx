@@ -414,19 +414,6 @@ export default function OrderDetailPage() {
 
           <div className="md:col-span-1 space-y-6">
             <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
-              <h2 className="font-medium text-black mb-4 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-gray-400" />
-                Доставка
-              </h2>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Способ:</span>
-                  <span className="font-medium">
-                    {order.deliveryMethod === 'pickup' ? 'Самовывоз' : 
-                     order.deliveryMethod === 'courier' ? 'Курьером' : 
-                     order.deliveryMethod === 'post' ? 'Почта России' : order.deliveryMethod || 'Не указан'}
-                  </span>
-                </div>
                 {order.deliveryAddress && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Адрес:</span>
@@ -481,6 +468,5 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

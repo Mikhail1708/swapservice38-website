@@ -57,7 +57,8 @@ export default function CatalogPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   
-  const { addToCart } = useCart();
+  // ✅ ДОБАВЛЯЕМ refetch ДЛЯ ОБНОВЛЕНИЯ КОРЗИНЫ В ХЕДЕРЕ
+  const { addToCart, refetch } = useCart();
   const ITEMS_PER_PAGE = 16;
 
   // Уникальные категории
@@ -120,6 +121,7 @@ export default function CatalogPage() {
     setCurrentPage(1);
   }, [selectedCategory, search]);
 
+  // ✅ ОБНОВЛЕННЫЙ ОБРАБОТЧИК ДОБАВЛЕНИЯ В КОРЗИНУ
   const handleAddToCart = async (productId: string | number) => {
     const id = String(productId);
     setAddingToCart(id);
@@ -128,7 +130,9 @@ export default function CatalogPage() {
     try {
       const result = await addToCart(id, 1);
       if (result) {
-        console.log('✅ Товар добавлен в корзину');
+        // ✅ ОБНОВЛЯЕМ КОРЗИНУ В ХЕДЕРЕ
+        await refetch();
+        console.log('✅ Товар добавлен в корзину, корзина обновлена');
       } else {
         console.error('❌ Не удалось добавить товар');
       }

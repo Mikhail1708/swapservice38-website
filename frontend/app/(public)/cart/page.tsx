@@ -145,8 +145,8 @@ interface Suggestion {
   coordinates?: { lat: number; lon: number };
 }
 
-// ✅ ПОИСК ГОРОДОВ (ТОЛЬКО ГОРОДА)
-const searchCities = async (query: string): Promise<Suggestion[]> => {
+// ✅ ПОИСК АДРЕСОВ (ПОЛНЫЙ АДРЕС)
+const searchAddresses = async (query: string): Promise<Suggestion[]> => {
   if (!query || query.length < 2) return [];
   
   try {
@@ -160,47 +160,6 @@ const searchCities = async (query: string): Promise<Suggestion[]> => {
       },
       body: JSON.stringify({
         query: query,
-        count: 10,
-        from_bound: { value: 'city' },
-        to_bound: { value: 'city' },
-      }),
-    });
-
-    if (!response.ok) throw new Error('DaData API error');
-    
-    const data = await response.json();
-    
-    return data.suggestions.map((s: any) => ({
-      value: s.value,
-      city: s.value,
-      street: '',
-      house: '',
-      postal_code: s.data?.postal_code,
-    }));
-  } catch (error) {
-    console.warn('DaData API error (cities):', error);
-    return [];
-  }
-};
-
-// ✅ ПОИСК АДРЕСОВ (С УЧЁТОМ ГОРОДА)
-const searchAddresses = async (query: string, city?: string): Promise<Suggestion[]> => {
-  if (!query || query.length < 2) return [];
-  
-  // Если есть город — ищем в нём
-  const searchQuery = city ? `${city}, ${query}` : query;
-  
-  try {
-    const apiKey = process.env.NEXT_PUBLIC_DADATA_API_KEY || '';
-    const response = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Token ${apiKey}`,
-      },
-      body: JSON.stringify({
-        query: searchQuery,
         count: 10,
         from_bound: { value: 'street' },
         to_bound: { value: 'house' },
@@ -228,160 +187,10 @@ const searchAddresses = async (query: string, city?: string): Promise<Suggestion
 };
 
 // ============================================================
-// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ ГОРОДА
-// ============================================================
-function CityAutocomplete({ 
-  value, 
-  onChange, 
-  onBlur,
-  error,
-  touched,
-}: { 
-  value: string; 
-  onChange: (val: string) => void; 
-  onBlur: () => void;
-  error?: string;
-  touched?: boolean;
-}) {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    if (value.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const results = await searchCities(value);
-        setSuggestions(results);
-        setShowSuggestions(results.length > 0);
-      } catch (error) {
-        console.error('Error searching cities:', error);
-        setSuggestions([]);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-    };
-  }, [value]);
-
-  const handleInputChange = (val: string) => {
-    onChange(val);
-    if (val.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
-  };
-
-  const handleSelectSuggestion = (suggestion: Suggestion) => {
-    onChange(suggestion.value);
-    setShowSuggestions(false);
-    if (inputRef.current) {
-      inputRef.current.blur();
-    }
-  };
-
-  const getFieldStatus = () => {
-    if (!touched) return 'idle';
-    if (error) return 'error';
-    if (value && value.length > 1) return 'success';
-    return 'idle';
-  };
-
-  const status = getFieldStatus();
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={value}
-          onChange={(e) => handleInputChange(e.target.value)}
-          onFocus={() => {
-            if (value.length > 1 && suggestions.length > 0) {
-              setShowSuggestions(true);
-            }
-          }}
-          onBlur={() => {
-            onBlur();
-            setTimeout(() => setShowSuggestions(false), 300);
-          }}
-          className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-            status === 'error' 
-              ? 'border-red-400 ring-red-100' 
-              : status === 'success'
-              ? 'border-green-400 ring-green-100'
-              : 'border-gray-200 focus:ring-black/10'
-          }`}
-          placeholder="Иркутск"
-          autoComplete="off"
-        />
-        {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
-        )}
-        {!isLoading && value && status === 'success' && (
-          <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
-        )}
-      </div>
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              onClick={() => handleSelectSuggestion(suggestion)}
-              className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition flex items-center gap-2 border-b border-gray-50 last:border-0"
-            >
-              <MapPin className="w-3 h-3 text-gray-400" />
-              <span className="text-black">{suggestion.value}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {error && touched && (
-        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
-// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ АДРЕСА (С УЧЁТОМ ГОРОДА)
+// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ АДРЕСА
 // ============================================================
 function AddressAutocomplete({ 
   value, 
-  city,
   onChange, 
   onBlur,
   error,
@@ -389,7 +198,6 @@ function AddressAutocomplete({
   placeholder = 'Начните вводить адрес...',
 }: { 
   value: string; 
-  city: string;
   onChange: (val: string, suggestion?: Suggestion) => void; 
   onBlur: () => void;
   error?: string;
@@ -427,7 +235,7 @@ function AddressAutocomplete({
     debounceRef.current = setTimeout(async () => {
       setIsLoading(true);
       try {
-        const results = await searchAddresses(value, city);
+        const results = await searchAddresses(value);
         setSuggestions(results);
         setShowSuggestions(results.length > 0);
       } catch (error) {
@@ -443,7 +251,7 @@ function AddressAutocomplete({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value, city]);
+  }, [value]);
 
   const handleInputChange = (val: string) => {
     onChange(val);
@@ -454,10 +262,6 @@ function AddressAutocomplete({
   };
 
   const handleSelectSuggestion = (suggestion: Suggestion) => {
-    // Если выбран адрес — автоматически заполняем город
-    if (suggestion.city && !city) {
-      // Город обновится через onChange в родителе
-    }
     onChange(suggestion.value, suggestion);
     setShowSuggestions(false);
     if (inputRef.current) {
@@ -551,7 +355,6 @@ export default function CartPage() {
     lastName: '',
     phone: '',
     email: '',
-    city: '',
     address: '',
     comment: '',
   });
@@ -607,10 +410,6 @@ export default function CartPage() {
           return 'Неверный формат email';
         }
         return '';
-      case 'city':
-        if (!value.trim()) return 'Укажите город';
-        if (value.trim().length < 2) return 'Город должен содержать минимум 2 символа';
-        return '';
       case 'address':
         if (!value.trim()) return 'Укажите адрес доставки';
         if (value.trim().length < 5) return 'Укажите полный адрес';
@@ -625,16 +424,6 @@ export default function CartPage() {
     
     if (field === 'phone') {
       formattedValue = formatPhoneInput(value);
-    }
-    
-    // Если есть предложение от геокодера — обновляем город автоматически
-    if (field === 'address' && suggestion && suggestion.city) {
-      setFormData(prev => ({
-        ...prev,
-        address: formattedValue,
-        city: suggestion.city || prev.city,
-      }));
-      return;
     }
     
     setFormData(prev => ({ ...prev, [field]: formattedValue }));
@@ -653,7 +442,7 @@ export default function CartPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    const fields = ['firstName', 'lastName', 'phone', 'email', 'city', 'address'] as const;
+    const fields = ['firstName', 'lastName', 'phone', 'email', 'address'] as const;
     
     fields.forEach(field => {
       const error = validateField(field, formData[field]);
@@ -700,7 +489,6 @@ export default function CartPage() {
           lastName: formData.lastName.trim(),
           phone: cleanedPhone,
           email: formData.email.trim(),
-          city: formData.city.trim(),
           address: formData.address.trim(),
         },
         items: items.map((item: CartItem) => ({
@@ -709,7 +497,7 @@ export default function CartPage() {
           price: item.price,
         })),
         deliveryMethod: 'courier',
-        deliveryAddress: `${formData.city.trim()}, ${formData.address.trim()}`,
+        deliveryAddress: formData.address.trim(),
         comment: formData.comment.trim(),
         source: 'website',
       };
@@ -1054,44 +842,32 @@ export default function CartPage() {
                   )}
                 </div>
 
-                {/* ✅ ГОРОД — АВТОДОПОЛНЕНИЕ ОТ DADATA */}
-                <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                    Город <span className="text-red-400">*</span>
-                  </label>
-                  <CityAutocomplete
-                    value={formData.city}
-                    onChange={(val) => handleFieldChange('city', val)}
-                    onBlur={() => handleFieldBlur('city')}
-                    error={formErrors.city}
-                    touched={touched.city}
-                  />
-                </div>
-
-                {/* ✅ АДРЕС — АВТОДОПОЛНЕНИЕ С УЧЁТОМ ГОРОДА */}
+                {/* ✅ АДРЕС ДОСТАВКИ — АВТОДОПОЛНЕНИЕ ОТ DADATA */}
                 <div>
                   <label className="block text-sm text-gray-600 font-medium mb-1.5">
                     Адрес доставки <span className="text-red-400">*</span>
                   </label>
                   <AddressAutocomplete
                     value={formData.address}
-                    city={formData.city}
-                    onChange={(val, suggestion) => handleFieldChange('address', val, suggestion)}
+                    onChange={(val) => handleFieldChange('address', val)}
                     onBlur={() => handleFieldBlur('address')}
                     error={formErrors.address}
                     touched={touched.address}
-                    placeholder="ул. Ленина, д. 1, кв. 1"
+                    placeholder="г. Иркутск, ул. Ленина, д. 1"
                   />
                 </div>
 
+                {/* ✅ КОММЕНТАРИЙ — "Как удобнее с вами связаться?" */}
                 <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">Комментарий</label>
+                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                    Как удобнее с вами связаться?
+                  </label>
                   <textarea
                     value={formData.comment}
                     onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition resize-none"
                     rows={2}
-                    placeholder="Дополнительная информация..."
+                    placeholder="Telegram, WhatsApp, Viber, звонок..."
                   />
                 </div>
 

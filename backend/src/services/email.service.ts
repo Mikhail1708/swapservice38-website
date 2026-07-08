@@ -258,7 +258,7 @@ export const sendOrderConfirmationToCustomer = async (data: OrderEmailData): Pro
     <body>
       <div class="container">
         <div class="header">
-          <div class="logo">🏎️ SWAP SERVICE <span>38</span></div>
+          <div class="logo">🏎️ SWAP SERVICE 38 <span></span></div>
           <p style="color: #666; margin: 5px 0 0; font-size: 14px;">Профессиональные свапы двигателей</p>
         </div>
 
@@ -340,7 +340,7 @@ export const sendOrderConfirmationToCustomer = async (data: OrderEmailData): Pro
           <div class="contacts">
             <p style="margin: 0 0 8px; font-weight: bold; font-size: 14px;">📞 Свяжитесь с нами</p>
             <p style="margin: 4px 0; font-size: 14px;">
-              <a href="tel:+79148955888">+7 (914) 895-58-88</a> &nbsp;|&nbsp;
+              <a href="tel:+79834460888">+7 (983) 446-08-88</a> &nbsp;|&nbsp;
               <a href="mailto:swapservice38@yandex.ru">swapservice38@yandex.ru</a>
             </p>
             <p style="margin: 4px 0; font-size: 13px; color: #666;">

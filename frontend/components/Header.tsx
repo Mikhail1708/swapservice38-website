@@ -65,8 +65,8 @@ export default function Header() {
           <Image 
             src="/images/logo/logo.png" 
             alt="SWAP SERVICE 38" 
-            width={200} 
-            height={50} 
+            width={300} 
+            height={300} 
             className="h-10 w-auto brightness-0"
             priority
           />
