@@ -1,17 +1,18 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { 
   Search, 
   Filter, 
   ShoppingCart, 
-  Star, 
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 
@@ -27,115 +28,145 @@ interface Product {
   stock?: number;
   images: string[];
   sku: string;
-  rating?: number;
-  reviews?: number;
+  characteristics?: Record<string, string | string[]>;
 }
 
-// ✅ ЛОГО КАК ЗАГЛУШКА
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
-// ✅ ФУНКЦИЯ ПОЛУЧЕНИЯ КОРРЕКТНОГО URL ИЗОБРАЖЕНИЯ
 const getImageUrl = (images: string[] | undefined): string => {
   if (!images || images.length === 0) return PLACEHOLDER_IMAGE;
-  
-  // Ищем первое непустое изображение
   const firstImage = images.find(img => img && img.trim() !== '');
   return firstImage || PLACEHOLDER_IMAGE;
 };
 
 export default function CatalogPage() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  const categoryFromUrl = searchParams.get('category') || '';
+  const pageFromUrl = parseInt(searchParams.get('page') || '1');
+  
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
   const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   
-  // Пагинация
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   
-  // ✅ ДОБАВЛЯЕМ refetch ДЛЯ ОБНОВЛЕНИЯ КОРЗИНЫ В ХЕДЕРЕ
   const { addToCart, refetch } = useCart();
   const ITEMS_PER_PAGE = 16;
 
-  // Уникальные категории
-  const categories = useMemo(() => {
-    const cats = new Set(products.map(p => p.category));
-    return Array.from(cats).filter(Boolean);
-  }, [products]);
-
-  // Фильтрация товаров
-  const filteredProducts = useMemo(() => {
-    return products.filter(product => {
-      const matchSearch = product.name.toLowerCase().includes(search.toLowerCase()) ||
-                          product.description?.toLowerCase().includes(search.toLowerCase()) ||
-                          product.sku?.toLowerCase().includes(search.toLowerCase());
-      const matchCategory = !selectedCategory || product.category === selectedCategory;
-      return matchSearch && matchCategory;
-    });
-  }, [products, search, selectedCategory]);
-
-  // Загрузка товаров
-  const fetchProducts = useCallback(async (page: number) => {
+  // ✅ ЗАГРУЗКА ТОВАРОВ
+  const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
-      
-      let url = `/api/products?page=${page}&limit=${ITEMS_PER_PAGE}`;
-      if (selectedCategory) url += `&category=${selectedCategory}`;
-      if (search) url += `&search=${encodeURIComponent(search)}`;
-      
-      const response = await fetch(url);
+      const response = await fetch('/api/products?limit=999');
       const data = await response.json();
       
-      console.log(`📦 Страница ${page}: ${data.items?.length || 0} товаров из ${data.total}`);
-      
       if (data.items && data.items.length > 0) {
-        setProducts(data.items);
+        setAllProducts(data.items);
         setTotalItems(data.total || data.items.length);
-        setTotalPages(data.totalPages || Math.ceil((data.total || data.items.length) / ITEMS_PER_PAGE));
       } else {
-        setProducts([]);
+        setAllProducts([]);
         setTotalItems(0);
-        setTotalPages(1);
       }
     } catch (error) {
-      console.error('Error fetching products:', error);
-      setProducts([]);
+      console.error('❌ Ошибка загрузки:', error);
+      setAllProducts([]);
       setTotalItems(0);
-      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, search]);
+  }, []);
 
-  // Загрузка при смене страницы
   useEffect(() => {
-    fetchProducts(currentPage);
-  }, [currentPage, fetchProducts]);
+    fetchProducts();
+  }, [fetchProducts]);
 
-  // Сброс на первую страницу при смене фильтров
+  // ✅ ФИЛЬТРАЦИЯ (только по категории и поиску)
+  const filteredProducts = useMemo(() => {
+    let result = [...allProducts];
+    
+    if (selectedCategory) {
+      result = result.filter(p => p.category === selectedCategory);
+    }
+    
+    if (search) {
+      const searchLower = search.toLowerCase();
+      result = result.filter(p => 
+        p.name.toLowerCase().includes(searchLower) ||
+        p.description?.toLowerCase().includes(searchLower) ||
+        p.sku?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    return result;
+  }, [allProducts, selectedCategory, search]);
+
+  // ✅ УНИКАЛЬНЫЕ КАТЕГОРИИ
+  const categories = useMemo(() => {
+    const cats = new Set(allProducts.map(p => p.category));
+    return Array.from(cats).filter(Boolean);
+  }, [allProducts]);
+
+  // ✅ ПАГИНАЦИЯ
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredProducts.slice(start, end);
+  }, [filteredProducts, currentPage]);
+
+  // ✅ ОБНОВЛЕНИЕ СТРАНИЦ
   useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedCategory, search]);
+    const total = filteredProducts.length;
+    const pages = Math.ceil(total / ITEMS_PER_PAGE) || 1;
+    setTotalPages(pages);
+    
+    if (currentPage > pages) {
+      setCurrentPage(1);
+    }
+  }, [filteredProducts.length, currentPage]);
 
-  // ✅ ОБНОВЛЕННЫЙ ОБРАБОТЧИК ДОБАВЛЕНИЯ В КОРЗИНУ
+  // ✅ ОБНОВЛЕНИЕ URL (ТОЛЬКО ПРИ ИЗМЕНЕНИИ ФИЛЬТРОВ)
+  const updateUrl = useCallback(() => {
+    const params = new URLSearchParams();
+    if (selectedCategory) params.set('category', selectedCategory);
+    if (currentPage > 1) params.set('page', String(currentPage));
+    if (search) params.set('search', search);
+    
+    const queryString = params.toString();
+    const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
+    
+    // ✅ Используем push, чтобы не было бесконечного цикла
+    if (window.location.pathname + window.location.search !== newUrl) {
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [selectedCategory, currentPage, search]);
+
+  // ✅ Обновляем URL при изменении фильтров
+  useEffect(() => {
+    updateUrl();
+  }, [selectedCategory, currentPage, search, updateUrl]);
+
+  // ✅ СИНХРОНИЗАЦИЯ ИЗ URL
+  useEffect(() => {
+    if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
+      setSelectedCategory(categoryFromUrl);
+    }
+  }, [categoryFromUrl]);
+
   const handleAddToCart = async (productId: string | number) => {
     const id = String(productId);
     setAddingToCart(id);
-    console.log('🛒 Добавление в корзину:', id);
     
     try {
       const result = await addToCart(id, 1);
-      if (result) {
-        // ✅ ОБНОВЛЯЕМ КОРЗИНУ В ХЕДЕРЕ
-        await refetch();
-        console.log('✅ Товар добавлен в корзину, корзина обновлена');
-      } else {
-        console.error('❌ Не удалось добавить товар');
-      }
+      if (result) await refetch();
     } catch (error) {
       console.error('❌ Ошибка добавления в корзину:', error);
     } finally {
@@ -150,9 +181,18 @@ export default function CatalogPage() {
   const clearFilters = () => {
     setSearch('');
     setSelectedCategory('');
+    setCurrentPage(1);
+    router.push('/catalog');
   };
 
-  // Переключение страниц
+  const selectCategory = (category: string) => {
+    setSelectedCategory(category);
+    setCurrentPage(1);
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    router.push(`/catalog?${params.toString()}`);
+  };
+
   const goToPage = (page: number) => {
     if (page < 1 || page > totalPages || page === currentPage) return;
     setCurrentPage(page);
@@ -162,7 +202,6 @@ export default function CatalogPage() {
   const goToPreviousPage = () => goToPage(currentPage - 1);
   const goToNextPage = () => goToPage(currentPage + 1);
 
-  // Генерация номеров страниц
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
@@ -193,12 +232,31 @@ export default function CatalogPage() {
     return pages;
   };
 
+  const showPagination = filteredProducts.length > ITEMS_PER_PAGE;
+
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
       <div className="container-custom">
-        {/* Заголовок */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-black">Продукция</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-4xl font-bold text-black">Каталог</h1>
+            {selectedCategory && (
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
+                {selectedCategory}
+                <button onClick={() => selectCategory('')} className="hover:text-black">
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            {search && (
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
+                Поиск: {search}
+                <button onClick={() => setSearch('')} className="hover:text-black">
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+          </div>
           <p className="text-gray-400 font-light mt-2">
             Тюнинг-комплекты и запчасти для внедорожников
             {!loading && totalItems > 0 && (
@@ -224,7 +282,11 @@ export default function CatalogPage() {
           
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-2xl transition"
+            className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition ${
+              showFilters || selectedCategory || search
+                ? 'bg-black text-white'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
           >
             <Filter className="w-5 h-5" />
             <span className="font-medium">Фильтры</span>
@@ -232,8 +294,8 @@ export default function CatalogPage() {
           </button>
         </div>
 
-        {/* Фильтры */}
-        {showFilters && categories.length > 0 && (
+        {/* Панель фильтров */}
+        {showFilters && (
           <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
             <div className="grid md:grid-cols-1 gap-6">
               <div>
@@ -242,7 +304,7 @@ export default function CatalogPage() {
                 </label>
                 <select
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  onChange={(e) => selectCategory(e.target.value)}
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black focus:outline-none focus:border-black/30 transition"
                 >
                   <option value="">Все категории</option>
@@ -252,12 +314,20 @@ export default function CatalogPage() {
                 </select>
               </div>
             </div>
-            <button
-              onClick={clearFilters}
-              className="mt-4 text-sm text-gray-400 hover:text-black transition"
-            >
-              Сбросить фильтры
-            </button>
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 text-sm text-gray-500 hover:text-black transition border border-gray-200 rounded-xl"
+              >
+                Сбросить все фильтры
+              </button>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="px-4 py-2 text-sm bg-black text-white rounded-xl hover:bg-gray-800 transition"
+              >
+                Применить
+              </button>
+            </div>
           </div>
         )}
 
@@ -281,9 +351,8 @@ export default function CatalogPage() {
           </div>
         ) : (
           <>
-            {/* Сетка товаров */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredProducts.map((product) => (
+              {paginatedProducts.map((product) => (
                 <ProductCard
                   key={String(product.id)}
                   product={product}
@@ -295,16 +364,18 @@ export default function CatalogPage() {
               ))}
             </div>
 
-            {/* Информация о количестве */}
             <div className="text-center mt-6 text-sm text-gray-400">
-              Показано {filteredProducts.length} товаров
-              {totalItems > filteredProducts.length && ` из ${totalItems}`}
-              <span className="mx-2">•</span>
-              Страница {currentPage} из {totalPages}
+              Показано {paginatedProducts.length} товаров
+              {filteredProducts.length > ITEMS_PER_PAGE && ` из ${filteredProducts.length}`}
+              {totalPages > 1 && (
+                <>
+                  <span className="mx-2">•</span>
+                  Страница {currentPage} из {totalPages}
+                </>
+              )}
             </div>
 
-            {/* Пагинация */}
-            {totalPages > 1 && (
+            {showPagination && (
               <div className="flex items-center justify-center gap-2 mt-8">
                 <button
                   onClick={goToPreviousPage}
@@ -376,11 +447,8 @@ function ProductCard({
   onImageError: (id: string | number) => void;
   hasImageError?: boolean;
 }) {
-  // ✅ ПОЛУЧАЕМ ИЗОБРАЖЕНИЕ
   const imageUrl = getImageUrl(product.images);
   const [imgError, setImgError] = useState(false);
-  
-  // ✅ ЕСЛИ ЕСТЬ ОШИБКА — ПОКАЗЫВАЕМ ЛОГО
   const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
 
   return (
@@ -438,7 +506,7 @@ function ProductCard({
           )}
           {product.stock !== undefined && product.stock > 0 && (
             <span className="text-xs text-green-500 px-2 py-0.5 rounded-full bg-green-50">
-              В наличии: {product.stock}
+              {product.stock} шт.
             </span>
           )}
         </div>
@@ -458,7 +526,6 @@ function ProductCard({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              console.log('🛒 Клик по корзине для товара:', product.id);
               onAddToCart(product.id);
             }}
             disabled={!product.inStock || addingToCart}

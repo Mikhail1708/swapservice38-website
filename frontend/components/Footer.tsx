@@ -29,7 +29,7 @@ export default function Footer() {
           <div>
             <h4 className="text-[11px] tracking-[0.2em] uppercase text-gray-400 font-medium mb-6">УСЛУГИ</h4>
             <ul className="space-y-3 text-sm text-gray-500 font-light">
-              <li><Link href="/services" className="hover:text-black transition">Свап любой сложности</Link></li>
+              <li><Link href="/swaps" className="hover:text-black transition">Свап любой сложности</Link></li>
               <li><Link href="/services" className="hover:text-black transition">Усиление кузовов</Link></li>
               <li><Link href="/services" className="hover:text-black transition">Тюнинг и ремонт внедорожников</Link></li>
               <li><Link href="/services" className="hover:text-black transition">Установка защиты</Link></li>

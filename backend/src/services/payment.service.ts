@@ -1,6 +1,7 @@
 // backend/src/services/payment.service.ts
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
+import redis from '../config/redis';
 
 const prisma = new PrismaClient();
 
@@ -171,6 +172,15 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
 // ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ → ОТПРАВКА В CRM
 // ============================================================
 export const handlePaymentSuccess = async (orderId: string) => {
+  // ✅ ПРОВЕРЯЕМ В REDIS, НЕ БЫЛИ ЛИ УЖЕ ОТПРАВЛЕНЫ УВЕДОМЛЕНИЯ
+  const notifiedKey = `order:notified:${orderId}`;
+  const alreadyNotified = await redis.get(notifiedKey);
+  
+  if (alreadyNotified) {
+    console.log(`ℹ️ Уведомления уже отправлены для заказа ${orderId}, пропускаем`);
+    return { success: true, orderId, status: 'paid', alreadyNotified: true };
+  }
+
   const order = await prisma.order.findUnique({
     where: { id: orderId },
   });
@@ -185,10 +195,8 @@ export const handlePaymentSuccess = async (orderId: string) => {
 
   // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM
   try {
-    // ✅ ОЧИЩАЕМ ТЕЛЕФОН
     const phone = cleanPhone(order.guestPhone || '');
     
-    // ✅ ПРОВЕРЯЕМ, ЧТО ТЕЛЕФОН ЕСТЬ
     if (!phone || phone.length < 10) {
       console.error('❌ Нет телефона для отправки в CRM! Используем заглушку');
     }
@@ -202,7 +210,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
       client: {
         firstName: order.guestName || 'Клиент',
         lastName: '',
-        phone: phone || '+79999999999', // ✅ ФОЛБЭК ЕСЛИ НЕТ ТЕЛЕФОНА
+        phone: phone || '+79999999999',
         email: order.guestEmail || '',
         city: '',
         address: order.deliveryAddress || '',
@@ -255,7 +263,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
     console.log('🧹 Корзина очищена для пользователя:', order.userId);
   }
 
-  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
+  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ (ТОЛЬКО ОДИН РАЗ)
   try {
     const { sendOrderConfirmationToCustomer, sendOrderNotificationToManager } = await import('./email.service');
     
@@ -281,6 +289,11 @@ export const handlePaymentSuccess = async (orderId: string) => {
     await sendOrderNotificationToManager(emailData);
     
     console.log('✅ Уведомления отправлены');
+
+    // ✅ СОХРАНЯЕМ В REDIS, ЧТО УВЕДОМЛЕНИЯ ОТПРАВЛЕНЫ (на 7 дней)
+    await redis.setex(notifiedKey, 7 * 24 * 60 * 60, 'true');
+    console.log(`✅ Ключ ${notifiedKey} сохранён в Redis`);
+
   } catch (emailError) {
     console.error('❌ Ошибка отправки email:', emailError);
   }
