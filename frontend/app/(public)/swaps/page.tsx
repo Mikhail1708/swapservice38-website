@@ -27,9 +27,10 @@ export default function SwapsPage() {
   useEffect(() => {
     const fetchArticles = async () => {
       try {
-        const response = await fetch('/api/articles?published=true');
+        const response = await fetch('/api/articles?published=true&type=swap');
         if (!response.ok) throw new Error('Ошибка загрузки статей');
         const data = await response.json();
+        console.log('📥 Загружено статей для свапов:', data.items?.length || 0);
         setArticles(data.items || []);
       } catch (err) {
         console.error('❌ Ошибка загрузки статей:', err);
@@ -129,6 +130,7 @@ export default function SwapsPage() {
           {articles.length === 0 && !error ? (
             <div className="text-center py-16">
               <p className="text-gray-400">Статей пока нет</p>
+              <p className="text-sm text-gray-400 mt-2">Создайте статью в админке → Контент → Статьи, выберите тип "Свапы"</p>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -174,7 +176,9 @@ export default function SwapsPage() {
                       {article.description}
                     </p>
                     <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-                      <span className="text-xs text-gray-400">{article.date}</span>
+                      <span className="text-xs text-gray-400">
+                        {new Date(article.date).toLocaleDateString('ru-RU')}
+                      </span>
                       <span className="text-xs font-medium text-black group-hover:underline">
                         Читать →
                       </span>

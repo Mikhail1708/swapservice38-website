@@ -18,9 +18,21 @@ import {
   X,
   Send,
   User,
-  ThumbsUp,
-  Loader2
+  Loader2,
+  Reply
 } from 'lucide-react';
+import { useAuth } from '@/lib/hooks/useAuth';
+
+interface Comment {
+  id: string;
+  content: string;
+  author: string;
+  authorId: string;
+  createdAt: string;
+  parentId: string | null;
+  replies?: Comment[];
+  _count?: { likes: number };
+}
 
 interface Article {
   id: string;
@@ -35,12 +47,7 @@ interface Article {
   tags: string[];
   views: number;
   likesCount: number;
-  comments: Array<{
-    id: string;
-    author: string;
-    date: string;
-    text: string;
-  }>;
+  comments: Comment[];
 }
 
 // ============================================================
@@ -71,6 +78,18 @@ function Gallery({ images }: { images: string[] }) {
     setCurrentIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeGallery();
+      if (e.key === 'ArrowLeft') goToPrev();
+      if (e.key === 'ArrowRight') goToNext();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
   return (
     <>
       <div className="grid grid-cols-4 gap-3 mt-4">
@@ -97,26 +116,32 @@ function Gallery({ images }: { images: string[] }) {
       </div>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center">
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
+          onClick={closeGallery}
+        >
           <button
             onClick={closeGallery}
-            className="absolute top-4 right-4 text-white/60 hover:text-white transition p-2"
+            className="absolute top-4 right-4 text-white/60 hover:text-white transition p-2 z-10"
           >
             <X className="w-8 h-8" />
           </button>
 
-          <div className="relative w-full h-full flex items-center justify-center">
+          <div 
+            className="relative w-full h-full flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             {images.length > 1 && (
               <>
                 <button
-                  onClick={goToPrev}
-                  className="absolute left-4 text-white/40 hover:text-white transition p-3"
+                  onClick={(e) => { e.stopPropagation(); goToPrev(); }}
+                  className="absolute left-4 text-white/40 hover:text-white transition p-3 z-10"
                 >
                   <ChevronLeft className="w-10 h-10" />
                 </button>
                 <button
-                  onClick={goToNext}
-                  className="absolute right-4 text-white/40 hover:text-white transition p-3"
+                  onClick={(e) => { e.stopPropagation(); goToNext(); }}
+                  className="absolute right-4 text-white/40 hover:text-white transition p-3 z-10"
                 >
                   <ChevronRight className="w-10 h-10" />
                 </button>
@@ -156,28 +181,53 @@ function Gallery({ images }: { images: string[] }) {
 }
 
 // ============================================================
-// КОМПОНЕНТ КОММЕНТАРИЕВ
+// КОМПОНЕНТ КОММЕНТАРИЕВ (С ОТВЕТАМИ)
 // ============================================================
-function Comments({ comments, articleId }: { comments: any[]; articleId: string }) {
+function Comments({ comments: initialComments, articleId }: { comments: Comment[]; articleId: string }) {
+  const { user } = useAuth();
+  const [comments, setComments] = useState<Comment[]>(initialComments);
   const [newComment, setNewComment] = useState('');
+  const [replyTo, setReplyTo] = useState<{ id: string; author: string; authorId: string } | null>(null);
+  const [replyContent, setReplyContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [localComments, setLocalComments] = useState(comments);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, parentId?: string, replyToUserId?: string) => {
     e.preventDefault();
-    if (!newComment.trim()) return;
+    const content = parentId ? replyContent : newComment;
+    if (!content.trim()) return;
+
     setIsSubmitting(true);
 
     try {
       const response = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articleId, content: newComment }),
+        body: JSON.stringify({
+          articleId,
+          content,
+          parentId: parentId || null,
+          replyToUserId: replyToUserId || null,
+        }),
       });
+
       if (response.ok) {
         const data = await response.json();
-        setLocalComments([data.comment, ...localComments]);
-        setNewComment('');
+        if (parentId) {
+          setComments(prev => prev.map(c => {
+            if (c.id === parentId) {
+              return {
+                ...c,
+                replies: [...(c.replies || []), data.comment],
+              };
+            }
+            return c;
+          }));
+          setReplyTo(null);
+          setReplyContent('');
+        } else {
+          setComments([data.comment, ...comments]);
+          setNewComment('');
+        }
       }
     } catch (error) {
       console.error('Ошибка отправки комментария:', error);
@@ -186,56 +236,139 @@ function Comments({ comments, articleId }: { comments: any[]; articleId: string 
     }
   };
 
-  return (
-    <div className="border-t border-gray-200 pt-8 mt-8">
-      <h3 className="text-xl font-bold text-black mb-6 flex items-center gap-2">
-        <MessageCircle className="w-5 h-5" />
-        Комментарии ({localComments.length})
-      </h3>
+  const CommentItem = ({ comment, depth = 0 }: { comment: Comment; depth?: number }) => {
+    const [showReply, setShowReply] = useState(false);
 
-      <div className="space-y-6 mb-8">
-        {localComments.map((comment) => (
-          <div key={comment.id} className="bg-gray-50 rounded-2xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium">
+    return (
+      <div className={`${depth > 0 ? 'ml-8 pl-4 border-l-2 border-gray-200' : ''}`}>
+        <div className="bg-gray-50 rounded-2xl p-4 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-sm">
                 {comment.author?.charAt(0) || 'А'}
               </div>
               <div>
-                <span className="font-medium text-black">{comment.author || 'Аноним'}</span>
+                <span className="font-medium text-black text-sm">{comment.author || 'Аноним'}</span>
                 <span className="text-xs text-gray-400 ml-3">
                   {new Date(comment.createdAt).toLocaleDateString('ru-RU')}
                 </span>
               </div>
             </div>
-            <p className="text-gray-600 font-light text-sm">{comment.content}</p>
+            {user && (
+              <button
+                onClick={() => {
+                  setReplyTo({ id: comment.id, author: comment.author, authorId: comment.authorId });
+                  setShowReply(true);
+                }}
+                className="text-xs text-gray-400 hover:text-black transition flex items-center gap-1"
+              >
+                <Reply className="w-3 h-3" />
+                Ответить
+              </button>
+            )}
           </div>
+          <p className="text-gray-600 font-light text-sm">{comment.content}</p>
+        </div>
+
+        {/* Ответы */}
+        {comment.replies && comment.replies.length > 0 && (
+          <div className="space-y-3 mb-3">
+            {comment.replies.map((reply) => (
+              <CommentItem key={reply.id} comment={reply} depth={depth + 1} />
+            ))}
+          </div>
+        )}
+
+        {/* Форма ответа */}
+        {showReply && replyTo?.id === comment.id && (
+          <form onSubmit={(e) => handleSubmit(e, comment.id, comment.authorId)} className="mb-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-sm flex-shrink-0">
+                <User className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 mb-1">
+                  Ответ для <span className="font-medium text-black">{replyTo.author}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setReplyTo(null); setShowReply(false); }}
+                    className="ml-2 text-red-400 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <textarea
+                  value={replyContent}
+                  onChange={(e) => setReplyContent(e.target.value)}
+                  placeholder={`Ответить ${replyTo.author}...`}
+                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black/30 transition resize-none"
+                  rows={2}
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !replyContent.trim()}
+                  className="mt-2 px-4 py-1.5 bg-black text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                  Отправить
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="border-t border-gray-200 pt-8 mt-8">
+      <h3 className="text-xl font-bold text-black mb-6 flex items-center gap-2">
+        <MessageCircle className="w-5 h-5" />
+        Комментарии ({comments.length})
+      </h3>
+
+      <div className="space-y-4 mb-8">
+        {comments.map((comment) => (
+          <CommentItem key={comment.id} comment={comment} />
         ))}
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-gray-50 rounded-2xl p-5">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium flex-shrink-0">
-            <User className="w-5 h-5" />
+      {/* Основная форма комментария */}
+      {user ? (
+        <form onSubmit={(e) => handleSubmit(e)} className="bg-gray-50 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium flex-shrink-0">
+              {user.firstName?.[0] || 'А'}
+            </div>
+            <div className="flex-1">
+              <textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Напишите комментарий..."
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:border-black/30 transition resize-none"
+                rows={3}
+              />
+              <button
+                type="submit"
+                disabled={isSubmitting || !newComment.trim()}
+                className="mt-3 px-6 py-2 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                {isSubmitting ? 'Отправка...' : 'Отправить'}
+              </button>
+            </div>
           </div>
-          <div className="flex-1">
-            <textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Напишите комментарий..."
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:border-black/30 transition resize-none"
-              rows={3}
-            />
-            <button
-              type="submit"
-              disabled={isSubmitting || !newComment.trim()}
-              className="mt-3 px-6 py-2 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              <Send className="w-4 h-4" />
-              {isSubmitting ? 'Отправка...' : 'Отправить'}
-            </button>
-          </div>
+        </form>
+      ) : (
+        <div className="bg-gray-50 rounded-2xl p-6 text-center">
+          <p className="text-gray-500">
+            <Link href="/login" className="text-black font-medium hover:underline">
+              Войдите
+            </Link>
+            , чтобы оставить комментарий
+          </p>
         </div>
-      </form>
+      )}
     </div>
   );
 }
@@ -280,8 +413,9 @@ export default function ArticlePage() {
         body: JSON.stringify({ articleId: article?.id }),
       });
       if (response.ok) {
-        setLiked(!liked);
-        setLikesCount((prev) => (liked ? prev - 1 : prev + 1));
+        const data = await response.json();
+        setLiked(data.liked);
+        setLikesCount((prev) => data.liked ? prev + 1 : prev - 1);
       }
     } catch (error) {
       console.error('Ошибка лайка:', error);
@@ -357,6 +491,7 @@ export default function ArticlePage() {
               fill
               className="object-cover"
               unoptimized
+              priority
             />
           </div>
         )}

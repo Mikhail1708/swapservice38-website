@@ -10,6 +10,11 @@ import cartRoutes from './routes/cart.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
+import adminRoutes from './routes/admin.routes';
+import articlesRoutes from './routes/articles.routes';
+import commentsRoutes from './routes/comments.routes';
+import likesRoutes from './routes/likes.routes';
+
 
 dotenv.config();
 
@@ -77,6 +82,11 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/articles', articlesRoutes);
+app.use('/api/comments', commentsRoutes);
+app.use('/api/likes', likesRoutes);
+
 
 // ============================================================
 // 5. HEALTH CHECK

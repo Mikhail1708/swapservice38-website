@@ -1,0 +1,212 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ImageUpload } from '@/components/admin/content/ImageUpload';
+
+export default function CreateArticlePage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    content: '',
+    tags: '',
+    type: 'swap', // swap | service
+    isPublished: false,
+    readTime: 5,
+  });
+  const [images, setImages] = useState<string[]>([]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!form.title.trim()) {
+      alert('Заголовок обязателен');
+      return;
+    }
+    
+    if (!form.content.trim()) {
+      alert('Содержание обязательно');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const tagsArray = form.tags
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      const payload = {
+        title: form.title.trim(),
+        description: form.description.trim() || form.title.trim(),
+        content: form.content,
+        tags: tagsArray,
+        images: images.map(url => ({ 
+          url, 
+          filename: url.split('/').pop() || 'image.jpg',
+          isMain: false,
+        })),
+        type: form.type,
+        isPublished: form.isPublished,
+        readTime: form.readTime || 5,
+      };
+
+      console.log('📤 Отправка:', payload);
+
+      const response = await fetch('/api/admin/articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        router.push('/admin/content/articles');
+      } else {
+        alert(result.error || 'Ошибка создания статьи');
+        console.error('❌ Ошибка:', result);
+      }
+    } catch (error) {
+      console.error('❌ Ошибка:', error);
+      alert('Ошибка создания статьи');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-4">
+        <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-lg">
+          <ArrowLeft size={20} />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Новая статья</h1>
+          <p className="text-sm text-gray-500">Создание статьи для свапов или услуг</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+        {/* Заголовок */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Заголовок *</label>
+          <input
+            type="text"
+            required
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+            placeholder="Например: Свап 3UZ-FE на Nissan Patrol Y60"
+          />
+        </div>
+
+        {/* Тип контента */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Тип контента *</label>
+          <select
+            value={form.type}
+            onChange={(e) => setForm({ ...form, type: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+          >
+            <option value="swap">Свапы</option>
+            <option value="service">Услуги / Автосервис</option>
+          </select>
+          <p className="text-xs text-gray-400 mt-1">
+            {form.type === 'swap' ? 'Будет отображаться на странице "Свапы"' : 'Будет отображаться на странице "Услуги"'}
+          </p>
+        </div>
+
+        {/* Описание */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Краткое описание</label>
+          <input
+            type="text"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+            placeholder="Краткое описание для карточки"
+          />
+        </div>
+
+        {/* Теги */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Теги (через запятую)</label>
+          <input
+            type="text"
+            value={form.tags}
+            onChange={(e) => setForm({ ...form, tags: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+            placeholder="3UZ-FE, Nissan Patrol, свап"
+          />
+        </div>
+
+        {/* Время чтения */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Время чтения (мин)</label>
+          <input
+            type="number"
+            value={form.readTime}
+            onChange={(e) => setForm({ ...form, readTime: parseInt(e.target.value) || 5 })}
+            className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+            min={1}
+          />
+        </div>
+
+        {/* Изображения */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Фотографии</label>
+          <ImageUpload images={images} onChange={setImages} maxCount={10} />
+        </div>
+
+        {/* Содержание */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Содержание *</label>
+          <textarea
+            required
+            rows={12}
+            value={form.content}
+            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 font-mono text-sm"
+            placeholder="Полное описание проекта... поддерживается HTML"
+          />
+          <p className="text-xs text-gray-400 mt-1">Поддерживается HTML-разметка для форматирования</p>
+        </div>
+
+        {/* Опубликовать */}
+        <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
+          <input
+            type="checkbox"
+            checked={form.isPublished}
+            onChange={(e) => setForm({ ...form, isPublished: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300"
+          />
+          <label className="text-sm text-gray-700">Опубликовать сразу</label>
+        </div>
+
+        {/* Кнопки */}
+        <div className="flex gap-3 pt-4 border-t border-gray-200">
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-6 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+          >
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading ? 'Сохранение...' : 'Сохранить'}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="px-6 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
+          >
+            Отмена
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

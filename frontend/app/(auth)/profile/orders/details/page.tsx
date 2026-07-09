@@ -40,6 +40,7 @@ const statusMap: Record<string, { label: string; color: string; icon: string }> 
   pending: { label: 'Ожидает оплаты', color: 'bg-yellow-100 text-yellow-700', icon: '⏳' },
   paid: { label: 'Оплачен, ожидает подтверждения', color: 'bg-blue-100 text-blue-700', icon: '✅' },
   confirmed: { label: 'Подтверждён, собирается', color: 'bg-indigo-100 text-indigo-700', icon: '📦' },
+  assembling: { label: 'Собирается', color: 'bg-purple-100 text-purple-700', icon: '🔧' },
   packing: { label: 'Собирается', color: 'bg-purple-100 text-purple-700', icon: '🔧' },
   shipped: { label: 'Отправлен', color: 'bg-green-100 text-green-700', icon: '🚚' },
   delivered: { label: 'Доставлен', color: 'bg-emerald-100 text-emerald-700', icon: '✅' },
@@ -126,7 +127,6 @@ export default function OrderDetailPage() {
     return order.status === 'pending';
   };
 
-  // ✅ УДАЛЕНИЕ — ИСПОЛЬЗУЕМ /api/orders/delete?id=xxx
   const handleDeleteOrder = async () => {
     if (!order) return;
     
@@ -153,7 +153,6 @@ export default function OrderDetailPage() {
     }
   };
 
-  // ✅ ОПЛАТА
   const handlePayOrder = async () => {
     if (!order) return;
     
@@ -414,6 +413,19 @@ export default function OrderDetailPage() {
 
           <div className="md:col-span-1 space-y-6">
             <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
+              <h2 className="font-medium text-black mb-4 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-gray-400" />
+                Доставка
+              </h2>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Способ:</span>
+                  <span className="font-medium">
+                    {order.deliveryMethod === 'pickup' ? 'Самовывоз' : 
+                     order.deliveryMethod === 'courier' ? 'Курьером' : 
+                     order.deliveryMethod === 'post' ? 'Почта России' : order.deliveryMethod || 'Не указан'}
+                  </span>
+                </div>
                 {order.deliveryAddress && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Адрес:</span>
@@ -468,5 +480,6 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </div>
+    </div>
   );
 }
