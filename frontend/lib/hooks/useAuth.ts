@@ -1,32 +1,31 @@
+// frontend/lib/hooks/useAuth.ts
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface User {
   id: string;
   email: string;
-  firstName?: string;
-  lastName?: string;
+  firstName: string;
+  lastName: string;
   phone?: string;
   address?: string;
   role: string;
   isVerified: boolean;
-  // OAuth поля
-  yandexId?: string | null;
-  maxId?: string | null;
 }
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [fetched, setFetched] = useState(false);
 
   useEffect(() => {
+    if (fetched) return;
+    setFetched(true);
+
     const fetchUser = async () => {
       try {
-        const response = await fetch('/api/auth/me', {
-          credentials: 'include',
-        });
-        
+        const response = await fetch('/api/auth/me');
         if (response.ok) {
           const data = await response.json();
           setUser(data.user);
@@ -34,27 +33,15 @@ export function useAuth() {
           setUser(null);
         }
       } catch (error) {
+        console.error('Auth error:', error);
         setUser(null);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
 
     fetchUser();
-  }, []);
+  }, [fetched]);
 
-  const logout = async () => {
-    try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      setUser(null);
-      window.location.href = '/';
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
-  return { user, isLoading, logout };
+  return { user, loading };
 }

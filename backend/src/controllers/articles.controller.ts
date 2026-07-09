@@ -1,6 +1,7 @@
 // backend/src/controllers/articles.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import redis from '../config/redis';
 
 const prisma = new PrismaClient();
 
@@ -9,10 +10,11 @@ const prisma = new PrismaClient();
 // ============================================================
 export const getArticles = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { published, page = '1', limit = '20', search } = req.query;
+    const { published, page = '1', limit = '20', search, type } = req.query;
     
     const where: any = {};
     if (published === 'true') where.isPublished = true;
+    if (type) where.type = type as string;
     if (search) {
       where.OR = [
         { title: { contains: search as string, mode: 'insensitive' } },
@@ -41,7 +43,6 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
       prisma.article.count({ where }),
     ]);
 
-    // Форматируем для фронтенда
     const formatted = articles.map((a: any) => ({
       id: a.id,
       slug: a.slug,
@@ -56,6 +57,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
       views: a.views,
       likesCount: a._count?.likes || 0,
       isPublished: a.isPublished,
+      type: a.type || 'swap',
       author: a.author ? `${a.author.firstName || ''} ${a.author.lastName || ''}`.trim() : 'Admin',
       createdAt: a.createdAt,
       updatedAt: a.updatedAt,
@@ -90,10 +92,20 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
         comments: {
           where: { parentId: null, isHidden: false },
           include: {
-            author: { select: { firstName: true, lastName: true } },
+            author: { select: { id: true, firstName: true, lastName: true } },
             replies: {
               where: { isHidden: false },
-              include: { author: { select: { firstName: true, lastName: true } } },
+              include: {
+                author: { select: { id: true, firstName: true, lastName: true } },
+                replies: {
+                  where: { isHidden: false },
+                  include: {
+                    author: { select: { id: true, firstName: true, lastName: true } },
+                  },
+                  orderBy: { createdAt: 'asc' },
+                },
+              },
+              orderBy: { createdAt: 'asc' },
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -107,11 +119,64 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Увеличиваем просмотры
-    await prisma.article.update({
-      where: { id },
-      data: { views: { increment: 1 } },
-    });
+    // ✅ УНИКАЛЬНЫЙ ПРОСМОТР — ТОЛЬКО 1 РАЗ В 24 ЧАСА
+    const ip = (req.headers['x-forwarded-for'] as string || req.ip || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+    const viewerKey = `article:${id}:viewer:${ip}`;
+    
+    let viewsCount = article.views;
+    
+    try {
+      const viewed = await redis.get(viewerKey);
+      
+      if (!viewed) {
+        // Ставим флаг на 24 часа
+        await redis.setex(viewerKey, 86400, '1');
+        
+        // Увеличиваем счётчик
+        const updated = await prisma.article.update({
+          where: { id },
+          data: { views: { increment: 1 } },
+          select: { views: true },
+        });
+        viewsCount = updated.views;
+        console.log(`📊 Новый уникальный просмотр статьи ${id} (IP: ${ip})`);
+      } else {
+        console.log(`📊 Повторный просмотр статьи ${id} (IP: ${ip})`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Redis error:', error);
+      // Если Redis упал — не считаем просмотр
+    }
+
+    // Форматируем комментарии с вложенностью
+    const formattedComments = article.comments.map((c: any) => ({
+      id: c.id,
+      content: c.content,
+      author: `${c.author.firstName || ''} ${c.author.lastName || ''}`.trim() || 'Аноним',
+      authorId: c.author.id,
+      createdAt: c.createdAt,
+      parentId: c.parentId,
+      replies: c.replies.map((r: any) => ({
+        id: r.id,
+        content: r.content,
+        author: `${r.author.firstName || ''} ${r.author.lastName || ''}`.trim() || 'Аноним',
+        authorId: r.author.id,
+        createdAt: r.createdAt,
+        parentId: r.parentId,
+        replies: r.replies.map((rr: any) => ({
+          id: rr.id,
+          content: rr.content,
+          author: `${rr.author.firstName || ''} ${rr.author.lastName || ''}`.trim() || 'Аноним',
+          authorId: rr.author.id,
+          createdAt: rr.createdAt,
+          parentId: rr.parentId,
+          replies: [],
+          _count: { likes: 0 },
+        })),
+        _count: { likes: 0 },
+      })),
+      _count: { likes: 0 },
+    }));
 
     const formatted = {
       id: article.id,
@@ -124,17 +189,12 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       date: article.createdAt,
       readTime: article.readTime || 5,
       tags: article.tags?.map((t: any) => t.tag.name) || [],
-      views: article.views + 1,
+      views: viewsCount,
       likesCount: article._count?.likes || 0,
       isPublished: article.isPublished,
+      type: article.type || 'swap',
       author: article.author ? `${article.author.firstName || ''} ${article.author.lastName || ''}`.trim() : 'Admin',
-      comments: article.comments?.map((c: any) => ({
-        id: c.id,
-        author: `${c.author.firstName || ''} ${c.author.lastName || ''}`.trim() || 'Аноним',
-        date: c.createdAt,
-        text: c.content,
-        createdAt: c.createdAt,
-      })) || [],
+      comments: formattedComments,
       createdAt: article.createdAt,
       updatedAt: article.updatedAt,
     };
@@ -159,7 +219,8 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       isPublished, 
       tags = [], 
       images = [], 
-      readTime 
+      readTime,
+      type = 'swap',
     } = req.body;
     const userId = (req as any).user?.id;
 
@@ -190,6 +251,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
         imageUrl: imageUrl || images?.[0]?.url || '',
         isPublished: isPublished || false,
         readTime: readTime || 5,
+        type: type || 'swap',
         authorId: userId,
         tags: {
           create: tags.map((tagName: string) => {
@@ -237,6 +299,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
         tags: article.tags?.map((t: any) => t.tag.name) || [],
         isPublished: article.isPublished,
         readTime: article.readTime,
+        type: article.type,
         author: article.author ? `${article.author.firstName || ''} ${article.author.lastName || ''}`.trim() : 'Admin',
         createdAt: article.createdAt,
       }
@@ -253,7 +316,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
 export const updateArticle = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { title, content, description, imageUrl, isPublished, tags, images, readTime } = req.body;
+    const { title, content, description, imageUrl, isPublished, tags, images, readTime, type } = req.body;
     const userId = (req as any).user?.id;
 
     // Проверяем существование статьи
@@ -270,6 +333,8 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
       isPublished, 
       readTime: readTime || 5,
     };
+    
+    if (type) data.type = type;
     
     if (title) {
       data.title = title;
@@ -349,6 +414,7 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
         tags: updated?.tags?.map((t: any) => t.tag.name) || [],
         isPublished: updated?.isPublished,
         readTime: updated?.readTime,
+        type: updated?.type,
         author: updated?.author ? `${updated.author.firstName || ''} ${updated.author.lastName || ''}`.trim() : 'Admin',
         createdAt: updated?.createdAt,
         updatedAt: updated?.updatedAt,
@@ -381,6 +447,16 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
     
     // Удаляем статью
     await prisma.article.delete({ where: { id } });
+
+    // Удаляем кэш просмотров
+    try {
+      const keys = await redis.keys(`article:${id}:viewer:*`);
+      if (keys.length > 0) {
+        await Promise.all(keys.map((key: string) => redis.del(key)));
+      }
+    } catch (error) {
+      console.warn('⚠️ Не удалось очистить кэш просмотров:', error);
+    }
 
     res.json({ success: true, message: 'Статья удалена' });
   } catch (error: any) {

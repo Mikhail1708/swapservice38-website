@@ -19,7 +19,14 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Проверяем существование лайка
+    const article = await prisma.article.findUnique({
+      where: { id: articleId },
+    });
+    if (!article) {
+      res.status(404).json({ error: 'Статья не найдена' });
+      return;
+    }
+
     const existingLike = await prisma.like.findUnique({
       where: {
         userId_articleId: {
@@ -30,7 +37,6 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
     });
 
     if (existingLike) {
-      // Удаляем лайк
       await prisma.like.delete({
         where: {
           userId_articleId: {
@@ -40,7 +46,6 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
         },
       });
       
-      // Обновляем счётчик
       await prisma.article.update({
         where: { id: articleId },
         data: { likesCount: { decrement: 1 } },
@@ -48,7 +53,6 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
 
       res.json({ success: true, liked: false });
     } else {
-      // Создаём лайк
       await prisma.like.create({
         data: {
           userId,
@@ -56,7 +60,6 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
         },
       });
 
-      // Обновляем счётчик
       await prisma.article.update({
         where: { id: articleId },
         data: { likesCount: { increment: 1 } },
@@ -67,5 +70,29 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
   } catch (error: any) {
     console.error('❌ Toggle like error:', error);
     res.status(500).json({ error: error.message || 'Ошибка изменения лайка' });
+  }
+};
+
+// ✅ ДОБАВЛЯЕМ ЭТУ ФУНКЦИЮ
+export const getUserLikes = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      res.status(401).json({ error: 'Не авторизован' });
+      return;
+    }
+
+    const likes = await prisma.like.findMany({
+      where: { userId },
+      select: { articleId: true },
+    });
+
+    res.json({
+      articleIds: likes.map(l => l.articleId),
+    });
+  } catch (error: any) {
+    console.error('❌ Get user likes error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка получения лайков' });
   }
 };

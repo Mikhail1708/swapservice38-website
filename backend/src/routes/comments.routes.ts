@@ -5,6 +5,7 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// ✅ УБИРАЕМ GET — он не нужен, комментарии приходят из articles
 router.post('/', authMiddleware, createComment);
 
 export default router;

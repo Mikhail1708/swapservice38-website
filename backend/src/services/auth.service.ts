@@ -1,3 +1,4 @@
+// backend/src/services/auth.service.ts
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -82,7 +83,9 @@ export const login = async (email: string, password: string) => {
       email: user.email, 
       firstName: user.firstName, 
       lastName: user.lastName, 
-      role: user.role 
+      role: user.role,
+      phone: user.phone,
+      address: user.address,
     } 
   };
 };
@@ -144,8 +147,6 @@ export const resetPassword = async (email: string, code: string, newPassword: st
   return { message: 'Пароль успешно изменён' };
 };
 
-// ===== НОВЫЕ ФУНКЦИИ =====
-
 // Обновление профиля
 export const updateProfile = async (userId: string, data: { firstName?: string; lastName?: string; phone?: string; address?: string }) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -170,6 +171,8 @@ export const updateProfile = async (userId: string, data: { firstName?: string; 
       address: true,
       role: true,
       isVerified: true,
+      yandexId: true,
+      maxId: true,
     },
   });
 
@@ -183,7 +186,12 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     throw new Error('Пользователь не найден');
   }
 
-  const valid = await bcrypt.compare(currentPassword, user.passwordHash!);
+  // Проверяем, есть ли пароль (не OAuth пользователь)
+  if (!user.passwordHash) {
+    throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
+  }
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) {
     throw new Error('Неверный текущий пароль');
   }
@@ -206,6 +214,11 @@ export const requestPasswordChange = async (userId: string, email: string) => {
 
   if (user.email !== email) {
     throw new Error('Email не совпадает с email пользователя');
+  }
+
+  // Проверяем, есть ли пароль (не OAuth пользователь)
+  if (!user.passwordHash) {
+    throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
   }
 
   const code = generateCode();
@@ -236,7 +249,6 @@ export const confirmPasswordChange = async (userId: string, code: string, newPas
   await redis.del(`change-password:${userId}`);
   return { message: 'Пароль успешно изменён' };
 };
-import jwt from 'jsonwebtoken';
 
 // Генерация JWT токена (используется для OAuth)
 export const generateToken = (userId: string): string => {

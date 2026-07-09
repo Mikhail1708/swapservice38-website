@@ -1,38 +1,15 @@
-// app/(public)/swaps/[id]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { 
-  ArrowLeft, 
-  Calendar, 
-  Clock, 
-  Share2, 
-  MessageCircle, 
-  Heart, 
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Send,
-  User,
-  Loader2,
-  Reply
+  ArrowLeft, Calendar, Clock, Share2, MessageCircle, 
+  Heart, Eye, Loader2, Check 
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-
-interface Comment {
-  id: string;
-  content: string;
-  author: string;
-  authorId: string;
-  createdAt: string;
-  parentId: string | null;
-  replies?: Comment[];
-  _count?: { likes: number };
-}
+import { CommentSection } from '@/components/comments/CommentSection';
 
 interface Article {
   id: string;
@@ -50,9 +27,16 @@ interface Article {
   comments: Comment[];
 }
 
-// ============================================================
-// КОМПОНЕНТ ГАЛЕРЕИ
-// ============================================================
+interface Comment {
+  id: string;
+  content: string;
+  author: string;
+  authorId: string;
+  createdAt: string;
+  parentId: string | null;
+  replies?: Comment[];
+}
+
 function Gallery({ images }: { images: string[] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -124,7 +108,9 @@ function Gallery({ images }: { images: string[] }) {
             onClick={closeGallery}
             className="absolute top-4 right-4 text-white/60 hover:text-white transition p-2 z-10"
           >
-            <X className="w-8 h-8" />
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
 
           <div 
@@ -137,13 +123,17 @@ function Gallery({ images }: { images: string[] }) {
                   onClick={(e) => { e.stopPropagation(); goToPrev(); }}
                   className="absolute left-4 text-white/40 hover:text-white transition p-3 z-10"
                 >
-                  <ChevronLeft className="w-10 h-10" />
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); goToNext(); }}
                   className="absolute right-4 text-white/40 hover:text-white transition p-3 z-10"
                 >
-                  <ChevronRight className="w-10 h-10" />
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
               </>
             )}
@@ -181,213 +171,27 @@ function Gallery({ images }: { images: string[] }) {
 }
 
 // ============================================================
-// КОМПОНЕНТ КОММЕНТАРИЕВ (С ОТВЕТАМИ)
-// ============================================================
-function Comments({ comments: initialComments, articleId }: { comments: Comment[]; articleId: string }) {
-  const { user } = useAuth();
-  const [comments, setComments] = useState<Comment[]>(initialComments);
-  const [newComment, setNewComment] = useState('');
-  const [replyTo, setReplyTo] = useState<{ id: string; author: string; authorId: string } | null>(null);
-  const [replyContent, setReplyContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent, parentId?: string, replyToUserId?: string) => {
-    e.preventDefault();
-    const content = parentId ? replyContent : newComment;
-    if (!content.trim()) return;
-
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch('/api/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          articleId,
-          content,
-          parentId: parentId || null,
-          replyToUserId: replyToUserId || null,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (parentId) {
-          setComments(prev => prev.map(c => {
-            if (c.id === parentId) {
-              return {
-                ...c,
-                replies: [...(c.replies || []), data.comment],
-              };
-            }
-            return c;
-          }));
-          setReplyTo(null);
-          setReplyContent('');
-        } else {
-          setComments([data.comment, ...comments]);
-          setNewComment('');
-        }
-      }
-    } catch (error) {
-      console.error('Ошибка отправки комментария:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const CommentItem = ({ comment, depth = 0 }: { comment: Comment; depth?: number }) => {
-    const [showReply, setShowReply] = useState(false);
-
-    return (
-      <div className={`${depth > 0 ? 'ml-8 pl-4 border-l-2 border-gray-200' : ''}`}>
-        <div className="bg-gray-50 rounded-2xl p-4 mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-sm">
-                {comment.author?.charAt(0) || 'А'}
-              </div>
-              <div>
-                <span className="font-medium text-black text-sm">{comment.author || 'Аноним'}</span>
-                <span className="text-xs text-gray-400 ml-3">
-                  {new Date(comment.createdAt).toLocaleDateString('ru-RU')}
-                </span>
-              </div>
-            </div>
-            {user && (
-              <button
-                onClick={() => {
-                  setReplyTo({ id: comment.id, author: comment.author, authorId: comment.authorId });
-                  setShowReply(true);
-                }}
-                className="text-xs text-gray-400 hover:text-black transition flex items-center gap-1"
-              >
-                <Reply className="w-3 h-3" />
-                Ответить
-              </button>
-            )}
-          </div>
-          <p className="text-gray-600 font-light text-sm">{comment.content}</p>
-        </div>
-
-        {/* Ответы */}
-        {comment.replies && comment.replies.length > 0 && (
-          <div className="space-y-3 mb-3">
-            {comment.replies.map((reply) => (
-              <CommentItem key={reply.id} comment={reply} depth={depth + 1} />
-            ))}
-          </div>
-        )}
-
-        {/* Форма ответа */}
-        {showReply && replyTo?.id === comment.id && (
-          <form onSubmit={(e) => handleSubmit(e, comment.id, comment.authorId)} className="mb-4">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-sm flex-shrink-0">
-                <User className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs text-gray-500 mb-1">
-                  Ответ для <span className="font-medium text-black">{replyTo.author}</span>
-                  <button
-                    type="button"
-                    onClick={() => { setReplyTo(null); setShowReply(false); }}
-                    className="ml-2 text-red-400 hover:text-red-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <textarea
-                  value={replyContent}
-                  onChange={(e) => setReplyContent(e.target.value)}
-                  placeholder={`Ответить ${replyTo.author}...`}
-                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black/30 transition resize-none"
-                  rows={2}
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !replyContent.trim()}
-                  className="mt-2 px-4 py-1.5 bg-black text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                  Отправить
-                </button>
-              </div>
-            </div>
-          </form>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="border-t border-gray-200 pt-8 mt-8">
-      <h3 className="text-xl font-bold text-black mb-6 flex items-center gap-2">
-        <MessageCircle className="w-5 h-5" />
-        Комментарии ({comments.length})
-      </h3>
-
-      <div className="space-y-4 mb-8">
-        {comments.map((comment) => (
-          <CommentItem key={comment.id} comment={comment} />
-        ))}
-      </div>
-
-      {/* Основная форма комментария */}
-      {user ? (
-        <form onSubmit={(e) => handleSubmit(e)} className="bg-gray-50 rounded-2xl p-5">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium flex-shrink-0">
-              {user.firstName?.[0] || 'А'}
-            </div>
-            <div className="flex-1">
-              <textarea
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Напишите комментарий..."
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:border-black/30 transition resize-none"
-                rows={3}
-              />
-              <button
-                type="submit"
-                disabled={isSubmitting || !newComment.trim()}
-                className="mt-3 px-6 py-2 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <Send className="w-4 h-4" />
-                {isSubmitting ? 'Отправка...' : 'Отправить'}
-              </button>
-            </div>
-          </div>
-        </form>
-      ) : (
-        <div className="bg-gray-50 rounded-2xl p-6 text-center">
-          <p className="text-gray-500">
-            <Link href="/login" className="text-black font-medium hover:underline">
-              Войдите
-            </Link>
-            , чтобы оставить комментарий
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
 // ОСНОВНАЯ СТРАНИЦА
 // ============================================================
 export default function ArticlePage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+  const { user } = useAuth();
   
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+  const [shareCopied, setShareCopied] = useState(false);
+  const fetchedRef = useRef(false);
 
+  // ЗАГРУЗКА СТАТЬИ — ТОЛЬКО 1 РАЗ
   useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
     const fetchArticle = async () => {
       try {
         const response = await fetch(`/api/articles/${id}`);
@@ -402,15 +206,37 @@ export default function ArticlePage() {
         setLoading(false);
       }
     };
+
     fetchArticle();
   }, [id]);
 
+  // ПРОВЕРКА ЛАЙКА — ТОЛЬКО КОГДА ЕСТЬ ПОЛЬЗОВАТЕЛЬ
+  useEffect(() => {
+    if (!user || !article) return;
+
+    const checkLike = async () => {
+      try {
+        const res = await fetch('/api/likes/user');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.articleIds?.includes(id)) {
+            setLiked(true);
+          }
+        }
+      } catch (e) {
+        // Игнорируем
+      }
+    };
+    checkLike();
+  }, [user, article, id]);
+
   const handleLike = async () => {
+    if (!article) return;
     try {
       const response = await fetch('/api/likes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articleId: article?.id }),
+        body: JSON.stringify({ articleId: article.id }),
       });
       if (response.ok) {
         const data = await response.json();
@@ -422,10 +248,29 @@ export default function ArticlePage() {
     }
   };
 
+  const handleShare = () => {
+    const url = window.location.href;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 3000);
+      });
+    } else {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 3000);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white pt-32 pb-20 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        <div className="w-8 h-8 border-4 border-gray-200 border-t-black rounded-full animate-spin" />
       </div>
     );
   }
@@ -435,7 +280,7 @@ export default function ArticlePage() {
       <div className="min-h-screen bg-white pt-32 pb-20 flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-black">Статья не найдена</h1>
-          <p className="text-gray-400 mt-2">{error || 'Такой статьи нет в нашем блоге'}</p>
+          <p className="text-gray-400 mt-2">{error || 'Такой статьи нет'}</p>
           <Link href="/swaps" className="inline-block mt-6 px-6 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition">
             Вернуться к списку
           </Link>
@@ -446,7 +291,7 @@ export default function ArticlePage() {
 
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
-      <div className="container-custom mx-auto px-4 sm:px-6 lg:px-8 w-full max-w-4xl">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <Link href="/swaps" className="inline-flex items-center gap-2 text-gray-400 hover:text-black transition mb-6">
           <ArrowLeft className="w-4 h-4" />
           Все проекты
@@ -454,7 +299,7 @@ export default function ArticlePage() {
 
         <div className="mb-8">
           <div className="flex flex-wrap gap-2 mb-4">
-            {article.tags?.map((tag) => (
+            {article.tags?.map((tag: string) => (
               <span key={tag} className="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded-full font-medium">
                 {tag}
               </span>
@@ -524,17 +369,44 @@ export default function ArticlePage() {
             <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
             <span>{liked ? 'Нравится' : 'Нравится'} ({likesCount})</span>
           </button>
-          <button className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 rounded-xl text-gray-600 hover:bg-gray-50 transition text-sm font-medium">
-            <Share2 className="w-4 h-4" />
-            <span>Поделиться</span>
+          
+          <button
+            onClick={handleShare}
+            className={`flex items-center gap-2 px-6 py-2.5 border rounded-xl transition text-sm font-medium ${
+              shareCopied 
+                ? 'border-green-500 bg-green-50 text-green-600' 
+                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {shareCopied ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Скопировано!</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-4 h-4" />
+                <span>Поделиться</span>
+              </>
+            )}
           </button>
-          <button className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 rounded-xl text-gray-600 hover:bg-gray-50 transition text-sm font-medium">
+          
+          <button 
+            onClick={() => {
+              const commentsSection = document.querySelector('.border-t.border-gray-200.pt-8.mt-8');
+              if (commentsSection) {
+                commentsSection.scrollIntoView({ behavior: 'smooth' });
+              }
+            }}
+            className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 rounded-xl text-gray-600 hover:bg-gray-50 transition text-sm font-medium"
+          >
             <MessageCircle className="w-4 h-4" />
             <span>Комментарии ({article.comments?.length || 0})</span>
           </button>
         </div>
 
-        <Comments comments={article.comments || []} articleId={article.id} />
+        {/* ✅ ИСПОЛЬЗУЕМ CommentSection */}
+        <CommentSection initialComments={article.comments || []} articleId={article.id} />
 
         <div className="flex flex-col sm:flex-row justify-between gap-4 mt-12 pt-6 border-t border-gray-200">
           <button 
