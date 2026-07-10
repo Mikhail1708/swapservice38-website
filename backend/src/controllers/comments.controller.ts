@@ -1,3 +1,4 @@
+// backend/src/controllers/comments.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
@@ -64,9 +65,11 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
       replies: [],
     };
 
+    // Если это ответ — возвращаем обновлённого родителя со всеми ответами (до 5 уровней)
     if (parentId) {
-      // ✅ Получаем ВЕСЬ родительский комментарий со ВСЕМИ вложенными ответами
-      const getCommentWithReplies = async (id: string): Promise<any> => {
+      const getCommentWithReplies = async (id: string, depth: number = 0): Promise<any> => {
+        if (depth > 5) return null;
+        
         const c = await prisma.comment.findUnique({
           where: { id },
           include: {
@@ -84,10 +87,13 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
                       include: {
                         author: { select: { id: true, firstName: true, lastName: true } },
                       },
+                      orderBy: { createdAt: 'asc' },
                     },
                   },
+                  orderBy: { createdAt: 'asc' },
                 },
               },
+              orderBy: { createdAt: 'asc' },
             },
           },
         });
@@ -101,11 +107,11 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
           authorId: c.author.id,
           createdAt: c.createdAt,
           parentId: c.parentId,
-          replies: await Promise.all((c.replies || []).map((r: any) => getCommentWithReplies(r.id))),
+          replies: await Promise.all((c.replies || []).map((r: any) => getCommentWithReplies(r.id, depth + 1))),
         };
       };
 
-      const parentWithReplies = await getCommentWithReplies(parentId);
+      const parentWithReplies = await getCommentWithReplies(parentId, 0);
 
       res.status(201).json({
         success: true,

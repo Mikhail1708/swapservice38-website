@@ -9,7 +9,7 @@ import {
   Heart, Eye, Loader2, Check 
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { CommentSection } from '@/components/comments/CommentSection';
+import { CommentSection, countAllComments } from '@/components/comments/CommentSection';
 
 interface Article {
   id: string;
@@ -289,6 +289,8 @@ export default function ArticlePage() {
     );
   }
 
+  const totalComments = countAllComments(article.comments || []);
+
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -393,7 +395,7 @@ export default function ArticlePage() {
           
           <button 
             onClick={() => {
-              const commentsSection = document.querySelector('.border-t.border-gray-200.pt-8.mt-8');
+              const commentsSection = document.querySelector('.pt-4');
               if (commentsSection) {
                 commentsSection.scrollIntoView({ behavior: 'smooth' });
               }
@@ -401,11 +403,10 @@ export default function ArticlePage() {
             className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 rounded-xl text-gray-600 hover:bg-gray-50 transition text-sm font-medium"
           >
             <MessageCircle className="w-4 h-4" />
-            <span>Комментарии ({article.comments?.length || 0})</span>
+            <span>Комментарии ({totalComments})</span>
           </button>
         </div>
 
-        {/* ✅ ИСПОЛЬЗУЕМ CommentSection */}
         <CommentSection initialComments={article.comments || []} articleId={article.id} />
 
         <div className="flex flex-col sm:flex-row justify-between gap-4 mt-12 pt-6 border-t border-gray-200">

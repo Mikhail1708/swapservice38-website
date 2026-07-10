@@ -6,7 +6,7 @@ import {
   createArticle,
   updateArticle,
   deleteArticle,
-} from '../controllers/admin/content.controller';
+} from '../controllers/articles.controller'; // ✅ ПРАВИЛЬНЫЙ ИМПОРТ
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();

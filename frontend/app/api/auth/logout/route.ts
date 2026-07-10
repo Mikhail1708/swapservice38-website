@@ -1,29 +1,18 @@
-// frontend/app/api/auth/logout/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001';
 
 export async function POST(req: NextRequest) {
   try {
-    const cookie = req.headers.get('cookie') || '';
+    const response = NextResponse.json({ success: true });
     
-    const response = await fetch(`${BACKEND_URL}/api/auth/logout`, {
-      method: 'POST',
-      headers: {
-        'Cookie': cookie,
-      },
-    });
-
-    const data = await response.json();
-    const nextResponse = NextResponse.json(data, { status: response.status });
+    // Удаляем токен из cookies
+    response.cookies.delete('token');
+    response.cookies.delete('refreshToken');
     
-    // ✅ УДАЛЯЕМ ТОКЕН
-    nextResponse.cookies.delete('token');
-    
-    return nextResponse;
+    return response;
   } catch (error) {
+    console.error('Logout error:', error);
     return NextResponse.json(
-      { error: 'Ошибка сервера' },
+      { error: 'Ошибка при выходе' },
       { status: 500 }
     );
   }

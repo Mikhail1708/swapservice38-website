@@ -77,14 +77,14 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
 };
 
 // ============================================================
-// GET /api/articles/:id — одна статья
+// GET /api/articles/:slug — одна статья (ПО SLUG)
 // ============================================================
 export const getArticleById = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // это slug
 
     const article = await prisma.article.findUnique({
-      where: { id },
+      where: { slug: id }, // ✅ ИЩЕМ ПО SLUG
       include: {
         author: { select: { firstName: true, lastName: true } },
         tags: { include: { tag: true } },
@@ -101,6 +101,13 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
                   where: { isHidden: false },
                   include: {
                     author: { select: { id: true, firstName: true, lastName: true } },
+                    replies: {
+                      where: { isHidden: false },
+                      include: {
+                        author: { select: { id: true, firstName: true, lastName: true } },
+                      },
+                      orderBy: { createdAt: 'asc' },
+                    },
                   },
                   orderBy: { createdAt: 'asc' },
                 },
@@ -119,9 +126,9 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // ✅ УНИКАЛЬНЫЙ ПРОСМОТР — ТОЛЬКО 1 РАЗ В 24 ЧАСА
+    // Уникальные просмотры
     const ip = (req.headers['x-forwarded-for'] as string || req.ip || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
-    const viewerKey = `article:${id}:viewer:${ip}`;
+    const viewerKey = `article:${article.id}:viewer:${ip}`;
     
     let viewsCount = article.views;
     
@@ -129,54 +136,32 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       const viewed = await redis.get(viewerKey);
       
       if (!viewed) {
-        // Ставим флаг на 24 часа
         await redis.setex(viewerKey, 86400, '1');
-        
-        // Увеличиваем счётчик
         const updated = await prisma.article.update({
-          where: { id },
+          where: { id: article.id },
           data: { views: { increment: 1 } },
           select: { views: true },
         });
         viewsCount = updated.views;
-        console.log(`📊 Новый уникальный просмотр статьи ${id} (IP: ${ip})`);
-      } else {
-        console.log(`📊 Повторный просмотр статьи ${id} (IP: ${ip})`);
+        console.log(`📊 Новый просмотр статьи ${article.id} (IP: ${ip})`);
       }
     } catch (error) {
       console.warn('⚠️ Redis error:', error);
-      // Если Redis упал — не считаем просмотр
     }
 
-    // Форматируем комментарии с вложенностью
-    const formattedComments = article.comments.map((c: any) => ({
-      id: c.id,
-      content: c.content,
-      author: `${c.author.firstName || ''} ${c.author.lastName || ''}`.trim() || 'Аноним',
-      authorId: c.author.id,
-      createdAt: c.createdAt,
-      parentId: c.parentId,
-      replies: c.replies.map((r: any) => ({
-        id: r.id,
-        content: r.content,
-        author: `${r.author.firstName || ''} ${r.author.lastName || ''}`.trim() || 'Аноним',
-        authorId: r.author.id,
-        createdAt: r.createdAt,
-        parentId: r.parentId,
-        replies: r.replies.map((rr: any) => ({
-          id: rr.id,
-          content: rr.content,
-          author: `${rr.author.firstName || ''} ${rr.author.lastName || ''}`.trim() || 'Аноним',
-          authorId: rr.author.id,
-          createdAt: rr.createdAt,
-          parentId: rr.parentId,
-          replies: [],
-          _count: { likes: 0 },
-        })),
-        _count: { likes: 0 },
-      })),
-      _count: { likes: 0 },
-    }));
+    // Рекурсивное форматирование комментариев
+    const formatComments = (items: any[], depth: number = 0): any[] => {
+      if (depth > 5) return [];
+      return items.map((c) => ({
+        id: c.id,
+        content: c.content,
+        author: `${c.author.firstName || ''} ${c.author.lastName || ''}`.trim() || 'Аноним',
+        authorId: c.author.id,
+        createdAt: c.createdAt,
+        parentId: c.parentId,
+        replies: c.replies ? formatComments(c.replies, depth + 1) : [],
+      }));
+    };
 
     const formatted = {
       id: article.id,
@@ -194,7 +179,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       isPublished: article.isPublished,
       type: article.type || 'swap',
       author: article.author ? `${article.author.firstName || ''} ${article.author.lastName || ''}`.trim() : 'Admin',
-      comments: formattedComments,
+      comments: formatComments(article.comments, 0),
       createdAt: article.createdAt,
       updatedAt: article.updatedAt,
     };
@@ -234,7 +219,6 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Генерируем slug из заголовка
     const slug = title
       .toLowerCase()
       .replace(/[^a-zа-яё0-9\s]/g, '')
@@ -317,9 +301,7 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
   try {
     const { id } = req.params;
     const { title, content, description, imageUrl, isPublished, tags, images, readTime, type } = req.body;
-    const userId = (req as any).user?.id;
 
-    // Проверяем существование статьи
     const existing = await prisma.article.findUnique({ where: { id } });
     if (!existing) {
       res.status(404).json({ error: 'Статья не найдена' });
@@ -346,8 +328,7 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
         .replace(/^-|-$/g, '');
     }
 
-    // Обновляем основную статью
-    const article = await prisma.article.update({
+    await prisma.article.update({
       where: { id },
       data,
     });
@@ -439,16 +420,12 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Удаляем связанные данные
     await prisma.articleTagRelation.deleteMany({ where: { articleId: id } });
     await prisma.articleImage.deleteMany({ where: { articleId: id } });
     await prisma.comment.deleteMany({ where: { articleId: id } });
     await prisma.like.deleteMany({ where: { articleId: id } });
-    
-    // Удаляем статью
     await prisma.article.delete({ where: { id } });
 
-    // Удаляем кэш просмотров
     try {
       const keys = await redis.keys(`article:${id}:viewer:*`);
       if (keys.length > 0) {

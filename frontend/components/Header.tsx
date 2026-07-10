@@ -70,7 +70,6 @@ export default function Header() {
   const handleLogout = async () => {
     await logout();
     setIsDropdownOpen(false);
-    router.push('/');
   };
 
   const handleMouseEnter = (name: string) => {
@@ -110,9 +109,6 @@ export default function Header() {
     setIsMobileMenuOpen(false);
   };
 
-  // ============================================================
-  // НАВИГАЦИЯ — Контакты в конце
-  // ============================================================
   const categories = [
     { label: 'Все товары', href: '/catalog' },
     { label: 'Компоненты для свапа', href: '/catalog?category=Компоненты для свапа' },
@@ -135,12 +131,10 @@ export default function Header() {
     { label: 'Ремонт внедорожников', href: '/services#repair' },
   ];
 
-  // ✅ Главная и Каталог + Услуги + Контакты (в конце)
   const simpleLinks = [
     { href: '/', label: 'Главная' },
   ];
 
-  // ✅ КОНТАКТЫ ОТДЕЛЬНО (в конце навигации)
   const contactsLink = { href: '/contacts', label: 'Контакты' };
 
   return (
@@ -167,7 +161,6 @@ export default function Header() {
 
         {/* ===== ДЕСКТОПНАЯ НАВИГАЦИЯ ===== */}
         <nav className="hidden lg:flex items-center gap-6">
-          {/* Главная */}
           {simpleLinks.map((link) => (
             <Link
               key={link.href}
@@ -270,7 +263,7 @@ export default function Header() {
             )}
           </div>
 
-          {/* ✅ КОНТАКТЫ — В КОНЦЕ */}
+          {/* Контакты */}
           <Link
             href={contactsLink.href}
             className={`text-sm transition whitespace-nowrap ${
@@ -448,7 +441,6 @@ export default function Header() {
               ))}
             </div>
 
-            {/* ✅ КОНТАКТЫ — ПЕРЕД ВХОДОМ/РЕГИСТРАЦИЕЙ */}
             <Link
               href="/contacts"
               className={`block py-3 text-sm transition ${
