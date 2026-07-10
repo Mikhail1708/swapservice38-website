@@ -1,6 +1,7 @@
+// frontend/lib/hooks/useCart.ts
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface CartItem {
   productId: string;
@@ -21,26 +22,23 @@ export function useCart() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [itemsCount, setItemsCount] = useState(0);
+  const fetchedRef = useRef(false);
 
   const fetchCart = useCallback(async () => {
     try {
-      console.log('🔄 Загрузка корзины...');
       const response = await fetch('/api/cart', {
         credentials: 'include',
+        cache: 'no-store',
       });
       
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Корзина загружена:', data);
-        
         const cartData = data.cart || data;
         setCart(cartData);
-        
         const items = cartData?.items || [];
         const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
         setItemsCount(count);
       } else {
-        console.error('❌ Ошибка загрузки корзины:', response.status);
         setCart(null);
         setItemsCount(0);
       }
@@ -54,13 +52,13 @@ export function useCart() {
   }, []);
 
   useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
     fetchCart();
   }, [fetchCart]);
 
-  const addToCart = async (productId: string, quantity: number = 1) => {
+  const addToCart = useCallback(async (productId: string, quantity: number = 1) => {
     try {
-      console.log(`🛒 Добавление в корзину: ${productId}, кол-во: ${quantity}`);
-      
       const response = await fetch('/api/cart/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,23 +66,27 @@ export function useCart() {
         credentials: 'include',
       });
       
-      const data = await response.json();
-      
       if (response.ok) {
-        console.log('✅ Товар добавлен в корзину');
-        await fetchCart(); // Обновляем корзину
+        const data = await response.json();
+        const cartData = data.cart || data;
+        if (cartData) {
+          setCart(cartData);
+          const items = cartData.items || [];
+          const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
+          setItemsCount(count);
+        } else {
+          await fetchCart();
+        }
         return true;
-      } else {
-        console.error('❌ Ошибка API:', data);
-        return false;
       }
+      return false;
     } catch (error) {
       console.error('❌ Add to cart error:', error);
       return false;
     }
-  };
+  }, [fetchCart]);
 
-  const updateQuantity = async (productId: string, quantity: number) => {
+  const updateQuantity = useCallback(async (productId: string, quantity: number) => {
     try {
       const response = await fetch('/api/cart/update', {
         method: 'PUT',
@@ -94,37 +96,54 @@ export function useCart() {
       });
       
       if (response.ok) {
-        await fetchCart();
+        const data = await response.json();
+        const cartData = data.cart || data;
+        if (cartData) {
+          setCart(cartData);
+          const items = cartData.items || [];
+          const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
+          setItemsCount(count);
+        } else {
+          await fetchCart();
+        }
         return true;
       }
+      return false;
     } catch (error) {
       console.error('Update cart error:', error);
+      return false;
     }
-    return false;
-  };
+  }, [fetchCart]);
 
-  const clearCart = async () => {
+  const clearCart = useCallback(async () => {
     try {
-      console.log('🧹 Очистка корзины...');
       const response = await fetch('/api/cart/clear', {
         method: 'DELETE',
         credentials: 'include',
       });
       
       if (response.ok) {
-        console.log('✅ Корзина очищена');
         setCart(null);
         setItemsCount(0);
         return true;
-      } else {
-        console.error('❌ Ошибка очистки корзины');
-        return false;
       }
+      return false;
     } catch (error) {
       console.error('❌ Clear cart error:', error);
       return false;
     }
-  };
+  }, []);
+
+  const isInCart = useCallback((productId: string): boolean => {
+    if (!cart) return false;
+    return cart.items.some(item => item.productId === productId);
+  }, [cart]);
+
+  const getQuantity = useCallback((productId: string): number => {
+    if (!cart) return 0;
+    const item = cart.items.find(item => item.productId === productId);
+    return item?.quantity || 0;
+  }, [cart]);
 
   return { 
     cart, 
@@ -133,6 +152,8 @@ export function useCart() {
     addToCart, 
     updateQuantity, 
     clearCart, 
-    refetch: fetchCart 
+    refetch: fetchCart,
+    isInCart,
+    getQuantity,
   };
 }

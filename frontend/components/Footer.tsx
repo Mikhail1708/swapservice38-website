@@ -20,9 +20,8 @@ export default function Footer() {
             <h4 className="text-[11px] tracking-[0.2em] uppercase text-gray-400 font-medium mb-6">КОМПАНИЯ</h4>
             <ul className="space-y-3 text-sm text-gray-500 font-light">
               <li><Link href="/about" className="hover:text-black transition">О нас</Link></li>
-              <li><Link href="/works" className="hover:text-black transition">Наши работы</Link></li>
+              <li><Link href="/swaps" className="hover:text-black transition">Наши работы</Link></li>
               <li><Link href="/reviews" className="hover:text-black transition">Отзывы</Link></li>
-              <li><Link href="/news" className="hover:text-black transition">Новости</Link></li>
             </ul>
           </div>
 
@@ -41,7 +40,7 @@ export default function Footer() {
             <h4 className="text-[11px] tracking-[0.2em] uppercase text-gray-400 font-medium mb-6">КОНТАКТЫ</h4>
             <ul className="space-y-3 text-sm">
               <li className="text-gray-600 font-light">+7 (914) 895-58-88</li>
-              <li className="text-gray-600 font-light">swapservice@yandex.ru</li>
+              <li className="text-gray-600 font-light">swapservice38@yandex.ru</li>
               <li className="text-gray-600 font-light">г. Иркутск, ул. Новаторов 36</li>
               <li className="text-gray-600 font-light">Ежедневно с 10:00 до 20:00</li>
             </ul>
@@ -49,7 +48,7 @@ export default function Footer() {
         </div>
 
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-8">
-          <p className="text-xs text-gray-400 font-light">© 2026 SWAP SERVICE 38</p>
+          <p className="text-xs text-gray-400 font-light">© 2026 SWAPSERVICE38</p>
           <Link href="/privacy" className="text-xs text-gray-400 hover:text-black transition font-light">
             Политика конфиденциальности
           </Link>

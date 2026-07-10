@@ -1,7 +1,31 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
 export default function Home() {
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const mapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setMapLoaded(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    if (mapRef.current) {
+      observer.observe(mapRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
   const engines = [
     {
       name: '3UZ-FE',
@@ -146,7 +170,8 @@ export default function Home() {
                     src={engine.image} 
                     alt={engine.name} 
                     fill 
-                    className="object-cover group-hover:scale-105 transition duration-500" 
+                    className="object-cover group-hover:scale-105 transition duration-500"
+                    loading="lazy"
                   />
                 </div>
                 <div className="p-6">
@@ -199,7 +224,7 @@ export default function Home() {
       </section>
 
       {/* ===== КАРТА ===== */}
-      <section className="py-28 border-t border-gray-200">
+      <section className="py-28 border-t border-gray-200" ref={mapRef}>
         <div className="container-custom mx-auto px-4 sm:px-6 lg:px-8 w-full max-w-7xl">
           <div className="text-center max-w-3xl mx-auto mb-12">
             <span className="text-[11px] tracking-[0.25em] text-gray-400 uppercase font-medium">МЫ НА КАРТЕ</span>
@@ -210,14 +235,24 @@ export default function Home() {
           </div>
 
           <div className="relative w-full h-[400px] md:h-[500px] rounded-2xl overflow-hidden border border-gray-200 bg-gray-100 max-w-6xl mx-auto">
-            <iframe
-              src="https://yandex.ru/map-widget/v1/?um=constructor%3A8f2f6a0b8a1d4a0a9c9e8f7d6c5b4a3a&amp;source=constructor&amp;pt=104.216053,52.363528&amp;zoom=17"
-              width="100%"
-              height="100%"
-              frameBorder="0"
-              className="filter grayscale hover:grayscale-0 transition duration-700"
-              allowFullScreen
-            />
+            {mapLoaded ? (
+              <iframe
+                src="https://yandex.ru/map-widget/v1/?um=constructor%3A8f2f6a0b8a1d4a0a9c9e8f7d6c5b4a3a&amp;source=constructor&amp;pt=104.216053,52.363528&amp;zoom=17"
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                className="filter grayscale hover:grayscale-0 transition duration-700"
+                allowFullScreen
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+                <div className="text-center">
+                  <div className="text-4xl mb-2">🗺️</div>
+                  <p className="text-sm">Карта загружается...</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid sm:grid-cols-3 gap-6 mt-8 max-w-4xl mx-auto">

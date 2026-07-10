@@ -1,6 +1,7 @@
+// frontend/lib/hooks/useAuth.ts
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface User {
   id: string;
@@ -16,13 +17,25 @@ interface User {
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fetched, setFetched] = useState(false);
+  const fetchedRef = useRef(false);
+  const userCache = useRef<User | null>(null);
 
   const fetchUser = useCallback(async () => {
+    // ✅ ЕСЛИ ЕСТЬ КЭШ — ВОЗВРАЩАЕМ
+    if (userCache.current) {
+      setUser(userCache.current);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch('/api/auth/me');
+      const response = await fetch('/api/auth/me', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
       if (response.ok) {
         const data = await response.json();
+        userCache.current = data.user;
         setUser(data.user);
       } else {
         setUser(null);
@@ -42,10 +55,9 @@ export function useAuth() {
         credentials: 'include',
       });
       if (response.ok) {
+        userCache.current = null;
         setUser(null);
-        // Очищаем localStorage
         localStorage.removeItem('token');
-        // Перезагружаем страницу чтобы сбросить все состояния
         window.location.href = '/';
       }
     } catch (error) {
@@ -54,10 +66,10 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
-    if (fetched) return;
-    setFetched(true);
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
     fetchUser();
-  }, [fetched, fetchUser]);
+  }, [fetchUser]);
 
   return { user, loading, logout, refetch: fetchUser };
 }

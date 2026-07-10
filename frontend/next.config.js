@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // ============================================================
+  // 1. ИЗОБРАЖЕНИЯ
+  // ============================================================
   images: {
     domains: [
       'localhost',
@@ -39,13 +42,17 @@ const nextConfig = {
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    minimumCacheTTL: 60,
+    minimumCacheTTL: 86400, // ✅ 24 ЧАСА
     formats: ['image/webp'],
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
 
+  // ============================================================
+  // 2. PROXY (УЖЕ ЕСТЬ)
+  // ============================================================
   async rewrites() {
     return [
-      // ✅ Прокси для сайтового бэкенда (порт 5001)
       {
         source: '/api/auth/:path*',
         destination: 'http://localhost:5001/api/auth/:path*',
@@ -74,16 +81,99 @@ const nextConfig = {
         source: '/api/webhooks/:path*',
         destination: 'http://localhost:5001/api/webhooks/:path*',
       },
-      // ✅ ОСТАЛЬНЫЕ API (если есть) — на сайтовый бэкенд
       {
         source: '/api/:path*',
         destination: 'http://localhost:5001/api/:path*',
       },
-      // ✅ CRM API (если нужно отдельно)
-       {
+      {
         source: '/api/crm/:path*',
         destination: 'http://localhost:5000/api/:path*',
-       },
+      },
+    ];
+  },
+
+  // ============================================================
+  // 3. ✅ СЖАТИЕ И КЭШИРОВАНИЕ СТАТИКИ
+  // ============================================================
+  compress: true,
+  
+  // ============================================================
+  // 4. ✅ КЭШИРОВАНИЕ СТРАНИЦ
+  // ============================================================
+  swcMinify: true,
+  
+  experimental: {
+    optimizeCss: true,
+    // ✅ Включаем предзагрузку данных
+    optimisticClientCache: true,
+  },
+
+  // ============================================================
+  // 5. ✅ ДОЛГОЕ КЭШИРОВАНИЕ БИЛДА
+  // ============================================================
+  generateBuildId: async () => {
+    return 'build-' + Date.now();
+  },
+
+  // ============================================================
+  // 6. ✅ УСКОРЕНИЕ СБОРКИ
+  // ============================================================
+  poweredByHeader: false,
+  reactStrictMode: true,
+  
+  webpack: (config, { isServer }) => {
+    // ✅ Ускорение сборки
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    return config;
+  },
+
+  // ============================================================
+  // 7. ✅ HTTP/2 PUSH (для статики)
+  // ============================================================
+  headers: async () => {
+    return [
+      {
+        source: '/:path*.{css,js,woff,woff2}',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/images/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=604800, stale-while-revalidate=86400',
+          },
+        ],
+      },
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+        ],
+      },
     ];
   },
 };

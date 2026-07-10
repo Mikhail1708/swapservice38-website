@@ -12,9 +12,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  X
+  X,
+  Check
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
+import { cache, productCache, categoryCache } from '@/lib/cache';
 
 interface Product {
   id: string | number;
@@ -46,8 +48,9 @@ export default function CatalogPage() {
   const categoryFromUrl = searchParams.get('category') || '';
   const pageFromUrl = parseInt(searchParams.get('page') || '1');
   
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ✅ ИСПОЛЬЗУЕМ КЭШ ЧЕРЕЗ ОБЪЕКТЫ
+  const [allProducts, setAllProducts] = useState<Product[]>(productCache.data || []);
+  const [loading, setLoading] = useState(!productCache.data);
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
@@ -56,19 +59,62 @@ export default function CatalogPage() {
   
   const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
   const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
+  const [totalItems, setTotalItems] = useState(productCache.data?.length || 0);
+  const [categories, setCategories] = useState<string[]>(categoryCache.data || []);
   
-  const { addToCart, refetch } = useCart();
+  const { addToCart, refetch, isInCart, getQuantity } = useCart();
   const ITEMS_PER_PAGE = 16;
 
-  // ✅ ЗАГРУЗКА ТОВАРОВ
+  // ✅ ЗАГРУЗКА КАТЕГОРИЙ (С КЭШЕМ)
+  useEffect(() => {
+    if (categoryCache.data) {
+      setCategories(categoryCache.data);
+      return;
+    }
+
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch('/api/products/categories');
+        if (response.ok) {
+          const data = await response.json();
+          categoryCache.data = data.categories || [];
+          setCategories(categoryCache.data);
+        }
+      } catch (error) {
+        console.error('❌ Ошибка загрузки категорий:', error);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // ✅ ЗАГРУЗКА ТОВАРОВ (С КЭШЕМ — ТОЛЬКО 1 РАЗ!)
   const fetchProducts = useCallback(async () => {
+    // ✅ ЕСЛИ УЖЕ ЕСТЬ В КЭШЕ — НЕ ГРУЗИМ
+    if (productCache.data) {
+      setAllProducts(productCache.data);
+      setTotalItems(productCache.data.length);
+      setLoading(false);
+      return;
+    }
+
+    // ✅ ПРОВЕРЯЕМ КЭШ ПО КЛЮЧУ
+    const cached = cache.get<Product[]>('products:all');
+    if (cached) {
+      productCache.data = cached;
+      setAllProducts(cached);
+      setTotalItems(cached.length);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await fetch('/api/products?limit=999');
       const data = await response.json();
       
       if (data.items && data.items.length > 0) {
+        productCache.data = data.items;
+        cache.set('products:all', data.items, 600000); // 10 минут
         setAllProducts(data.items);
         setTotalItems(data.total || data.items.length);
       } else {
@@ -88,7 +134,7 @@ export default function CatalogPage() {
     fetchProducts();
   }, [fetchProducts]);
 
-  // ✅ ФИЛЬТРАЦИЯ (только по категории и поиску)
+  // ✅ ФИЛЬТРАЦИЯ
   const filteredProducts = useMemo(() => {
     let result = [...allProducts];
     
@@ -108,13 +154,13 @@ export default function CatalogPage() {
     return result;
   }, [allProducts, selectedCategory, search]);
 
-  // ✅ УНИКАЛЬНЫЕ КАТЕГОРИИ
-  const categories = useMemo(() => {
+  // ✅ УНИКАЛЬНЫЕ КАТЕГОРИИ (из загруженных товаров)
+  const productCategories = useMemo(() => {
     const cats = new Set(allProducts.map(p => p.category));
     return Array.from(cats).filter(Boolean);
   }, [allProducts]);
 
-  // ✅ ПАГИНАЦИЯ
+  // ✅ ПАГИНАЦИЯ НА КЛИЕНТЕ
   const paginatedProducts = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
@@ -132,7 +178,7 @@ export default function CatalogPage() {
     }
   }, [filteredProducts.length, currentPage]);
 
-  // ✅ ОБНОВЛЕНИЕ URL (ТОЛЬКО ПРИ ИЗМЕНЕНИИ ФИЛЬТРОВ)
+  // ✅ ОБНОВЛЕНИЕ URL
   const updateUrl = useCallback(() => {
     const params = new URLSearchParams();
     if (selectedCategory) params.set('category', selectedCategory);
@@ -142,18 +188,15 @@ export default function CatalogPage() {
     const queryString = params.toString();
     const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
     
-    // ✅ Используем push, чтобы не было бесконечного цикла
     if (window.location.pathname + window.location.search !== newUrl) {
       window.history.replaceState({}, '', newUrl);
     }
   }, [selectedCategory, currentPage, search]);
 
-  // ✅ Обновляем URL при изменении фильтров
   useEffect(() => {
     updateUrl();
   }, [selectedCategory, currentPage, search, updateUrl]);
 
-  // ✅ СИНХРОНИЗАЦИЯ ИЗ URL
   useEffect(() => {
     if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
       setSelectedCategory(categoryFromUrl);
@@ -308,7 +351,7 @@ export default function CatalogPage() {
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black focus:outline-none focus:border-black/30 transition"
                 >
                   <option value="">Все категории</option>
-                  {categories.map(cat => (
+                  {(categories.length > 0 ? categories : productCategories).map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -352,16 +395,24 @@ export default function CatalogPage() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {paginatedProducts.map((product) => (
-                <ProductCard
-                  key={String(product.id)}
-                  product={product}
-                  onAddToCart={handleAddToCart}
-                  addingToCart={addingToCart === String(product.id)}
-                  onImageError={handleImageError}
-                  hasImageError={imageErrors[String(product.id)]}
-                />
-              ))}
+              {paginatedProducts.map((product) => {
+                const productId = String(product.id);
+                const inCart = isInCart(productId);
+                const quantityInCart = getQuantity(productId);
+                
+                return (
+                  <ProductCard
+                    key={productId}
+                    product={product}
+                    onAddToCart={handleAddToCart}
+                    addingToCart={addingToCart === productId}
+                    onImageError={handleImageError}
+                    hasImageError={imageErrors[productId]}
+                    inCart={inCart}
+                    quantityInCart={quantityInCart}
+                  />
+                );
+              })}
             </div>
 
             <div className="text-center mt-6 text-sm text-gray-400">
@@ -440,12 +491,16 @@ function ProductCard({
   addingToCart,
   onImageError,
   hasImageError,
+  inCart,
+  quantityInCart,
 }: { 
   product: Product; 
   onAddToCart: (id: string | number) => void;
   addingToCart: boolean;
   onImageError: (id: string | number) => void;
   hasImageError?: boolean;
+  inCart: boolean;
+  quantityInCart: number;
 }) {
   const imageUrl = getImageUrl(product.images);
   const [imgError, setImgError] = useState(false);
@@ -475,6 +530,12 @@ function ProductCard({
         {product.oldPrice && (
           <div className="absolute top-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
             -{Math.round((1 - product.price / product.oldPrice) * 100)}%
+          </div>
+        )}
+        {inCart && (
+          <div className="absolute bottom-3 right-3 bg-black text-white text-xs px-3 py-1 rounded-full font-medium flex items-center gap-1">
+            <Check className="w-3 h-3" />
+            {quantityInCart > 1 ? `${quantityInCart} шт.` : 'В корзине'}
           </div>
         )}
       </Link>
@@ -531,12 +592,16 @@ function ProductCard({
             disabled={!product.inStock || addingToCart}
             className={`p-2.5 rounded-xl transition ${
               product.inStock
-                ? 'bg-black hover:bg-gray-800 text-white'
+                ? inCart
+                  ? 'bg-green-500 hover:bg-green-600 text-white'
+                  : 'bg-black hover:bg-gray-800 text-white'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
             {addingToCart ? (
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : inCart ? (
+              <Check className="w-4 h-4" />
             ) : (
               <ShoppingCart className="w-4 h-4" />
             )}

@@ -16,16 +16,10 @@ import {
   RefreshCw,
   X,
   ChevronLeft,
-  ChevronRight as ChevronRightIcon
+  ChevronRight as ChevronRightIcon,
+  Check
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
-
-interface ProductImage {
-  id: number;
-  url: string;
-  isMain: boolean;
-  sortOrder: number;
-}
 
 interface Category {
   id: number;
@@ -37,16 +31,21 @@ interface Product {
   name: string;
   article: string | null;
   description: string | null;
-  cost_price: number;
-  retail_price: number;
+  price: number;
+  retail_price?: number;
+  cost_price?: number;
   stock: number;
-  min_stock: number;
+  min_stock?: number;
   categories: Category[];
   characteristics: Record<string, string | string[]>;
-  images: ProductImage[];
+  images: string[];
   image_url: string | null;
   createdAt: string;
   updatedAt: string;
+  sku?: string;
+  inStock?: boolean;
+  features?: any[];
+  category?: string;
 }
 
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
@@ -64,17 +63,42 @@ export default function ProductPage() {
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   
-  const { addToCart, refetch } = useCart();
+  const { addToCart, refetch, isInCart, getQuantity } = useCart();
 
-  // ✅ ВСЕ ИЗОБРАЖЕНИЯ
+  // ✅ ВСЕ ИЗОБРАЖЕНИЯ (УНИКАЛЬНЫЕ)
   const allImages = useMemo(() => {
-    const images = product?.images || [];
-    const urls = images.map(img => img.url);
-    if (product?.image_url && !urls.includes(product.image_url)) {
-      urls.unshift(product.image_url);
+    const urls: string[] = [];
+    
+    // Добавляем images из CRM
+    if (product?.images && Array.isArray(product.images)) {
+      for (const img of product.images) {
+        if (typeof img === 'string' && img.trim()) {
+          // ✅ Убираем дубликаты
+          if (!urls.includes(img)) {
+            urls.push(img);
+          }
+        }
+      }
     }
-    return urls.filter(Boolean);
+    
+    // Добавляем image_url
+    if (product?.image_url && product.image_url.trim()) {
+      if (!urls.includes(product.image_url)) {
+        urls.unshift(product.image_url);
+      }
+    }
+    
+    // Если нет ни одного изображения — плейсхолдер
+    if (urls.length === 0) {
+      urls.push(PLACEHOLDER_IMAGE);
+    }
+    
+    console.log('📸 Все изображения (уникальные):', urls);
+    return urls;
   }, [product]);
+
+  const inCart = product ? isInCart(String(product.id)) : false;
+  const quantityInCart = product ? getQuantity(String(product.id)) : 0;
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -94,13 +118,39 @@ export default function ProductPage() {
         }
         
         const data = await response.json();
-        setProduct(data);
         
-        if (data.images && data.images.length > 0) {
-          const mainImage = data.images.find((img: ProductImage) => img.isMain);
-          setSelectedImage(mainImage?.url || data.images[0]?.url || null);
-        } else if (data.image_url) {
-          setSelectedImage(data.image_url);
+        const adaptedProduct: Product = {
+          id: data.id,
+          name: data.name,
+          article: data.sku || data.article || null,
+          description: data.description || null,
+          price: data.price || data.retail_price || 0,
+          retail_price: data.price || data.retail_price || 0,
+          cost_price: data.cost_price || 0,
+          stock: data.stock || 0,
+          min_stock: data.min_stock || 2,
+          categories: data.categories || [],
+          characteristics: data.characteristics || {},
+          images: data.images || [],
+          image_url: data.image_url || (data.images?.length > 0 ? data.images[0] : null),
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || new Date().toISOString(),
+          sku: data.sku || data.article || null,
+          inStock: data.inStock !== undefined ? data.inStock : (data.stock || 0) > 0,
+          features: data.features || [],
+          category: data.category || (data.categories?.length > 0 ? data.categories[0].name : ''),
+        };
+        
+        setProduct(adaptedProduct);
+        
+        // ✅ Выбираем главное изображение
+        const uniqueImages = adaptedProduct.images || [];
+        if (uniqueImages.length > 0) {
+          setSelectedImage(uniqueImages[0]);
+        } else if (adaptedProduct.image_url) {
+          setSelectedImage(adaptedProduct.image_url);
+        } else {
+          setSelectedImage(PLACEHOLDER_IMAGE);
         }
         
       } catch (err) {
@@ -139,6 +189,7 @@ export default function ProductPage() {
   };
 
   const formatPrice = (price: number): string => {
+    if (!price && price !== 0) return '0 ₽';
     return price.toLocaleString('ru-RU') + ' ₽';
   };
 
@@ -221,15 +272,15 @@ export default function ProductPage() {
     );
   }
 
-  const stockStatus = getStockStatus(product.stock, product.min_stock);
-  const isOutOfStock = product.stock <= 0;
-  const mainImage = selectedImage || product.image_url || (product.images?.length > 0 ? product.images[0].url : null);
+  const stockStatus = getStockStatus(product.stock || 0, product.min_stock || 2);
+  const isOutOfStock = (product.stock || 0) <= 0;
+  const mainImage = selectedImage || product.image_url || (product.images?.length > 0 ? product.images[0] : null);
   const images = allImages;
+  const productPrice = product.price || product.retail_price || 0;
 
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
       <div className="container-custom max-w-6xl">
-        {/* Хлебные крошки */}
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
           <Link href="/" className="hover:text-black transition">Главная</Link>
           <ChevronRight size={14} />
@@ -239,7 +290,7 @@ export default function ProductPage() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
-          {/* ===== ЛЕВАЯ КОЛОНКА — ФОТО ===== */}
+          {/* ЛЕВАЯ КОЛОНКА — ФОТО */}
           <div>
             <button
               onClick={() => {
@@ -254,6 +305,10 @@ export default function ProductPage() {
                 fill
                 className="object-contain p-4 transition group-hover:scale-105 duration-300"
                 unoptimized
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = PLACEHOLDER_IMAGE;
+                }}
               />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-center justify-center">
                 <span className="text-white bg-black/50 px-4 py-2 rounded-full text-sm opacity-0 group-hover:opacity-100 transition">
@@ -262,7 +317,7 @@ export default function ProductPage() {
               </div>
             </button>
             
-            {images.length > 0 && (
+            {images.length > 1 && (
               <div className="flex gap-3 mt-4 overflow-x-auto pb-2">
                 {images.map((img, index) => (
                   <button
@@ -279,6 +334,10 @@ export default function ProductPage() {
                       height={80}
                       className="w-full h-full object-cover"
                       unoptimized
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = PLACEHOLDER_IMAGE;
+                      }}
                     />
                   </button>
                 ))}
@@ -286,9 +345,8 @@ export default function ProductPage() {
             )}
           </div>
 
-          {/* ===== ПРАВАЯ КОЛОНКА — ИНФО ===== */}
+          {/* ПРАВАЯ КОЛОНКА — ИНФО */}
           <div className="space-y-5">
-            {/* Категории */}
             {product.categories && product.categories.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {product.categories.map((cat) => (
@@ -305,17 +363,23 @@ export default function ProductPage() {
 
             <h1 className="text-3xl font-bold text-black leading-tight">{product.name}</h1>
             
-            {product.article && (
-              <p className="text-sm text-gray-400">Артикул: {product.article}</p>
+            {(product.article || product.sku) && (
+              <p className="text-sm text-gray-400">Артикул: {product.article || product.sku}</p>
             )}
 
             <div className="flex items-center gap-4 flex-wrap">
               <span className="text-3xl font-bold text-black">
-                {formatPrice(product.retail_price)}
+                {formatPrice(productPrice)}
               </span>
               <span className={`text-sm font-medium px-3 py-1 rounded-full ${stockStatus.bg} ${stockStatus.color}`}>
                 {stockStatus.label}
               </span>
+              {inCart && (
+                <span className="text-sm font-medium px-3 py-1 rounded-full bg-green-50 text-green-600 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  В корзине ({quantityInCart} шт.)
+                </span>
+              )}
             </div>
 
             {product.description && (
@@ -340,8 +404,8 @@ export default function ProductPage() {
                   </button>
                   <span className="w-12 text-center font-medium">{quantity}</span>
                   <button
-                    onClick={() => setQuantity(Math.min(product.stock, quantity + 1))}
-                    disabled={isOutOfStock || quantity >= product.stock}
+                    onClick={() => setQuantity(Math.min(product.stock || 999, quantity + 1))}
+                    disabled={isOutOfStock || quantity >= (product.stock || 999)}
                     className="px-4 py-2 hover:bg-gray-100 transition disabled:opacity-50 text-lg font-medium"
                   >
                     +
@@ -354,15 +418,22 @@ export default function ProductPage() {
                   className={`flex-1 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition ${
                     isOutOfStock
                       ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      : 'bg-black text-white hover:bg-gray-800'
+                      : inCart
+                        ? 'bg-green-500 text-white hover:bg-green-600'
+                        : 'bg-black text-white hover:bg-gray-800'
                   }`}
                 >
                   {addingToCart ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : inCart ? (
+                    <>
+                      <Check size={18} />
+                      В корзине
+                    </>
                   ) : (
                     <>
                       <ShoppingCart size={18} />
-                      {isOutOfStock ? 'Нет в наличии' : 'В корзину'}
+                      В корзину
                     </>
                   )}
                 </button>
@@ -371,7 +442,9 @@ export default function ProductPage() {
               <p className="text-xs text-gray-400 text-center">
                 {isOutOfStock 
                   ? 'Товар временно отсутствует на складе' 
-                  : `Доступно ${product.stock} шт.`}
+                  : inCart
+                    ? `Уже в корзине (${quantityInCart} шт.)`
+                    : `Доступно ${product.stock || 0} шт.`}
               </p>
             </div>
 
@@ -401,7 +474,7 @@ export default function ProductPage() {
         </div>
       </div>
 
-      {/* ===== ЛАЙТБОКС ===== */}
+      {/* ЛАЙТБОКС */}
       {isLightboxOpen && images.length > 0 && (
         <div 
           className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
@@ -431,6 +504,10 @@ export default function ProductPage() {
               fill
               className="object-contain"
               unoptimized
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = PLACEHOLDER_IMAGE;
+              }}
             />
           </div>
           

@@ -2,6 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression'; // ✅ ДОБАВЛЯЕМ
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes';
@@ -14,7 +15,6 @@ import adminRoutes from './routes/admin.routes';
 import articlesRoutes from './routes/articles.routes';
 import commentsRoutes from './routes/comments.routes';
 import likesRoutes from './routes/likes.routes';
-
 
 dotenv.config();
 
@@ -50,7 +50,21 @@ app.use(cors({
 }));
 
 // ============================================================
-// 2. MIDDLEWARE
+// 2. ✅ СЖАТИЕ (GZIP/BROTLI)
+// ============================================================
+app.use(compression({
+  level: 6, // оптимальный уровень сжатия
+  threshold: 1024, // сжимаем ответы > 1KB
+  filter: (req, res) => {
+    // Не сжимаем вебхуки и SSE
+    if (req.path.includes('/webhook')) return false;
+    if (req.path.includes('/events')) return false;
+    return compression.filter(req, res);
+  }
+}));
+
+// ============================================================
+// 3. MIDDLEWARE
 // ============================================================
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -66,7 +80,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ============================================================
-// 3. ЛОГИРОВАНИЕ
+// 4. ЛОГИРОВАНИЕ
 // ============================================================
 app.use((req, res, next) => {
   console.log(`📡 ${req.method} ${req.url}`);
@@ -74,7 +88,7 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
-// 4. РОУТЫ
+// 5. РОУТЫ
 // ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -87,9 +101,8 @@ app.use('/api/articles', articlesRoutes);
 app.use('/api/comments', commentsRoutes);
 app.use('/api/likes', likesRoutes);
 
-
 // ============================================================
-// 5. HEALTH CHECK
+// 6. HEALTH CHECK
 // ============================================================
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -104,7 +117,7 @@ app.get('/api/webhooks/health', (req, res) => {
 });
 
 // ============================================================
-// 6. ОБРАБОТКА ОШИБОК
+// 7. ОБРАБОТКА ОШИБОК
 // ============================================================
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('❌ Server error:', err);
@@ -112,7 +125,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // ============================================================
-// 7. ЗАПУСК
+// 8. ЗАПУСК
 // ============================================================
 app.listen(port, () => {
   console.log(`🚀 Site Backend running on port ${port}`);

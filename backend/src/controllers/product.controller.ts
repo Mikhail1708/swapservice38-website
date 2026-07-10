@@ -1,183 +1,195 @@
-// backend/src/controllers/product.controller.ts
+// backend/src/controllers/product.controller.ts (САЙТ, порт 5001)
 import { Request, Response } from 'express';
-import { getProductsFromCRM, getProductFromCRM } from '../services/crm.service';
+import axios from 'axios';
 import redis from '../config/redis';
 
-// Мок-данные на случай, если CRM недоступна
-const mockProducts = [
-  {
-    id: 1,
-    name: 'Боди-лифт Nissan Patrol Y60',
-    price: 15000,
-    category: 'Боди-лифт',
-    inStock: true,
-    images: ['/images/products/bodylift-y60.jpg'],
-    sku: 'BL-NP-Y60-001',
-    description: 'Полный комплект для боди-лифта Nissan Patrol Y60'
-  },
-  {
-    id: 2,
-    name: 'Крепление канистры Toyota LC 80',
-    price: 8500,
-    category: 'Крепления',
-    inStock: true,
-    images: ['/images/products/canister-lc80.jpg'],
-    sku: 'KC-TLC80-001',
-    description: 'Крепление канистры на заднюю дверь Toyota LC 80'
-  },
-  {
-    id: 3,
-    name: 'Защита картера Nissan Patrol Y61',
-    price: 12000,
-    category: 'Защита',
-    inStock: false,
-    images: ['/images/products/sump-guard-y61.jpg'],
-    sku: 'ZG-NPY61-001',
-    description: 'Защита картера Nissan Patrol Y61'
-  },
-];
+const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
+const CACHE_TTL = 600; // 5 минут
 
 /**
  * GET /api/products
- * Получение списка товаров
  */
 export const getProducts = async (req: Request, res: Response): Promise<void> => {
   try {
     const { category, search, page = '1', limit = '16' } = req.query;
     
-    console.log('📦 Запрос товаров:', { category, search, page, limit });
+    console.log('📦 Запрос товаров из CRM:', { category, search, page, limit });
 
-    // Пытаемся получить из CRM
+    const cacheKey = `products:${category || 'all'}:${search || 'all'}:${page}:${limit}`;
+    
     try {
-      const products = await getProductsFromCRM({ 
-        category: category as string, 
-        search: search as string 
-      });
-      
-      res.json({
-        products: products.data || products,
-        total: products.total || products.length || 0,
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-      });
-      return;
-    } catch (crmError) {
-      console.warn('⚠️ CRM недоступна, возвращаем мок-данные');
-      
-      // Фильтруем мок-данные
-      let filtered = [...mockProducts];
-      
-      if (category) {
-        filtered = filtered.filter(p => 
-          p.category.toLowerCase() === (category as string).toLowerCase()
-        );
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log('✅ Товары из кэша');
+        res.json(JSON.parse(cached));
+        return;
       }
-      
-      if (search) {
-        const searchLower = (search as string).toLowerCase();
-        filtered = filtered.filter(p => 
-          p.name.toLowerCase().includes(searchLower) ||
-          p.description?.toLowerCase().includes(searchLower) ||
-          p.sku?.toLowerCase().includes(searchLower)
-        );
-      }
-      
-      // Пагинация
-      const pageNum = parseInt(page as string);
-      const limitNum = parseInt(limit as string);
-      const start = (pageNum - 1) * limitNum;
-      const end = start + limitNum;
-      
-      res.json({
-        products: filtered.slice(start, end),
-        total: filtered.length,
-        page: pageNum,
-        limit: limitNum,
-      });
+    } catch (error) {
+      console.warn('⚠️ Redis error:', error);
     }
+
+    const response = await axios.get(`${CRM_API_URL}/api/public/products`, {
+      params: { category, search, page, limit },
+      timeout: 10000,
+    });
+
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(response.data));
+    } catch (error) {
+      console.warn('⚠️ Redis set error:', error);
+    }
+
+    res.json(response.data);
   } catch (error: any) {
     console.error('❌ Ошибка получения товаров:', error);
-    res.status(500).json({ error: 'Ошибка получения товаров' });
+    res.status(500).json({ 
+      error: 'Ошибка получения товаров',
+      details: error.message 
+    });
   }
 };
 
 /**
  * GET /api/products/:id
- * Получение товара по ID
  */
 export const getProductById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     
-    console.log(`📦 Запрос товара ${id}`);
+    console.log(`📦 Запрос товара ${id} из CRM`);
 
-    // Пытаемся получить из CRM
+    const cacheKey = `product:${id}`;
+    
     try {
-      const product = await getProductFromCRM(parseInt(id));
-      res.json(product);
-      return;
-    } catch (crmError) {
-      console.warn(`⚠️ CRM недоступна, ищем в мок-данных ${id}`);
-      
-      const product = mockProducts.find(p => p.id === parseInt(id));
-      
-      if (product) {
-        res.json(product);
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log('✅ Товар из кэша');
+        res.json(JSON.parse(cached));
         return;
       }
-      
-      res.status(404).json({ error: 'Товар не найден' });
+    } catch (error) {
+      console.warn('⚠️ Redis error:', error);
     }
+
+    const response = await axios.get(`${CRM_API_URL}/api/public/products/${id}`, {
+      timeout: 10000,
+    });
+
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(response.data));
+    } catch (error) {
+      console.warn('⚠️ Redis set error:', error);
+    }
+
+    res.json(response.data);
   } catch (error: any) {
     console.error(`❌ Ошибка получения товара ${req.params.id}:`, error);
-    res.status(500).json({ error: 'Ошибка получения товара' });
+    
+    if (error.response?.status === 404) {
+      res.status(404).json({ error: 'Товар не найден' });
+      return;
+    }
+    
+    res.status(500).json({ 
+      error: 'Ошибка получения товара',
+      details: error.message 
+    });
   }
 };
 
 /**
  * GET /api/products/categories
- * Получение всех категорий
+ * Получение категорий (без использования getProductFromCRM)
  */
 export const getCategories = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Пытаемся получить из CRM
+    console.log('📦 Запрос категорий');
+
+    const cacheKey = 'categories:all';
+    
     try {
-      const categories = await getProductsFromCRM({});
-      const uniqueCategories = [...new Set(categories.data?.map((p: any) => p.category) || [])];
-      res.json({ categories: uniqueCategories });
-      return;
-    } catch (crmError) {
-      // Мок-категории
-      const categories = [...new Set(mockProducts.map(p => p.category))];
-      res.json({ categories });
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log('✅ Категории из кэша');
+        res.json(JSON.parse(cached));
+        return;
+      }
+    } catch (error) {
+      console.warn('⚠️ Redis error:', error);
     }
+
+    let categories: string[] = [];
+
+    try {
+      // ✅ ПРЯМОЙ ЗАПРОС К CRM
+      const response = await axios.get(`${CRM_API_URL}/api/public/categories`, {
+        timeout: 5000,
+      });
+      
+      let data = response.data;
+      
+      // Нормализуем ответ
+      if (Array.isArray(data)) {
+        categories = data.map((c: any) => c.name || c).filter(Boolean);
+      } else if (data.categories && Array.isArray(data.categories)) {
+        categories = data.categories.map((c: any) => c.name || c).filter(Boolean);
+      } else if (data.data && Array.isArray(data.data)) {
+        categories = data.data.map((c: any) => c.name || c).filter(Boolean);
+      } else if (data.items && Array.isArray(data.items)) {
+        categories = data.items.map((c: any) => c.name || c).filter(Boolean);
+      }
+      
+      console.log(`✅ Получено ${categories.length} категорий из CRM`);
+    } catch (error: any) {
+      console.warn('⚠️ CRM недоступна, получаем категории из товаров');
+      
+      // Fallback
+      try {
+        const productsResponse = await axios.get(`${CRM_API_URL}/api/public/products`, {
+          params: { limit: 100 },
+          timeout: 3000,
+        });
+        
+        const products = productsResponse.data?.items || productsResponse.data || [];
+        const uniqueCategories = [...new Set(products.map((p: any) => p.category).filter(Boolean))];
+        categories = uniqueCategories;
+        console.log(`✅ Получено ${categories.length} категорий из товаров`);
+      } catch (fallbackError) {
+        console.warn('⚠️ Не удалось получить категории');
+        categories = [];
+      }
+    }
+
+    const result = { categories };
+    
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(result));
+    } catch (error) {
+      console.warn('⚠️ Redis set error:', error);
+    }
+
+    res.json(result);
   } catch (error: any) {
     console.error('❌ Ошибка получения категорий:', error);
-    res.status(500).json({ error: 'Ошибка получения категорий' });
+    res.json({ categories: [] });
   }
 };
 
 /**
  * GET /api/products/category/:category
- * Получение товаров по категории
  */
 export const getProductsByCategory = async (req: Request, res: Response): Promise<void> => {
   try {
     const { category } = req.params;
     
-    console.log(`📦 Запрос товаров по категории: ${category}`);
-    
-    // Пытаемся получить из CRM
-    try {
-      const products = await getProductsFromCRM({ category });
-      res.json({ products: products.data || products });
-      return;
-    } catch (crmError) {
-      const filtered = mockProducts.filter(p => 
-        p.category.toLowerCase() === category.toLowerCase()
-      );
-      res.json({ products: filtered });
-    }
+    console.log(`📦 Запрос товаров по категории ${category} из CRM`);
+
+    const response = await axios.get(`${CRM_API_URL}/api/public/products`, {
+      params: { category },
+      timeout: 10000,
+    });
+
+    res.json(response.data);
   } catch (error: any) {
     console.error(`❌ Ошибка получения товаров по категории ${req.params.category}:`, error);
     res.status(500).json({ error: 'Ошибка получения товаров' });
