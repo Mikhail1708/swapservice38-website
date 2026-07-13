@@ -25,13 +25,21 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchOrders = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+    // ✅ ЖДЁМ ЗАГРУЗКУ АВТОРИЗАЦИИ
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
 
+    // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ — ПОКАЗЫВАЕМ СТРАНИЦУ ВХОДА
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchOrders = async () => {
       try {
+        setLoading(true);
         console.log('🔄 Загрузка заказов для пользователя:', user.id);
         
         const response = await fetch('/api/orders', {
@@ -53,6 +61,7 @@ export default function OrdersPage() {
         const data = await response.json();
         console.log('✅ Заказы загружены:', data);
         setOrders(data.orders || []);
+        setError(null);
       } catch (error: any) {
         console.error('❌ Ошибка загрузки заказов:', error);
         setError(error.message || 'Не удалось загрузить заказы');
@@ -61,9 +70,7 @@ export default function OrdersPage() {
       }
     };
 
-    if (!authLoading) {
-      fetchOrders();
-    }
+    fetchOrders();
   }, [user, authLoading]);
 
   const getStatus = (status: string) => {
@@ -81,18 +88,23 @@ export default function OrdersPage() {
     });
   };
 
+  // ✅ ПОКАЗЫВАЕМ ЛОАДЕР ТОЛЬКО КОГДА РЕАЛЬНО ИДЁТ ЗАГРУЗКА
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white pt-32">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <p className="text-sm text-gray-400">Загрузка заказов...</p>
+        </div>
       </div>
     );
   }
 
+  // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ — ПОКАЗЫВАЕМ СТРАНИЦУ ВХОДА
   if (!user) {
     return (
       <div className="min-h-screen bg-white pt-32 pb-20">
-        <div className="container-custom max-w-4xl">
+        <div className="container-custom max-w-4xl mx-auto px-4">
           <div className="text-center py-16">
             <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h2 className="text-xl font-medium text-black">Требуется авторизация</h2>
@@ -119,7 +131,7 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
-      <div className="container-custom max-w-4xl">
+      <div className="container-custom max-w-4xl mx-auto px-4">
         <div className="flex items-center gap-3 mb-8">
           <Package className="w-6 h-6 text-gray-400" />
           <h1 className="text-2xl font-bold text-black">Мои заказы</h1>
@@ -130,8 +142,8 @@ export default function OrdersPage() {
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            {error}
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 

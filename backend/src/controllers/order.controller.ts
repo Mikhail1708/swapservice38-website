@@ -1,7 +1,6 @@
 // backend/src/controllers/order.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { clearCart } from '../services/cart.service';
 
 const prisma = new PrismaClient();
 
@@ -112,7 +111,7 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
 };
 
 // ============================================================
-// POST /api/orders — СОЗДАНИЕ ЗАКАЗА
+// POST /api/orders — СОЗДАНИЕ ЗАКАЗА (ТОЛЬКО ЛОКАЛЬНО)
 // ============================================================
 export const createOrderController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -167,6 +166,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
     const total = cart.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
     
+    // ✅ СОЗДАЁМ ЗАКАЗ ТОЛЬКО ЛОКАЛЬНО (НЕ ОТПРАВЛЯЕМ В CRM)
     const localOrder = await prisma.order.create({
       data: {
         userId: userId,
@@ -175,14 +175,24 @@ export const createOrderController = async (req: Request, res: Response): Promis
         guestName: client.firstName || null,
         items: cart.items,
         total,
-        status: 'pending',
+        status: 'pending',          // ⬅️ ОЖИДАЕТ ОПЛАТЫ
         deliveryMethod: deliveryMethod || 'pickup',
         deliveryAddress: deliveryAddress || null,
         comment: comment || null,
+        // ❌ НЕ СОХРАНЯЕМ crmOrderId — ЕГО НЕТ
       }
     });
 
     console.log('✅ Локальный заказ создан (pending):', localOrder.id);
+
+    // ✅ ОЧИЩАЕМ КОРЗИНУ
+    if (cart.id) {
+      await prisma.cart.update({
+        where: { id: cart.id },
+        data: { items: [] },
+      });
+      console.log('🧹 Корзина очищена');
+    }
 
     res.status(201).json({
       success: true,
@@ -290,6 +300,15 @@ export const deleteOrderController = async (req: Request, res: Response): Promis
     if (!order) {
       console.log(`❌ Заказ ${id} не найден для пользователя ${userId}`);
       res.status(404).json({ error: 'Заказ не найден' });
+      return;
+    }
+
+    // ❌ НЕЛЬЗЯ УДАЛИТЬ, ЕСЛИ УЖЕ ОТПРАВЛЕН В CRM
+    if (order.crmOrderId) {
+      console.log(`❌ Заказ ${id} уже отправлен в CRM (crmOrderId: ${order.crmOrderId})`);
+      res.status(400).json({ 
+        error: 'Нельзя удалить заказ, который уже обработан' 
+      });
       return;
     }
 

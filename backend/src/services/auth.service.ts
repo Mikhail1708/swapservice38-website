@@ -116,37 +116,6 @@ export const getUserById = async (id: string) => {
   return user;
 };
 
-// Восстановление пароля - отправка кода
-export const requestPasswordReset = async (email: string) => {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    throw new Error('Пользователь с таким email не найден');
-  }
-
-  const code = generateCode();
-  await redis.setex(`reset:${email}`, 900, code);
-
-  await sendPasswordResetEmail(email, code);
-  return { message: 'Код для восстановления отправлен на почту' };
-};
-
-// Восстановление пароля - подтверждение кода и установка нового пароля
-export const resetPassword = async (email: string, code: string, newPassword: string) => {
-  const stored = await redis.get(`reset:${email}`);
-  if (!stored || stored !== code) {
-    throw new Error('Неверный или просроченный код');
-  }
-
-  const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({
-    where: { email },
-    data: { passwordHash },
-  });
-
-  await redis.del(`reset:${email}`);
-  return { message: 'Пароль успешно изменён' };
-};
-
 // Обновление профиля
 export const updateProfile = async (userId: string, data: { firstName?: string; lastName?: string; phone?: string; address?: string }) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -186,7 +155,6 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     throw new Error('Пользователь не найден');
   }
 
-  // Проверяем, есть ли пароль (не OAuth пользователь)
   if (!user.passwordHash) {
     throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
   }
@@ -205,7 +173,7 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   return { message: 'Пароль успешно изменён' };
 };
 
-// Запрос на смену пароля через почту
+// Запрос на смену пароля через почту (для авторизованных)
 export const requestPasswordChange = async (userId: string, email: string) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -216,7 +184,6 @@ export const requestPasswordChange = async (userId: string, email: string) => {
     throw new Error('Email не совпадает с email пользователя');
   }
 
-  // Проверяем, есть ли пароль (не OAuth пользователь)
   if (!user.passwordHash) {
     throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
   }
@@ -229,7 +196,7 @@ export const requestPasswordChange = async (userId: string, email: string) => {
   return { message: 'Код подтверждения отправлен на почту' };
 };
 
-// Подтверждение смены пароля
+// Подтверждение смены пароля (для авторизованных)
 export const confirmPasswordChange = async (userId: string, code: string, newPassword: string) => {
   const stored = await redis.get(`change-password:${userId}`);
   if (!stored || stored !== code) {
@@ -247,6 +214,59 @@ export const confirmPasswordChange = async (userId: string, code: string, newPas
   });
 
   await redis.del(`change-password:${userId}`);
+  return { message: 'Пароль успешно изменён' };
+};
+
+// ============================================================
+// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ — НЕ ТРЕБУЮТ АВТОРИЗАЦИИ)
+// ============================================================
+
+// 1. Запрос кода восстановления
+export const requestPasswordReset = async (email: string) => {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new Error('Пользователь с таким email не найден');
+  }
+
+  if (!user.passwordHash) {
+    throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
+  }
+
+  const code = generateCode();
+  await redis.setex(`reset:${email}`, 900, code);
+
+  await sendPasswordResetEmail(email, code);
+  return { message: 'Код для восстановления отправлен на почту' };
+};
+
+// 2. Проверка кода восстановления
+export const verifyResetCode = async (email: string, code: string) => {
+  const stored = await redis.get(`reset:${email}`);
+  if (!stored || stored !== code) {
+    throw new Error('Неверный или просроченный код');
+  }
+
+  return { message: 'Код подтверждён' };
+};
+
+// 3. Установка нового пароля
+export const confirmResetPassword = async (email: string, code: string, newPassword: string) => {
+  const stored = await redis.get(`reset:${email}`);
+  if (!stored || stored !== code) {
+    throw new Error('Неверный или просроченный код');
+  }
+
+  if (newPassword.length < 8) {
+    throw new Error('Пароль должен быть минимум 8 символов');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: { email },
+    data: { passwordHash },
+  });
+
+  await redis.del(`reset:${email}`);
   return { message: 'Пароль успешно изменён' };
 };
 

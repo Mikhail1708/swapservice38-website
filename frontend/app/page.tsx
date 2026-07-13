@@ -114,7 +114,7 @@ export default function Home() {
       </section>
 
       {/* ===== О НАС ===== */}
-      <section className="py-28 bg-gray-50 border-t border-gray-200">
+      <section id="about" className="py-28 bg-gray-50 border-t border-gray-200">
         <div className="container-custom mx-auto px-4 sm:px-6 lg:px-8 w-full max-w-7xl">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-12">

@@ -117,7 +117,7 @@ export default function SwapsPage() {
         </div>
 
         {/* Статьи */}
-        <div className="mb-8">
+        <div id="projects" className="mb-8">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-2xl font-bold text-black">Наши проекты</h2>
             <span className="text-sm text-gray-400">{articles.length} статей</span>

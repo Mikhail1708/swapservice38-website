@@ -27,9 +27,13 @@ import {
 import {
   getUsers,
   getUserById,
+  createUser,           // ✅ НОВОЕ: создание пользователя админом
+  updateUser,           // ✅ НОВОЕ: полное обновление пользователя
+  deleteUser,           // ✅ НОВОЕ: удаление пользователя
   updateUserRole,
   blockUser,
   unblockUser,
+  changeUserPassword,   // ✅ НОВОЕ: смена пароля пользователя админом
 } from '../controllers/admin/users.controller';
 
 // ✅ ARTICLES (СВАПЫ + УСЛУГИ)
@@ -43,6 +47,7 @@ import {
 
 const router = Router();
 
+// Все маршруты требуют авторизации
 router.use(authMiddleware);
 router.use(requireAdmin);
 
@@ -63,11 +68,22 @@ router.post('/appointments', createAppointment);
 router.patch('/appointments/:id', updateAppointment);
 
 // ===== USERS =====
+// Список и детали
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
+
+// CRUD
+router.post('/users', createUser);              // ✅ Создание
+router.put('/users/:id', updateUser);           // ✅ Полное обновление
+router.delete('/users/:id', deleteUser);        // ✅ Удаление
+
+// Роли и блокировка
 router.patch('/users/:id/role', updateUserRole);
 router.post('/users/:id/block', blockUser);
 router.post('/users/:id/unblock', unblockUser);
+
+// Пароль
+router.put('/users/:id/password', changeUserPassword); // ✅ Смена пароля
 
 // ===== ARTICLES =====
 router.get('/articles', getArticles);
@@ -75,6 +91,5 @@ router.get('/articles/:id', getArticleById);
 router.post('/articles', createArticle);
 router.put('/articles/:id', updateArticle);
 router.delete('/articles/:id', deleteArticle);
-
 
 export default router;

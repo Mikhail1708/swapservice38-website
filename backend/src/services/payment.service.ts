@@ -1,7 +1,11 @@
 // backend/src/services/payment.service.ts
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
-import redis from '../config/redis';
+import { safeRedis } from '../config/redis';
+import { 
+  sendOrderConfirmationToCustomer, 
+  sendOrderNotificationToManager 
+} from './email.service';
 
 const prisma = new PrismaClient();
 
@@ -172,13 +176,17 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
 // ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ → ОТПРАВКА В CRM
 // ============================================================
 export const handlePaymentSuccess = async (orderId: string) => {
-  // ✅ ПРОВЕРЯЕМ В REDIS, НЕ БЫЛИ ЛИ УЖЕ ОТПРАВЛЕНЫ УВЕДОМЛЕНИЯ
-  const notifiedKey = `order:notified:${orderId}`;
-  const alreadyNotified = await redis.get(notifiedKey);
+  // ✅ ПРОВЕРЯЕМ В REDIS, НЕ БЫЛ ЛИ УЖЕ ОБРАБОТАН ЗАКАЗ
+  const processedKey = `order:processed:${orderId}`;
   
-  if (alreadyNotified) {
-    console.log(`ℹ️ Уведомления уже отправлены для заказа ${orderId}, пропускаем`);
-    return { success: true, orderId, status: 'paid', alreadyNotified: true };
+  try {
+    const cached = await safeRedis.get(processedKey);
+    if (cached) {
+      console.log(`ℹ️ Заказ ${orderId} уже был обработан, пропускаем`);
+      return { success: true, orderId, status: 'paid', alreadyProcessed: true };
+    }
+  } catch (error) {
+    console.warn('⚠️ Ошибка проверки Redis:', error);
   }
 
   const order = await prisma.order.findUnique({
@@ -189,6 +197,12 @@ export const handlePaymentSuccess = async (orderId: string) => {
     throw new Error(`Заказ ${orderId} не найден`);
   }
 
+  // ✅ ЕСЛИ УЖЕ ОПЛАЧЕН — ПРОПУСКАЕМ
+  if (order.status === 'paid') {
+    console.log(`ℹ️ Заказ ${orderId} уже оплачен, пропускаем`);
+    return { success: true, orderId, status: 'paid', alreadyProcessed: true };
+  }
+
   console.log(`✅ Заказ ${orderId} оплачен!`);
 
   let crmResult = null;
@@ -197,10 +211,6 @@ export const handlePaymentSuccess = async (orderId: string) => {
   try {
     const phone = cleanPhone(order.guestPhone || '');
     
-    if (!phone || phone.length < 10) {
-      console.error('❌ Нет телефона для отправки в CRM! Используем заглушку');
-    }
-
     const orderData = {
       items: (order.items as any[]).map((item: any) => ({
         productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
@@ -241,7 +251,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
       console.error('  Статус:', crmError.response.status);
       console.error('  Ответ:', JSON.stringify(crmError.response.data, null, 2));
     }
-    // ✅ НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ — ПРОДОЛЖАЕМ
+    // ✅ НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
   }
 
   // ✅ 2. ОБНОВЛЯЕМ СТАТУС ЗАКАЗА
@@ -263,10 +273,8 @@ export const handlePaymentSuccess = async (orderId: string) => {
     console.log('🧹 Корзина очищена для пользователя:', order.userId);
   }
 
-  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ (ТОЛЬКО ОДИН РАЗ)
+  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
   try {
-    const { sendOrderConfirmationToCustomer, sendOrderNotificationToManager } = await import('./email.service');
-    
     const emailData = {
       orderId: order.id,
       documentNumber: crmResult?.documentNumber || order.id.slice(0, 8),
@@ -285,17 +293,22 @@ export const handlePaymentSuccess = async (orderId: string) => {
       paymentId: order.paymentId || 'test',
     };
 
+    // ✅ ОТПРАВЛЯЕМ ОБА ПИСЬМА
     await sendOrderConfirmationToCustomer(emailData);
     await sendOrderNotificationToManager(emailData);
     
     console.log('✅ Уведомления отправлены');
-
-    // ✅ СОХРАНЯЕМ В REDIS, ЧТО УВЕДОМЛЕНИЯ ОТПРАВЛЕНЫ (на 7 дней)
-    await redis.setex(notifiedKey, 7 * 24 * 60 * 60, 'true');
-    console.log(`✅ Ключ ${notifiedKey} сохранён в Redis`);
-
   } catch (emailError) {
     console.error('❌ Ошибка отправки email:', emailError);
+    // НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
+  }
+
+  // ✅ 5. СОХРАНЯЕМ В REDIS, ЧТО ЗАКАЗ ОБРАБОТАН
+  try {
+    await safeRedis.setex(processedKey, 7 * 24 * 60 * 60, 'true');
+    console.log(`✅ Ключ ${processedKey} сохранён в Redis`);
+  } catch (error) {
+    console.warn('⚠️ Не удалось сохранить в Redis:', error);
   }
 
   return { success: true, orderId, status: 'paid', crmResult };

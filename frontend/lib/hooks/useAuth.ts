@@ -19,12 +19,15 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
   const fetchedRef = useRef(false);
   const userCache = useRef<User | null>(null);
+  const isMounted = useRef(true);
 
-  const fetchUser = useCallback(async () => {
-    // ✅ ЕСЛИ ЕСТЬ КЭШ — ВОЗВРАЩАЕМ
-    if (userCache.current) {
-      setUser(userCache.current);
-      setLoading(false);
+  const fetchUser = useCallback(async (force: boolean = false) => {
+    // ✅ ЕСЛИ ЕСТЬ КЭШ И НЕ ФОРСИРУЕМ — ВОЗВРАЩАЕМ
+    if (userCache.current && !force) {
+      if (isMounted.current) {
+        setUser(userCache.current);
+        setLoading(false);
+      }
       return;
     }
 
@@ -33,18 +36,36 @@ export function useAuth() {
         cache: 'no-store',
         credentials: 'include',
       });
+      
       if (response.ok) {
         const data = await response.json();
-        userCache.current = data.user;
-        setUser(data.user);
+        if (data.user) {
+          userCache.current = data.user;
+          if (isMounted.current) {
+            setUser(data.user);
+          }
+        } else {
+          userCache.current = null;
+          if (isMounted.current) {
+            setUser(null);
+          }
+        }
       } else {
-        setUser(null);
+        // ✅ ЕСЛИ 401 — ОЧИЩАЕМ КЭШ
+        if (response.status === 401) {
+          userCache.current = null;
+          if (isMounted.current) {
+            setUser(null);
+          }
+        }
       }
     } catch (error) {
-      console.error('Auth error:', error);
-      setUser(null);
+      console.error('❌ Auth error:', error);
+      // ✅ ПРИ ОШИБКЕ НЕ ОЧИЩАЕМ КЭШ
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -54,22 +75,53 @@ export function useAuth() {
         method: 'POST',
         credentials: 'include',
       });
-      if (response.ok) {
-        userCache.current = null;
+      
+      userCache.current = null;
+      if (isMounted.current) {
         setUser(null);
-        localStorage.removeItem('token');
-        window.location.href = '/';
       }
+      
+      // ✅ ОЧИЩАЕМ ВСЕ КЭШИ
+      localStorage.removeItem('token');
+      
+      // ✅ РЕДИРЕКТ
+      window.location.href = '/';
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('❌ Logout error:', error);
     }
   }, []);
 
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    fetchUser();
+  // ✅ ОБНОВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ (ПОСЛЕ СМЕНЫ ПАРОЛЯ)
+  const refresh = useCallback(async () => {
+    // ✅ ОЧИЩАЕМ КЭШ ПЕРЕД ЗАПРОСОМ
+    userCache.current = null;
+    await fetchUser(true);
   }, [fetchUser]);
 
-  return { user, loading, logout, refetch: fetchUser };
+  useEffect(() => {
+    isMounted.current = true;
+    
+    if (fetchedRef.current) {
+      // ✅ ЕСЛИ УЖЕ БЫЛ ЗАПРОС, НО ПОЛЬЗОВАТЕЛЬ НУЛЕВОЙ — ПЕРЕЗАПРАШИВАЕМ
+      if (!userCache.current && !user) {
+        fetchUser(true);
+      }
+      return;
+    }
+    
+    fetchedRef.current = true;
+    fetchUser();
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  return { 
+    user, 
+    loading, 
+    logout, 
+    refetch: fetchUser,
+    refresh, // ✅ НОВЫЙ МЕТОД ДЛЯ ОБНОВЛЕНИЯ
+  };
 }

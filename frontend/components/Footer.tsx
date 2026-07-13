@@ -19,8 +19,8 @@ export default function Footer() {
           <div>
             <h4 className="text-[11px] tracking-[0.2em] uppercase text-gray-400 font-medium mb-6">КОМПАНИЯ</h4>
             <ul className="space-y-3 text-sm text-gray-500 font-light">
-              <li><Link href="/about" className="hover:text-black transition">О нас</Link></li>
-              <li><Link href="/swaps" className="hover:text-black transition">Наши работы</Link></li>
+              <li><Link href="/#about" className="hover:text-black transition">О нас</Link></li>
+              <li><Link href="/swaps#projects" className="hover:text-black transition">Наши работы</Link></li>
               <li><Link href="/reviews" className="hover:text-black transition">Отзывы</Link></li>
             </ul>
           </div>

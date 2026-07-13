@@ -10,6 +10,10 @@ import {
   changePasswordController,
   requestPasswordChangeController,
   confirmPasswordChangeController,
+  // ✅ НОВЫЕ ИМПОРТЫ ДЛЯ ВОССТАНОВЛЕНИЯ ПАРОЛЯ
+  requestPasswordResetController,
+  verifyResetCodeController,
+  confirmResetPasswordController,
 } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import * as oauthService from '../services/oauth.service';
@@ -33,12 +37,25 @@ router.get('/me', authMiddleware, meController);
 router.put('/profile', authMiddleware, updateProfileController);
 
 // ============================================================
-// СМЕНА ПАРОЛЯ
+// СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ)
 // ============================================================
 
 router.post('/change-password', authMiddleware, changePasswordController);
 router.post('/request-password-change', authMiddleware, requestPasswordChangeController);
 router.post('/confirm-password-change', authMiddleware, confirmPasswordChangeController);
+
+// ============================================================
+// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ)
+// ============================================================
+
+// 1. Запрос кода восстановления (не требует авторизации)
+router.post('/reset-password/request', requestPasswordResetController);
+
+// 2. Проверка кода восстановления (не требует авторизации)
+router.post('/reset-password/verify', verifyResetCodeController);
+
+// 3. Установка нового пароля (не требует авторизации)
+router.post('/reset-password/confirm', confirmResetPasswordController);
 
 // ============================================================
 // OAuth: ЯНДЕКС
@@ -67,13 +84,11 @@ router.get('/yandex/callback', async (req, res) => {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Не получен код авторизации')}`);
     }
 
-    // ✅ ПЕРЕДАЁМ guestId ИЗ COOKIES
     const guestId = req.cookies?.guestId;
     console.log('🍪 guestId в OAuth callback:', guestId || 'нет');
 
     const { token } = await oauthService.handleYandexCallback(code as string, guestId);
 
-    // ✅ УДАЛЯЕМ guestId cookie (корзина уже перенесена)
     if (guestId) {
       res.clearCookie('guestId', {
         httpOnly: true,
@@ -83,7 +98,6 @@ router.get('/yandex/callback', async (req, res) => {
       });
     }
 
-    // Устанавливаем JWT cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -126,13 +140,11 @@ router.get('/max/callback', async (req, res) => {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Не получен код авторизации')}`);
     }
 
-    // ✅ ПЕРЕДАЁМ guestId ИЗ COOKIES
     const guestId = req.cookies?.guestId;
     console.log('🍪 guestId в OAuth callback:', guestId || 'нет');
 
     const { token } = await oauthService.handleMaxCallback(code as string, guestId);
 
-    // ✅ УДАЛЯЕМ guestId cookie (корзина уже перенесена)
     if (guestId) {
       res.clearCookie('guestId', {
         httpOnly: true,

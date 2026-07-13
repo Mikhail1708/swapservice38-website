@@ -10,7 +10,11 @@ import {
   updateProfile,
   changePassword,
   requestPasswordChange,
-  confirmPasswordChange
+  confirmPasswordChange,
+  // ✅ НОВЫЕ ИМПОРТЫ ДЛЯ ВОССТАНОВЛЕНИЯ ПАРОЛЯ
+  requestPasswordReset,
+  verifyResetCode,
+  confirmResetPassword
 } from '../services/auth.service';
 
 const prisma = new PrismaClient();
@@ -204,7 +208,7 @@ export const updateProfileController = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// СМЕНА ПАРОЛЯ
+// СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ)
 // ============================================================
 
 export const changePasswordController = async (req: Request, res: Response) => {
@@ -246,6 +250,59 @@ export const confirmPasswordChangeController = async (req: Request, res: Respons
 
     const { code, newPassword } = req.body;
     const result = await confirmPasswordChange(userId, code, newPassword);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ============================================================
+// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ — НЕ ТРЕБУЮТ АВТОРИЗАЦИИ)
+// ============================================================
+
+export const requestPasswordResetController = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email обязателен' });
+    }
+
+    const result = await requestPasswordReset(email);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const verifyResetCodeController = async (req: Request, res: Response) => {
+  try {
+    const { email, code } = req.body;
+    
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email и код обязательны' });
+    }
+
+    const result = await verifyResetCode(email, code);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const confirmResetPasswordController = async (req: Request, res: Response) => {
+  try {
+    const { email, code, newPassword } = req.body;
+    
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: 'Email, код и новый пароль обязательны' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Пароль должен быть минимум 8 символов' });
+    }
+
+    const result = await confirmResetPassword(email, code, newPassword);
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

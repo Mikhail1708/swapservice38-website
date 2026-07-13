@@ -1,7 +1,7 @@
 // backend/src/controllers/admin/content.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import redis from '/config/redis';
+import redis from '../config/redis';
 
 const prisma = new PrismaClient();
 
