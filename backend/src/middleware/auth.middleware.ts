@@ -1,4 +1,4 @@
-// backend/src/middleware/auth.middleware.ts
+// frontend/backend/src/middleware/auth.middleware.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
@@ -36,11 +36,15 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     console.log('🔑 Проверка токена с секретом:', JWT_SECRET.substring(0, 10) + '...');
     
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number };
     console.log('✅ Токен валиден, userId:', decoded.id);
 
+    // ✅ ПРИВОДИМ ID К СТРОКЕ (для поддержки UUID и чисел)
+    const userId = String(decoded.id);
+    console.log('🔄 Приведённый userId:', userId);
+
     const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
+      where: { id: userId },
       select: {
         id: true,
         email: true,

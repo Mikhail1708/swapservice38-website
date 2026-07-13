@@ -1,4 +1,4 @@
-// backend/src/controllers/webhook.controller.ts
+// backend/src/controllers/webhook.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
@@ -6,14 +6,40 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 
+// Маппинг статусов из CRM в статусы сайта
+const statusMap: Record<string, string> = {
+  'ordered': 'pending',
+  'assembling': 'assembling',
+  'shipped': 'shipped',
+  'delivered': 'delivered',
+  'cancelled': 'cancelled',
+  'paid': 'paid',
+  'confirmed': 'confirmed',
+};
+
+/**
+ * Каноническая сериализация — сортировка ключей по алфавиту
+ */
+const canonicalStringify = (obj: Record<string, any>): string => {
+  const sortedKeys = Object.keys(obj).sort();
+  const sortedObj: Record<string, any> = {};
+  for (const key of sortedKeys) {
+    sortedObj[key] = obj[key];
+  }
+  return JSON.stringify(sortedObj);
+};
+
 /**
  * POST /api/webhooks/crm/order-status
- * Приём вебхука от CRM при изменении статуса заказа
  */
 export const handleOrderStatusWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
     const signature = req.headers['x-webhook-signature'] as string;
     const payload = req.body;
+
+    console.log('📥 Получен вебхук:');
+    console.log('  Signature:', signature);
+    console.log('  Payload:', JSON.stringify(payload, null, 2));
 
     // 1. Проверка наличия подписи
     if (!signature) {
@@ -23,19 +49,30 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
     }
 
     // 2. Проверка подписи
-    const expectedSignature = crypto
-      .createHmac('sha256', WEBHOOK_SECRET)
-      .update(JSON.stringify(payload))
-      .digest('hex');
+    if (!WEBHOOK_SECRET) {
+      console.warn('⚠️ WEBHOOK_SECRET не настроен, проверка подписи пропущена');
+    } else {
+      // ✅ ИСПОЛЬЗУЕМ КАНОНИЧЕСКУЮ СЕРИАЛИЗАЦИЮ
+      const payloadString = canonicalStringify(payload);
+      const expectedSignature = crypto
+        .createHmac('sha256', WEBHOOK_SECRET)
+        .update(payloadString)
+        .digest('hex');
 
-    if (signature !== expectedSignature) {
-      console.error('❌ Webhook: Неверная подпись');
-      res.status(401).json({ error: 'Invalid signature' });
-      return;
+      console.log('  Expected signature:', expectedSignature);
+      console.log('  Received signature:', signature);
+      console.log('  Match:', signature === expectedSignature);
+
+      if (signature !== expectedSignature) {
+        console.error('❌ Webhook: Неверная подпись');
+        console.error(`   Payload string for signature: ${payloadString}`);
+        res.status(401).json({ error: 'Invalid signature' });
+        return;
+      }
     }
 
     // 3. Извлечение данных
-    const { crmOrderId, status, documentNumber, timestamp } = payload;
+    const { crmOrderId, status, documentNumber } = payload;
 
     if (!crmOrderId || !status) {
       console.error('❌ Webhook: Отсутствуют обязательные поля');
@@ -45,21 +82,19 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
 
     console.log(`📥 Получен вебхук: заказ ${documentNumber || crmOrderId} → статус "${status}"`);
 
-    // 4. Обновление заказа в БД сайта
-    // Ищем заказ по crmOrderId (хранится как строка)
-    const updatedOrder = await prisma.order.updateMany({
+    // 4. Маппинг статуса
+    const siteStatus = statusMap[status] || status;
+    console.log(`🔄 Маппинг статуса: ${status} → ${siteStatus}`);
+
+    // 5. Поиск заказа в БД сайта по crmOrderId
+    const order = await prisma.order.findFirst({
       where: {
         crmOrderId: String(crmOrderId),
       },
-      data: {
-        status: status,
-        updatedAt: new Date(),
-      },
     });
 
-    if (updatedOrder.count === 0) {
+    if (!order) {
       console.warn(`⚠️ Webhook: Заказ с crmOrderId=${crmOrderId} не найден в БД сайта`);
-      // Всё равно возвращаем 200, чтобы CRM не повторяла вебхук
       res.status(200).json({
         success: false,
         message: `Order with crmOrderId ${crmOrderId} not found`,
@@ -67,10 +102,19 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       return;
     }
 
-    console.log(`✅ Webhook: Заказ ${crmOrderId} обновлён → статус "${status}"`);
+    // 6. Обновление заказа в БД сайта
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status: siteStatus,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`✅ Webhook: Заказ ${order.id} (crmOrderId: ${crmOrderId}) обновлён → статус "${siteStatus}"`);
     res.status(200).json({
       success: true,
-      message: `Order ${crmOrderId} status updated to ${status}`,
+      message: `Order ${order.id} status updated to ${siteStatus}`,
     });
   } catch (error: any) {
     console.error('❌ Webhook error:', error);
@@ -80,12 +124,13 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
 
 /**
  * GET /api/webhooks/crm/health
- * Проверка доступности эндпоинта вебхуков
  */
 export const webhookHealthCheck = async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'crm-webhook-receiver',
+    webhookSecret: process.env.WEBHOOK_SECRET ? '✅ set' : '❌ missing',
+    env: process.env.NODE_ENV || 'development',
   });
 };

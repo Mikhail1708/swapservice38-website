@@ -1,4 +1,4 @@
-// backend/src/controllers/order.controller.ts (САЙТ)
+// frontend/backend/src/controllers/order.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
@@ -111,7 +111,7 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
 };
 
 // ============================================================
-// POST /api/orders — СОЗДАНИЕ ЗАКАЗА (ТОЛЬКО ЛОКАЛЬНО)
+// POST /api/orders — СОЗДАНИЕ ЗАКАЗА
 // ============================================================
 export const createOrderController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -166,7 +166,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
     const total = cart.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
     
-    // ✅ СОЗДАЁМ ЗАКАЗ ТОЛЬКО ЛОКАЛЬНО (НЕ ОТПРАВЛЯЕМ В CRM)
+    // ✅ СОЗДАЁМ ЗАКАЗ ТОЛЬКО ЛОКАЛЬНО
     const localOrder = await prisma.order.create({
       data: {
         userId: userId,
@@ -175,11 +175,10 @@ export const createOrderController = async (req: Request, res: Response): Promis
         guestName: client.firstName || null,
         items: cart.items,
         total,
-        status: 'pending',          // ⬅️ ОЖИДАЕТ ОПЛАТЫ
+        status: 'pending',
         deliveryMethod: deliveryMethod || 'pickup',
         deliveryAddress: deliveryAddress || null,
         comment: comment || null,
-        // ❌ НЕ СОХРАНЯЕМ crmOrderId — ЕГО НЕТ
       }
     });
 
