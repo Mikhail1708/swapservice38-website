@@ -58,7 +58,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     console.log('📦 Сумма:', order.total);
     console.log(`🔧 Режим: ${isTestMode ? 'ТЕСТОВЫЙ' : 'БОЕВОЙ'}`);
 
-    // ✅ ТЕСТОВЫЙ РЕЖИМ
+    // ✅ ТЕСТОВЫЙ РЕЖИМ — ТОЛЬКО СОЗДАЁМ ПЛАТЁЖ, НЕ ОТПРАВЛЯЕМ В CRM
     if (isTestMode) {
       console.log('⚠️ ЮKassa в тестовом режиме, возвращаем тестовый URL');
       
@@ -69,15 +69,8 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
         data: { paymentId: testPaymentId },
       });
       
-      // ✅ В ТЕСТОВОМ РЕЖИМЕ СРАЗУ ОТПРАВЛЯЕМ В CRM (ЧЕРЕЗ 2 СЕКУНДЫ)
-      setTimeout(async () => {
-        try {
-          console.log('🔄 Тестовый режим: отправка заказа в CRM...');
-          await handlePaymentSuccess(orderId);
-        } catch (error) {
-          console.error('❌ Ошибка тестовой отправки в CRM:', error);
-        }
-      }, 2000);
+      // ✅ НЕ ВЫЗЫВАЕМ handlePaymentSuccess ЗДЕСЬ!
+      // Заказ будет отправлен в CRM ТОЛЬКО со страницы успеха
       
       return {
         paymentId: testPaymentId,
@@ -176,142 +169,227 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
 // ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ → ОТПРАВКА В CRM
 // ============================================================
 export const handlePaymentSuccess = async (orderId: string) => {
-  // ✅ ПРОВЕРЯЕМ В REDIS, НЕ БЫЛ ЛИ УЖЕ ОБРАБОТАН ЗАКАЗ
-  const processedKey = `order:processed:${orderId}`;
+  console.log(`🔄 [handlePaymentSuccess] Начало обработки заказа ${orderId}`);
   
+  // ✅ БЛОКИРУЕМ ОБРАБОТКУ — СОХРАНЯЕМ В REDIS СРАЗУ
+  const processedKey = `order:processed:${orderId}`;
+  const lockKey = `order:processing:${orderId}`;
+  
+  // ✅ ПРОВЕРЯЕМ, НЕ ОБРАБАТЫВАЕТСЯ ЛИ УЖЕ ЗАКАЗ
+  try {
+    const processing = await safeRedis.get(lockKey);
+    if (processing) {
+      console.log(`ℹ️ Заказ ${orderId} уже обрабатывается, пропускаем`);
+      return { success: true, orderId, status: 'paid', alreadyProcessing: true };
+    }
+    
+    // ✅ УСТАНАВЛИВАЕМ БЛОКИРОВКУ НА 30 СЕКУНД
+    await safeRedis.setex(lockKey, 30, 'true');
+    console.log(`🔒 Заказ ${orderId} заблокирован для обработки`);
+  } catch (error) {
+    console.warn('⚠️ Ошибка блокировки Redis:', error);
+  }
+  
+  // ✅ ПРОВЕРЯЕМ, НЕ БЫЛ ЛИ УЖЕ ОБРАБОТАН ЗАКАЗ
   try {
     const cached = await safeRedis.get(processedKey);
     if (cached) {
       console.log(`ℹ️ Заказ ${orderId} уже был обработан, пропускаем`);
+      // ✅ СНИМАЕМ БЛОКИРОВКУ
+      await safeRedis.del(lockKey);
       return { success: true, orderId, status: 'paid', alreadyProcessed: true };
     }
   } catch (error) {
     console.warn('⚠️ Ошибка проверки Redis:', error);
   }
 
+  // ✅ ПОЛУЧАЕМ ЗАКАЗ ИЗ БД
   const order = await prisma.order.findUnique({
     where: { id: orderId },
   });
 
   if (!order) {
+    console.error(`❌ Заказ ${orderId} не найден`);
+    // ✅ СНИМАЕМ БЛОКИРОВКУ
+    await safeRedis.del(lockKey);
     throw new Error(`Заказ ${orderId} не найден`);
   }
 
-  // ✅ ЕСЛИ УЖЕ ОПЛАЧЕН — ПРОПУСКАЕМ
-  if (order.status === 'paid') {
-    console.log(`ℹ️ Заказ ${orderId} уже оплачен, пропускаем`);
+  console.log(`📦 Заказ ${orderId} найден:`, {
+    status: order.status,
+    crmOrderId: order.crmOrderId,
+    orderNumber: order.orderNumber,
+    total: order.total,
+    itemsCount: (order.items as any[])?.length || 0,
+  });
+
+  // ✅ ЕСЛИ УЖЕ ОПЛАЧЕН И ЕСТЬ crmOrderId — ПРОПУСКАЕМ
+  if (order.status === 'paid' && order.crmOrderId) {
+    console.log(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM, пропускаем`);
+    await safeRedis.del(lockKey);
     return { success: true, orderId, status: 'paid', alreadyProcessed: true };
   }
 
   console.log(`✅ Заказ ${orderId} оплачен!`);
 
   let crmResult = null;
+  let crmError = null;
 
-  // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM
-  try {
-    const phone = cleanPhone(order.guestPhone || '');
-    
-    const orderData = {
-      items: (order.items as any[]).map((item: any) => ({
-        productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
-        quantity: item.quantity || 1,
-        price: item.price || 0,
-      })),
-      client: {
-        firstName: order.guestName || 'Клиент',
-        lastName: '',
-        phone: phone || '+79999999999',
-        email: order.guestEmail || '',
-        city: '',
-        address: order.deliveryAddress || '',
-      },
-      deliveryMethod: order.deliveryMethod || 'pickup',
-      deliveryAddress: order.deliveryAddress || '',
-      comment: order.comment || '',
-      source: 'website'
-    };
+  // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM (ТОЛЬКО ЕСЛИ НЕТ crmOrderId)
+  if (order.crmOrderId) {
+    console.log(`ℹ️ Заказ ${orderId} уже имеет crmOrderId: ${order.crmOrderId}, пропускаем отправку в CRM`);
+  } else {
+    try {
+      const phone = cleanPhone(order.guestPhone || '');
+      
+      const orderData = {
+        items: (order.items as any[]).map((item: any) => ({
+          productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
+          quantity: item.quantity || 1,
+          price: item.price || 0,
+        })),
+        client: {
+          firstName: order.guestName || 'Клиент',
+          lastName: '',
+          phone: phone || '+79999999999',
+          email: order.guestEmail || '',
+          city: '',
+          address: order.deliveryAddress || '',
+        },
+        deliveryMethod: order.deliveryMethod || 'pickup',
+        deliveryAddress: order.deliveryAddress || '',
+        comment: order.comment || '',
+        source: 'website'
+      };
 
-    console.log('📤 Отправка в CRM:');
-    console.log('  URL:', `${process.env.CRM_API_URL || 'http://localhost:5000'}/api/sale-documents/public`);
-    console.log('  Данные:', JSON.stringify(orderData, null, 2));
+      console.log(`📤 Отправка заказа ${orderId} в CRM...`);
+      console.log('  URL:', `${process.env.CRM_API_URL || 'http://localhost:5000'}/api/sale-documents/public`);
+      console.log('  Данные:', JSON.stringify(orderData, null, 2));
 
-    const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
-    const crmResponse = await axios.post(
-      `${CRM_API_URL}/api/sale-documents/public`,
-      orderData,
-      { timeout: 15000 }
-    );
-    
-    crmResult = crmResponse.data;
-    console.log('✅ Заказ отправлен в CRM:', crmResult);
-  } catch (crmError: any) {
-    console.error('❌ Ошибка отправки в CRM:');
-    console.error('  Message:', crmError.message);
-    if (crmError.response) {
-      console.error('  Статус:', crmError.response.status);
-      console.error('  Ответ:', JSON.stringify(crmError.response.data, null, 2));
+      const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
+      const crmResponse = await axios.post(
+        `${CRM_API_URL}/api/sale-documents/public`,
+        orderData,
+        { timeout: 15000 }
+      );
+      
+      crmResult = crmResponse.data;
+      console.log(`✅ Заказ ${orderId} отправлен в CRM:`, crmResult);
+    } catch (error: any) {
+      crmError = error;
+      console.error(`❌ Ошибка отправки заказа ${orderId} в CRM:`);
+      console.error('  Message:', error.message);
+      if (error.response) {
+        console.error('  Статус:', error.response.status);
+        console.error('  Ответ:', JSON.stringify(error.response.data, null, 2));
+      }
+      // ✅ НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ — заказ всё равно помечаем как оплаченный
     }
-    // ✅ НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
   }
 
   // ✅ 2. ОБНОВЛЯЕМ СТАТУС ЗАКАЗА
-  await prisma.order.update({
-    where: { id: orderId },
-    data: {
-      status: 'paid',
-      crmOrderId: crmResult?.orderId ? String(crmResult.orderId) : null,
-      orderNumber: crmResult?.documentNumber || null,
-    },
-  });
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'paid',
+        crmOrderId: crmResult?.orderId ? String(crmResult.orderId) : order.crmOrderId,
+        orderNumber: crmResult?.documentNumber || order.orderNumber,
+        updatedAt: new Date(),
+      },
+    });
+    console.log(`✅ Статус заказа ${orderId} обновлён на "paid"`);
+  } catch (error) {
+    console.error(`❌ Ошибка обновления статуса заказа ${orderId}:`, error);
+  }
 
   // ✅ 3. ОЧИЩАЕМ КОРЗИНУ
   if (order.userId) {
-    await prisma.cart.update({
-      where: { userId: order.userId },
-      data: { items: [] },
-    });
-    console.log('🧹 Корзина очищена для пользователя:', order.userId);
+    try {
+      await prisma.cart.update({
+        where: { userId: order.userId },
+        data: { items: [] },
+      });
+      console.log(`🧹 Корзина очищена для пользователя: ${order.userId}`);
+    } catch (error) {
+      console.warn(`⚠️ Не удалось очистить корзину для ${order.userId}:`, error);
+    }
   }
 
-  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
-  try {
-    const emailData = {
-      orderId: order.id,
-      documentNumber: crmResult?.documentNumber || order.id.slice(0, 8),
-      customerName: order.guestName || 'Клиент',
-      customerEmail: order.guestEmail || '',
-      customerPhone: order.guestPhone || '',
-      total: order.total,
-      items: (order.items as any[]).map((item: any) => ({
-        name: item.name || 'Товар',
-        quantity: item.quantity,
-        price: item.price,
-        total: item.price * item.quantity,
-      })),
-      deliveryAddress: order.deliveryAddress || '',
-      comment: order.comment || '',
-      paymentId: order.paymentId || 'test',
-    };
+  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ (ТОЛЬКО ЕСЛИ ЗАКАЗ УСПЕШНО ОТПРАВЛЕН В CRM)
+  if (crmResult && !crmError) {
+    try {
+      const emailData = {
+        orderId: order.id,
+        documentNumber: crmResult?.documentNumber || order.orderNumber || order.id.slice(0, 8),
+        customerName: order.guestName || 'Клиент',
+        customerEmail: order.guestEmail || '',
+        customerPhone: order.guestPhone || '',
+        total: order.total,
+        items: (order.items as any[]).map((item: any) => ({
+          name: item.name || 'Товар',
+          quantity: item.quantity,
+          price: item.price,
+          total: item.price * item.quantity,
+        })),
+        deliveryAddress: order.deliveryAddress || '',
+        comment: order.comment || '',
+        paymentId: order.paymentId || 'test',
+      };
 
-    // ✅ ОТПРАВЛЯЕМ ОБА ПИСЬМА
-    await sendOrderConfirmationToCustomer(emailData);
-    await sendOrderNotificationToManager(emailData);
-    
-    console.log('✅ Уведомления отправлены');
-  } catch (emailError) {
-    console.error('❌ Ошибка отправки email:', emailError);
-    // НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
+      // ✅ ОТПРАВЛЯЕМ ОБА ПИСЬМА
+      await sendOrderConfirmationToCustomer(emailData);
+      await sendOrderNotificationToManager(emailData);
+      
+      console.log(`✅ Уведомления отправлены для заказа ${orderId}`);
+    } catch (emailError) {
+      console.error(`❌ Ошибка отправки email для заказа ${orderId}:`, emailError);
+      // НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
+    }
+  } else if (crmError) {
+    console.warn(`⚠️ Уведомления НЕ отправлены для заказа ${orderId}, т.к. заказ не попал в CRM`);
+    // Отправляем уведомление менеджеру о проблеме
+    try {
+      await sendOrderNotificationToManager({
+        orderId: order.id,
+        documentNumber: order.orderNumber || order.id.slice(0, 8),
+        customerName: order.guestName || 'Клиент',
+        customerEmail: order.guestEmail || '',
+        customerPhone: order.guestPhone || '',
+        total: order.total,
+        items: (order.items as any[]).map((item: any) => ({
+          name: item.name || 'Товар',
+          quantity: item.quantity,
+          price: item.price,
+          total: item.price * item.quantity,
+        })),
+        deliveryAddress: order.deliveryAddress || '',
+        comment: order.comment || '',
+        paymentId: order.paymentId || 'test',
+      });
+      console.log(`⚠️ Отправлено уведомление менеджеру о проблеме с заказом ${orderId}`);
+    } catch (emailError) {
+      console.error(`❌ Ошибка отправки уведомления о проблеме для заказа ${orderId}:`, emailError);
+    }
   }
 
-  // ✅ 5. СОХРАНЯЕМ В REDIS, ЧТО ЗАКАЗ ОБРАБОТАН
+  // ✅ 5. СОХРАНЯЕМ В REDIS, ЧТО ЗАКАЗ ОБРАБОТАН, И СНИМАЕМ БЛОКИРОВКУ
   try {
     await safeRedis.setex(processedKey, 7 * 24 * 60 * 60, 'true');
-    console.log(`✅ Ключ ${processedKey} сохранён в Redis`);
+    await safeRedis.del(lockKey);
+    console.log(`✅ Ключи сохранены в Redis, блокировка снята`);
   } catch (error) {
     console.warn('⚠️ Не удалось сохранить в Redis:', error);
   }
 
-  return { success: true, orderId, status: 'paid', crmResult };
+  console.log(`✅ [handlePaymentSuccess] Заказ ${orderId} успешно обработан`);
+  return { 
+    success: true, 
+    orderId, 
+    status: 'paid', 
+    crmResult,
+    crmError: crmError ? crmError.message : null,
+  };
 };
 
 // ============================================================
@@ -323,27 +401,43 @@ export const handlePaymentWebhook = async (event: any) => {
   const payment = event.object;
   
   if (!payment || !payment.metadata) {
+    console.error('❌ Невалидный webhook: нет metadata');
     throw new Error('Невалидный webhook');
   }
 
   const { orderId } = payment.metadata;
   const status = payment.status;
 
+  console.log(`📦 Webhook: orderId=${orderId}, status=${status}`);
+
+  if (!orderId) {
+    console.error('❌ Webhook: нет orderId в metadata');
+    throw new Error('Нет orderId в metadata');
+  }
+
   // ===== УСПЕШНАЯ ОПЛАТА =====
   if (status === 'succeeded') {
+    console.log(`✅ Webhook: оплата заказа ${orderId} успешна`);
     return await handlePaymentSuccess(orderId);
   }
 
   // ===== ОТМЕНА =====
   if (status === 'canceled') {
-    console.log(`❌ Заказ ${orderId} отменён`);
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { status: 'cancelled' },
-    });
+    console.log(`❌ Webhook: заказ ${orderId} отменён`);
+    try {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: 'cancelled' },
+      });
+      console.log(`✅ Статус заказа ${orderId} обновлён на "cancelled"`);
+    } catch (error) {
+      console.error(`❌ Ошибка обновления статуса заказа ${orderId}:`, error);
+    }
     return { success: true, orderId, status: 'cancelled' };
   }
 
+  // ===== ДРУГИЕ СТАТУСЫ =====
+  console.log(`ℹ️ Webhook: заказ ${orderId}, статус ${status} (не обрабатывается)`);
   return { success: true, orderId, status };
 };
 
@@ -394,5 +488,117 @@ export const verifyWebhookSignature = (body: string, signature: string | null): 
   } catch (error) {
     console.error('❌ Ошибка проверки подписи:', error);
     return false;
+  }
+};
+
+// ============================================================
+// ФУНКЦИЯ ДЛЯ ПРИНУДИТЕЛЬНОЙ ОТПРАВКИ ЗАКАЗА В CRM (ДЛЯ АДМИНОВ)
+// ============================================================
+export const resendOrderToCRM = async (orderId: string): Promise<any> => {
+  console.log(`🔄 [resendOrderToCRM] Принудительная отправка заказа ${orderId} в CRM`);
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+  });
+
+  if (!order) {
+    throw new Error(`Заказ ${orderId} не найден`);
+  }
+
+  if (order.crmOrderId) {
+    throw new Error(`Заказ ${orderId} уже отправлен в CRM (crmOrderId: ${order.crmOrderId})`);
+  }
+
+  if (order.status !== 'paid') {
+    throw new Error(`Заказ ${orderId} не оплачен (статус: ${order.status})`);
+  }
+
+  try {
+    const phone = cleanPhone(order.guestPhone || '');
+    
+    const orderData = {
+      items: (order.items as any[]).map((item: any) => ({
+        productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
+        quantity: item.quantity || 1,
+        price: item.price || 0,
+      })),
+      client: {
+        firstName: order.guestName || 'Клиент',
+        lastName: '',
+        phone: phone || '+79999999999',
+        email: order.guestEmail || '',
+        city: '',
+        address: order.deliveryAddress || '',
+      },
+      deliveryMethod: order.deliveryMethod || 'pickup',
+      deliveryAddress: order.deliveryAddress || '',
+      comment: order.comment || '',
+      source: 'website_resend'
+    };
+
+    console.log(`📤 Принудительная отправка заказа ${orderId} в CRM...`);
+
+    const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
+    const crmResponse = await axios.post(
+      `${CRM_API_URL}/api/sale-documents/public`,
+      orderData,
+      { timeout: 15000 }
+    );
+    
+    const crmResult = crmResponse.data;
+
+    // Обновляем заказ
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        crmOrderId: crmResult?.orderId ? String(crmResult.orderId) : null,
+        orderNumber: crmResult?.documentNumber || null,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`✅ Заказ ${orderId} принудительно отправлен в CRM:`, crmResult);
+
+    // Отправляем уведомления
+    try {
+      const emailData = {
+        orderId: order.id,
+        documentNumber: crmResult?.documentNumber || order.orderNumber || order.id.slice(0, 8),
+        customerName: order.guestName || 'Клиент',
+        customerEmail: order.guestEmail || '',
+        customerPhone: order.guestPhone || '',
+        total: order.total,
+        items: (order.items as any[]).map((item: any) => ({
+          name: item.name || 'Товар',
+          quantity: item.quantity,
+          price: item.price,
+          total: item.price * item.quantity,
+        })),
+        deliveryAddress: order.deliveryAddress || '',
+        comment: order.comment || '',
+        paymentId: order.paymentId || 'test',
+      };
+
+      await sendOrderConfirmationToCustomer(emailData);
+      await sendOrderNotificationToManager(emailData);
+      console.log(`✅ Уведомления отправлены для заказа ${orderId}`);
+    } catch (emailError) {
+      console.error(`❌ Ошибка отправки email для заказа ${orderId}:`, emailError);
+    }
+
+    return {
+      success: true,
+      orderId,
+      crmOrderId: crmResult?.orderId,
+      documentNumber: crmResult?.documentNumber,
+    };
+
+  } catch (error: any) {
+    console.error(`❌ Ошибка принудительной отправки заказа ${orderId} в CRM:`, error.message);
+    if (error.response) {
+      console.error('  Статус:', error.response.status);
+      console.error('  Ответ:', JSON.stringify(error.response.data, null, 2));
+    }
+    throw error;
   }
 };

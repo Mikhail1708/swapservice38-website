@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle, Package, ArrowLeft, Loader2, ShoppingBag } from 'lucide-react';
+import { CheckCircle, Package, Loader2, ShoppingBag, AlertCircle } from 'lucide-react';
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
@@ -23,47 +23,52 @@ export default function PaymentSuccessPage() {
       return;
     }
 
-    const fetchOrder = async () => {
+    const processPayment = async () => {
       try {
-        console.log('🔄 Получение информации о заказе:', orderId);
+        console.log(`🔄 Обработка оплаты заказа ${orderId}...`);
 
-        // ✅ ПРОБУЕМ ЧЕРЕЗ /api/orders/[id]
-        let response = await fetch(`/api/orders/${orderId}`, {
+        // ✅ ВЫЗЫВАЕМ /api/payment/confirm
+        const response = await fetch('/api/payment/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, paymentId }),
           credentials: 'include',
         });
 
-        // ✅ ЕСЛИ 404 — ПРОБУЕМ ЧЕРЕЗ /api/orders/details
-        if (response.status === 404) {
-          console.log('⚠️ Заказ не найден по /api/orders/[id], пробуем /api/orders/details');
-          response = await fetch(`/api/orders/details?id=${orderId}`, {
-            credentials: 'include',
-          });
-        }
+        const data = await response.json();
 
         if (!response.ok) {
-          // ✅ ЕСЛИ ВСЁ РАВНО 404 — ПОКАЗЫВАЕМ СТРАНИЦУ УСПЕХА БЕЗ ДАННЫХ
-          if (response.status === 404) {
-            console.log('⚠️ Заказ не найден, показываем страницу успеха без данных');
-            setLoading(false);
-            return;
-          }
-          throw new Error('Заказ не найден');
+          console.error('❌ Ошибка обработки оплаты:', data);
+          setError(data.error || 'Ошибка обработки оплаты');
+          setLoading(false);
+          return;
         }
 
-        const data = await response.json();
-        console.log('✅ Заказ получен:', data);
-        setOrder(data.order || data);
+        console.log('✅ Оплата обработана:', data);
+
+        // ✅ ЗАГРУЖАЕМ ОБНОВЛЁННЫЙ ЗАКАЗ
+        const orderResponse = await fetch(`/api/orders/details?id=${orderId}`, {
+          credentials: 'include',
+        });
+
+        if (orderResponse.ok) {
+          const orderData = await orderResponse.json();
+          setOrder(orderData.order || orderData);
+        } else {
+          // Даже если не удалось загрузить заказ, оплата прошла
+          setOrder({ id: orderId, status: 'paid' });
+        }
+
       } catch (error: any) {
-        console.error('❌ Ошибка получения заказа:', error);
-        // ✅ НЕ ПОКАЗЫВАЕМ ОШИБКУ, ПРОСТО ПРОДОЛЖАЕМ
-        setError(null);
+        console.error('❌ Ошибка:', error);
+        setError(error.message || 'Ошибка обработки оплаты');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchOrder();
-  }, [orderId]);
+    processPayment();
+  }, [orderId, paymentId]);
 
   if (loading) {
     return (
@@ -73,7 +78,6 @@ export default function PaymentSuccessPage() {
     );
   }
 
-  // ✅ ДАЖЕ ЕСЛИ ЕСТЬ ОШИБКА — ПОКАЗЫВАЕМ СТРАНИЦУ УСПЕХА
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
       <div className="container-custom max-w-2xl">
@@ -85,6 +89,17 @@ export default function PaymentSuccessPage() {
           <p className="text-gray-500 mb-6">
             Спасибо за заказ! Мы уже начали его обработку.
           </p>
+
+          {error && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-700 mb-6 text-left flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Оплата прошла, но есть нюанс:</p>
+                <p>{error}</p>
+                <p className="text-xs mt-1">Наш менеджер свяжется с вами в ближайшее время.</p>
+              </div>
+            </div>
+          )}
 
           <div className="bg-white rounded-xl p-6 text-left space-y-3 mb-6">
             <div className="flex justify-between">
@@ -103,27 +118,6 @@ export default function PaymentSuccessPage() {
               <span className="text-gray-500">Статус:</span>
               <span className="text-green-600 font-medium">✅ Оплачен</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Способ доставки:</span>
-              <span className="font-medium">
-                {order?.deliveryMethod === 'pickup' ? 'Самовывоз' : 
-                 order?.deliveryMethod === 'courier' ? 'Курьером' : 
-                 order?.deliveryMethod === 'post' ? 'Почта России' : 
-                 order?.deliveryMethod || 'Не указан'}
-              </span>
-            </div>
-            {order?.deliveryAddress && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Адрес:</span>
-                <span className="font-medium text-right break-all">{order.deliveryAddress}</span>
-              </div>
-            )}
-            {order?.guestName && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Получатель:</span>
-                <span className="font-medium">{order.guestName}</span>
-              </div>
-            )}
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700 mb-6 text-left">
@@ -151,10 +145,6 @@ export default function PaymentSuccessPage() {
               Мои заказы
             </Link>
           </div>
-
-          <p className="text-xs text-gray-400 mt-6">
-            Номер платежа: {paymentId || '—'}
-          </p>
         </div>
       </div>
     </div>

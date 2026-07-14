@@ -145,7 +145,6 @@ interface Suggestion {
   coordinates?: { lat: number; lon: number };
 }
 
-// ✅ ПОИСК АДРЕСОВ (ПОЛНЫЙ АДРЕС)
 const searchAddresses = async (query: string): Promise<Suggestion[]> => {
   if (!query || query.length < 2) return [];
   
@@ -465,6 +464,7 @@ export default function CartPage() {
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ АВТОРИЗОВАН — ПРЕДЛАГАЕМ ВОЙТИ
     if (!user) {
       setOrderError('Для оформления заказа необходимо авторизоваться');
       router.push('/login?redirect=/cart');
@@ -555,10 +555,11 @@ export default function CartPage() {
     );
   }
 
+  // ✅ КОРЗИНА ПУСТА — ПОКАЗЫВАЕМ СООБЩЕНИЕ
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-white pt-32 pb-20">
-        <div className="container-custom max-w-4xl">
+        <div className="container-custom max-w-4xl mx-auto px-4">
           <div className="text-center py-16">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <ShoppingBag className="w-10 h-10 text-gray-300" />
@@ -577,39 +578,10 @@ export default function CartPage() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-white pt-32 pb-20">
-        <div className="container-custom max-w-4xl">
-          <div className="text-center py-16">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle className="w-10 h-10 text-gray-300" />
-            </div>
-            <h2 className="text-2xl font-bold text-black">Требуется авторизация</h2>
-            <p className="text-gray-400 mt-2">Для оформления заказа необходимо войти в аккаунт</p>
-            <div className="flex flex-wrap justify-center gap-4 mt-6">
-              <Link 
-                href="/login?redirect=/cart" 
-                className="px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
-              >
-                Войти
-              </Link>
-              <Link 
-                href="/register?redirect=/cart" 
-                className="px-8 py-3 border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-100 transition"
-              >
-                Зарегистрироваться
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // ✅ КОРЗИНА ПОКАЗЫВАЕТСЯ ВСЕМ! (УБРАЛИ ПРОВЕРКУ НА USER)
   return (
     <div className="min-h-screen bg-gray-50 pt-32 pb-20">
-      <div className="container-custom max-w-7xl">
+      <div className="container-custom max-w-7xl mx-auto px-4">
         <div className="flex items-center gap-4 mb-8">
           <Link href="/catalog" className="text-gray-400 hover:text-black transition p-2 hover:bg-gray-100 rounded-xl">
             <ArrowLeft className="w-5 h-5" />
@@ -726,188 +698,209 @@ export default function CartPage() {
                 Оформление заказа
               </h2>
 
-              <form onSubmit={handleCheckout} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+              {/* ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ АВТОРИЗОВАН — ПОКАЗЫВАЕМ ПРЕДЛОЖЕНИЕ ВОЙТИ */}
+              {!user ? (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-600 font-medium mb-2">Для оформления заказа</p>
+                  <p className="text-sm text-gray-400 mb-4">Войдите в аккаунт или зарегистрируйтесь</p>
+                  <div className="flex flex-col gap-3">
+                    <Link 
+                      href={`/login?redirect=/cart`} 
+                      className="w-full py-3 bg-black text-white rounded-xl font-medium hover:bg-gray-800 transition"
+                    >
+                      Войти
+                    </Link>
+                    <Link 
+                      href={`/register?redirect=/cart`} 
+                      className="w-full py-3 border border-gray-300 text-gray-600 rounded-xl font-medium hover:bg-gray-100 transition"
+                    >
+                      Зарегистрироваться
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleCheckout} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                        Имя <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.firstName}
+                        onChange={(e) => handleFieldChange('firstName', e.target.value)}
+                        onBlur={() => handleFieldBlur('firstName')}
+                        className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                          getFieldStatus('firstName') === 'error' 
+                            ? 'border-red-400 ring-red-100' 
+                            : getFieldStatus('firstName') === 'success'
+                            ? 'border-green-400 ring-green-100'
+                            : 'border-gray-200 focus:ring-black/10'
+                        }`}
+                        placeholder="Иван"
+                      />
+                      {formErrors.firstName && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <X className="w-3 h-3" />
+                          {formErrors.firstName}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                        Фамилия <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.lastName}
+                        onChange={(e) => handleFieldChange('lastName', e.target.value)}
+                        onBlur={() => handleFieldBlur('lastName')}
+                        className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                          getFieldStatus('lastName') === 'error' 
+                            ? 'border-red-400 ring-red-100' 
+                            : getFieldStatus('lastName') === 'success'
+                            ? 'border-green-400 ring-green-100'
+                            : 'border-gray-200 focus:ring-black/10'
+                        }`}
+                        placeholder="Петров"
+                      />
+                      {formErrors.lastName && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <X className="w-3 h-3" />
+                          {formErrors.lastName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                      Имя <span className="text-red-400">*</span>
+                      Телефон <span className="text-red-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={formData.phone}
+                        onChange={(e) => handleFieldChange('phone', e.target.value)}
+                        onBlur={() => handleFieldBlur('phone')}
+                        className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                          getFieldStatus('phone') === 'error' 
+                            ? 'border-red-400 ring-red-100' 
+                            : getFieldStatus('phone') === 'success'
+                            ? 'border-green-400 ring-green-100'
+                            : 'border-gray-200 focus:ring-black/10'
+                        }`}
+                        placeholder="+7 (999) 999-99-99"
+                        maxLength={18}
+                      />
+                      {formData.phone && getFieldStatus('phone') === 'success' && (
+                        <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                      )}
+                    </div>
+                    {formErrors.phone && (
+                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                        <X className="w-3 h-3" />
+                        {formErrors.phone}
+                      </p>
+                    )}
+                    {!formErrors.phone && formData.phone && getFieldStatus('phone') === 'success' && (
+                      <p className="text-xs text-green-500 mt-1">✅ Номер корректен</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                      Email <span className="text-red-400">*</span>
                     </label>
                     <input
-                      type="text"
-                      value={formData.firstName}
-                      onChange={(e) => handleFieldChange('firstName', e.target.value)}
-                      onBlur={() => handleFieldBlur('firstName')}
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => handleFieldChange('email', e.target.value)}
+                      onBlur={() => handleFieldBlur('email')}
                       className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                        getFieldStatus('firstName') === 'error' 
+                        getFieldStatus('email') === 'error' 
                           ? 'border-red-400 ring-red-100' 
-                          : getFieldStatus('firstName') === 'success'
+                          : getFieldStatus('email') === 'success'
                           ? 'border-green-400 ring-green-100'
                           : 'border-gray-200 focus:ring-black/10'
                       }`}
-                      placeholder="Иван"
+                      placeholder="ivan@mail.ru"
                     />
-                    {formErrors.firstName && (
+                    {formErrors.email && (
                       <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                         <X className="w-3 h-3" />
-                        {formErrors.firstName}
+                        {formErrors.email}
                       </p>
                     )}
                   </div>
+
                   <div>
                     <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                      Фамилия <span className="text-red-400">*</span>
+                      Адрес доставки <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={formData.lastName}
-                      onChange={(e) => handleFieldChange('lastName', e.target.value)}
-                      onBlur={() => handleFieldBlur('lastName')}
-                      className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                        getFieldStatus('lastName') === 'error' 
-                          ? 'border-red-400 ring-red-100' 
-                          : getFieldStatus('lastName') === 'success'
-                          ? 'border-green-400 ring-green-100'
-                          : 'border-gray-200 focus:ring-black/10'
-                      }`}
-                      placeholder="Петров"
+                    <AddressAutocomplete
+                      value={formData.address}
+                      onChange={(val) => handleFieldChange('address', val)}
+                      onBlur={() => handleFieldBlur('address')}
+                      error={formErrors.address}
+                      touched={touched.address}
+                      placeholder="г. Иркутск, ул. Ленина, д. 1"
                     />
-                    {formErrors.lastName && (
-                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                        <X className="w-3 h-3" />
-                        {formErrors.lastName}
-                      </p>
-                    )}
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                    Телефон <span className="text-red-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="tel"
-                      value={formData.phone}
-                      onChange={(e) => handleFieldChange('phone', e.target.value)}
-                      onBlur={() => handleFieldBlur('phone')}
-                      className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                        getFieldStatus('phone') === 'error' 
-                          ? 'border-red-400 ring-red-100' 
-                          : getFieldStatus('phone') === 'success'
-                          ? 'border-green-400 ring-green-100'
-                          : 'border-gray-200 focus:ring-black/10'
-                      }`}
-                      placeholder="+7 (999) 999-99-99"
-                      maxLength={18}
+                  <div>
+                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                      Как удобнее с вами связаться?
+                    </label>
+                    <textarea
+                      value={formData.comment}
+                      onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition resize-none"
+                      rows={2}
+                      placeholder="Telegram, WhatsApp, Viber, звонок..."
                     />
-                    {formData.phone && getFieldStatus('phone') === 'success' && (
-                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-4 mt-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Товары ({items.length} шт):</span>
+                      <span className="font-medium">{total.toLocaleString()} ₽</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Доставка:</span>
+                      <span className="font-medium text-gray-400">Рассчитывается</span>
+                    </div>
+                    <div className="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-gray-200">
+                      <span>Итого:</span>
+                      <span className="text-black">{total.toLocaleString()} ₽</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isCheckingOut}
+                    className="w-full py-4 bg-black text-white rounded-2xl font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
+                  >
+                    {isCheckingOut ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Обработка...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="w-5 h-5" />
+                        Перейти к оплате
+                      </>
                     )}
-                  </div>
-                  {formErrors.phone && (
-                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                      <X className="w-3 h-3" />
-                      {formErrors.phone}
-                    </p>
-                  )}
-                  {!formErrors.phone && formData.phone && getFieldStatus('phone') === 'success' && (
-                    <p className="text-xs text-green-500 mt-1">✅ Номер корректен</p>
-                  )}
-                </div>
+                  </button>
 
-                <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                    Email <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => handleFieldChange('email', e.target.value)}
-                    onBlur={() => handleFieldBlur('email')}
-                    className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
-                      getFieldStatus('email') === 'error' 
-                        ? 'border-red-400 ring-red-100' 
-                        : getFieldStatus('email') === 'success'
-                        ? 'border-green-400 ring-green-100'
-                        : 'border-gray-200 focus:ring-black/10'
-                    }`}
-                    placeholder="ivan@mail.ru"
-                  />
-                  {formErrors.email && (
-                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                      <X className="w-3 h-3" />
-                      {formErrors.email}
-                    </p>
-                  )}
-                </div>
-
-                {/* ✅ АДРЕС ДОСТАВКИ — АВТОДОПОЛНЕНИЕ ОТ DADATA */}
-                <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                    Адрес доставки <span className="text-red-400">*</span>
-                  </label>
-                  <AddressAutocomplete
-                    value={formData.address}
-                    onChange={(val) => handleFieldChange('address', val)}
-                    onBlur={() => handleFieldBlur('address')}
-                    error={formErrors.address}
-                    touched={touched.address}
-                    placeholder="г. Иркутск, ул. Ленина, д. 1"
-                  />
-                </div>
-
-                {/* ✅ КОММЕНТАРИЙ — "Как удобнее с вами связаться?" */}
-                <div>
-                  <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                    Как удобнее с вами связаться?
-                  </label>
-                  <textarea
-                    value={formData.comment}
-                    onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition resize-none"
-                    rows={2}
-                    placeholder="Telegram, WhatsApp, Viber, звонок..."
-                  />
-                </div>
-
-                <div className="border-t border-gray-200 pt-4 mt-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Товары ({items.length} шт):</span>
-                    <span className="font-medium">{total.toLocaleString()} ₽</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Доставка:</span>
-                    <span className="font-medium text-gray-400">Рассчитывается</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-gray-200">
-                    <span>Итого:</span>
-                    <span className="text-black">{total.toLocaleString()} ₽</span>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isCheckingOut}
-                  className="w-full py-4 bg-black text-white rounded-2xl font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
-                >
-                  {isCheckingOut ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Обработка...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="w-5 h-5" />
-                      Перейти к оплате
-                    </>
-                  )}
-                </button>
-
-                <p className="text-xs text-gray-400 text-center mt-3">
-                  Нажимая кнопку, вы соглашаетесь с условиями оферты
-                </p>
-              </form>
+                  <p className="text-xs text-gray-400 text-center mt-3">
+                    Нажимая кнопку, вы соглашаетесь с условиями оферты
+                  </p>
+                </form>
+              )}
             </div>
           </div>
         </div>

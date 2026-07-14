@@ -1,10 +1,11 @@
-// backend/src/server.ts (САЙТ)
+// frontend/backend/src/server.ts
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import compression from 'compression'; // ✅ ДОБАВЛЯЕМ
+import compression from 'compression';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import { authMiddleware } from './middleware/auth.middleware'; // ✅ ДОБАВИТЬ
 import authRoutes from './routes/auth.routes';
 import productRoutes from './routes/product.routes';
 import cartRoutes from './routes/cart.routes';
@@ -50,22 +51,18 @@ app.use(cors({
 }));
 
 // ============================================================
-// 2. ✅ СЖАТИЕ (GZIP/BROTLI)
+// 2. MIDDLEWARE
 // ============================================================
 app.use(compression({
-  level: 6, // оптимальный уровень сжатия
-  threshold: 1024, // сжимаем ответы > 1KB
+  level: 6,
+  threshold: 1024,
   filter: (req, res) => {
-    // Не сжимаем вебхуки и SSE
     if (req.path.includes('/webhook')) return false;
     if (req.path.includes('/events')) return false;
     return compression.filter(req, res);
   }
 }));
 
-// ============================================================
-// 3. MIDDLEWARE
-// ============================================================
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginOpenerPolicy: { policy: "unsafe-none" },
@@ -80,7 +77,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ============================================================
-// 4. ЛОГИРОВАНИЕ
+// 3. ЛОГИРОВАНИЕ
 // ============================================================
 app.use((req, res, next) => {
   console.log(`📡 ${req.method} ${req.url}`);
@@ -88,17 +85,33 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
-// 5. РОУТЫ
+// 4. ПУБЛИЧНЫЕ РОУТЫ (без авторизации)
 // ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/payment', paymentRoutes);
+app.use('/api/cart', cartRoutes); // ✅ КОРЗИНА — БЕЗ АВТОРИЗАЦИИ (guestId)
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
+
+// ============================================================
+// 5. ЗАЩИЩЁННЫЕ РОУТЫ (с авторизацией)
+// ============================================================
+app.use('/api/orders', authMiddleware); // ✅ ВСЕ РОУТЫ ЗАКАЗОВ ТРЕБУЮТ АВТОРИЗАЦИЮ
+app.use('/api/orders', orderRoutes);
+
+app.use('/api/payment', authMiddleware); // ✅ ПЛАТЕЖИ ТРЕБУЮТ АВТОРИЗАЦИЮ (кроме webhook)
+app.use('/api/payment', paymentRoutes);
+
+app.use('/api/admin', authMiddleware);
 app.use('/api/admin', adminRoutes);
+
+app.use('/api/articles', authMiddleware);
 app.use('/api/articles', articlesRoutes);
+
+app.use('/api/comments', authMiddleware);
 app.use('/api/comments', commentsRoutes);
+
+app.use('/api/likes', authMiddleware);
 app.use('/api/likes', likesRoutes);
 
 // ============================================================

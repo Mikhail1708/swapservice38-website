@@ -20,6 +20,7 @@ export function useAuth() {
   const fetchedRef = useRef(false);
   const userCache = useRef<User | null>(null);
   const isMounted = useRef(true);
+  const fetchPromise = useRef<Promise<void> | null>(null);
 
   const fetchUser = useCallback(async (force: boolean = false) => {
     // ✅ ЕСЛИ ЕСТЬ КЭШ И НЕ ФОРСИРУЕМ — ВОЗВРАЩАЕМ
@@ -31,49 +32,57 @@ export function useAuth() {
       return;
     }
 
-    try {
-      const response = await fetch('/api/auth/me', {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.user) {
-          userCache.current = data.user;
-          if (isMounted.current) {
-            setUser(data.user);
+    // ✅ ЕСЛИ УЖЕ ЕСТЬ ЗАПРОС В ПРОЦЕССЕ — ЖДЁМ ЕГО
+    if (fetchPromise.current) {
+      return fetchPromise.current;
+    }
+
+    fetchPromise.current = (async () => {
+      try {
+        const response = await fetch('/api/auth/me', {
+          cache: 'no-store',
+          credentials: 'include', // ✅ ВАЖНО! ОТПРАВЛЯЕМ COOKIE
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.user) {
+            userCache.current = data.user;
+            if (isMounted.current) {
+              setUser(data.user);
+            }
+          } else {
+            userCache.current = null;
+            if (isMounted.current) {
+              setUser(null);
+            }
           }
         } else {
-          userCache.current = null;
-          if (isMounted.current) {
-            setUser(null);
+          if (response.status === 401) {
+            userCache.current = null;
+            if (isMounted.current) {
+              setUser(null);
+            }
           }
         }
-      } else {
-        // ✅ ЕСЛИ 401 — ОЧИЩАЕМ КЭШ
-        if (response.status === 401) {
-          userCache.current = null;
-          if (isMounted.current) {
-            setUser(null);
-          }
+      } catch (error) {
+        console.error('❌ Auth error:', error);
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
         }
+        fetchPromise.current = null;
       }
-    } catch (error) {
-      console.error('❌ Auth error:', error);
-      // ✅ ПРИ ОШИБКЕ НЕ ОЧИЩАЕМ КЭШ
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
-    }
+    })();
+
+    return fetchPromise.current;
   }, []);
 
   const logout = useCallback(async () => {
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
-        credentials: 'include',
+        credentials: 'include', // ✅ ВАЖНО!
       });
       
       userCache.current = null;
@@ -93,8 +102,8 @@ export function useAuth() {
 
   // ✅ ОБНОВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ (ПОСЛЕ СМЕНЫ ПАРОЛЯ)
   const refresh = useCallback(async () => {
-    // ✅ ОЧИЩАЕМ КЭШ ПЕРЕД ЗАПРОСОМ
     userCache.current = null;
+    fetchPromise.current = null;
     await fetchUser(true);
   }, [fetchUser]);
 
@@ -102,10 +111,6 @@ export function useAuth() {
     isMounted.current = true;
     
     if (fetchedRef.current) {
-      // ✅ ЕСЛИ УЖЕ БЫЛ ЗАПРОС, НО ПОЛЬЗОВАТЕЛЬ НУЛЕВОЙ — ПЕРЕЗАПРАШИВАЕМ
-      if (!userCache.current && !user) {
-        fetchUser(true);
-      }
       return;
     }
     
@@ -115,13 +120,13 @@ export function useAuth() {
     return () => {
       isMounted.current = false;
     };
-  }, []);
+  }, [fetchUser]);
 
   return { 
     user, 
     loading, 
     logout, 
     refetch: fetchUser,
-    refresh, // ✅ НОВЫЙ МЕТОД ДЛЯ ОБНОВЛЕНИЯ
+    refresh,
   };
 }

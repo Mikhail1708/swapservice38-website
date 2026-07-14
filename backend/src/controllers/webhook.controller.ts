@@ -1,4 +1,5 @@
-// backend/src/controllers/webhook.controller.ts (САЙТ)
+// backend/src/controllers/webhook.controller.ts (САЙТ) — НЕ МЕНЯЕТСЯ
+
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
@@ -41,18 +42,15 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
     console.log('  Signature:', signature);
     console.log('  Payload:', JSON.stringify(payload, null, 2));
 
-    // 1. Проверка наличия подписи
     if (!signature) {
       console.error('❌ Webhook: Отсутствует подпись');
       res.status(401).json({ error: 'Missing signature' });
       return;
     }
 
-    // 2. Проверка подписи
     if (!WEBHOOK_SECRET) {
       console.warn('⚠️ WEBHOOK_SECRET не настроен, проверка подписи пропущена');
     } else {
-      // ✅ ИСПОЛЬЗУЕМ КАНОНИЧЕСКУЮ СЕРИАЛИЗАЦИЮ
       const payloadString = canonicalStringify(payload);
       const expectedSignature = crypto
         .createHmac('sha256', WEBHOOK_SECRET)
@@ -65,13 +63,11 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
 
       if (signature !== expectedSignature) {
         console.error('❌ Webhook: Неверная подпись');
-        console.error(`   Payload string for signature: ${payloadString}`);
         res.status(401).json({ error: 'Invalid signature' });
         return;
       }
     }
 
-    // 3. Извлечение данных
     const { crmOrderId, status, documentNumber } = payload;
 
     if (!crmOrderId || !status) {
@@ -82,11 +78,10 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
 
     console.log(`📥 Получен вебхук: заказ ${documentNumber || crmOrderId} → статус "${status}"`);
 
-    // 4. Маппинг статуса
     const siteStatus = statusMap[status] || status;
     console.log(`🔄 Маппинг статуса: ${status} → ${siteStatus}`);
 
-    // 5. Поиск заказа в БД сайта по crmOrderId
+    // ✅ ИЩЕМ ЗАКАЗ ПО crmOrderId
     const order = await prisma.order.findFirst({
       where: {
         crmOrderId: String(crmOrderId),
@@ -102,7 +97,6 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       return;
     }
 
-    // 6. Обновление заказа в БД сайта
     await prisma.order.update({
       where: { id: order.id },
       data: {

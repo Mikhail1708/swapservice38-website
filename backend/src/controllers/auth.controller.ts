@@ -1,4 +1,4 @@
-// backend/src/controllers/auth.controller.ts
+// frontend/backend/src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
@@ -11,7 +11,6 @@ import {
   changePassword,
   requestPasswordChange,
   confirmPasswordChange,
-  // ✅ НОВЫЕ ИМПОРТЫ ДЛЯ ВОССТАНОВЛЕНИЯ ПАРОЛЯ
   requestPasswordReset,
   verifyResetCode,
   confirmResetPassword
@@ -96,7 +95,50 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
 };
 
 // ============================================================
-// СТАНДАРТНАЯ АУТЕНТИФИКАЦИЯ
+// ЛОГИН — ПЕРЕНОС КОРЗИНЫ
+// ============================================================
+export const loginController = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+    const { token, user } = await login(email, password);
+
+    // ✅ Получаем guestId из cookies
+    const guestId = req.cookies?.guestId;
+
+    // ✅ ПЕРЕНОСИМ КОРЗИНУ (ЕСЛИ ЕСТЬ)
+    if (guestId) {
+      console.log(`🔄 Перенос корзины при логине: guestId=${guestId} -> userId=${user.id}`);
+      await mergeCart(user.id, guestId);
+      
+      // Удаляем guestId cookie
+      res.clearCookie('guestId', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+      });
+    }
+
+    // Устанавливаем JWT cookie
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+
+    console.log('✅ Логин успешен, токен установлен');
+    res.json({ user });
+  } catch (error: any) {
+    console.error('❌ Ошибка логина:', error);
+    res.status(401).json({ error: error.message });
+  }
+};
+
+// ============================================================
+// ОСТАЛЬНЫЕ КОНТРОЛЛЕРЫ
 // ============================================================
 
 export const registerController = async (req: Request, res: Response) => {
@@ -119,44 +161,12 @@ export const verifyController = async (req: Request, res: Response) => {
   }
 };
 
-export const loginController = async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-    const { token, user } = await login(email, password);
-
-    // ✅ Получаем guestId из cookies
-    const guestId = req.cookies?.guestId;
-
-    // ✅ Переносим корзину
-    if (guestId) {
-      await mergeCart(user.id, guestId);
-      // Удаляем guestId cookie
-      res.clearCookie('guestId', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
-    }
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    res.json({ user });
-  } catch (error: any) {
-    res.status(401).json({ error: error.message });
-  }
-};
-
 export const logoutController = (req: Request, res: Response) => {
   res.clearCookie('token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
+    path: '/',
   });
   res.json({ message: 'Выход выполнен' });
 };
@@ -208,7 +218,7 @@ export const updateProfileController = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ)
+// СМЕНА ПАРОЛЯ
 // ============================================================
 
 export const changePasswordController = async (req: Request, res: Response) => {
@@ -257,17 +267,12 @@ export const confirmPasswordChangeController = async (req: Request, res: Respons
 };
 
 // ============================================================
-// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ — НЕ ТРЕБУЮТ АВТОРИЗАЦИИ)
+// ВОССТАНОВЛЕНИЕ ПАРОЛЯ
 // ============================================================
 
 export const requestPasswordResetController = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ error: 'Email обязателен' });
-    }
-
     const result = await requestPasswordReset(email);
     res.json(result);
   } catch (error: any) {
@@ -278,11 +283,6 @@ export const requestPasswordResetController = async (req: Request, res: Response
 export const verifyResetCodeController = async (req: Request, res: Response) => {
   try {
     const { email, code } = req.body;
-    
-    if (!email || !code) {
-      return res.status(400).json({ error: 'Email и код обязательны' });
-    }
-
     const result = await verifyResetCode(email, code);
     res.json(result);
   } catch (error: any) {
@@ -293,15 +293,6 @@ export const verifyResetCodeController = async (req: Request, res: Response) => 
 export const confirmResetPasswordController = async (req: Request, res: Response) => {
   try {
     const { email, code, newPassword } = req.body;
-    
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({ error: 'Email, код и новый пароль обязательны' });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'Пароль должен быть минимум 8 символов' });
-    }
-
     const result = await confirmResetPassword(email, code, newPassword);
     res.json(result);
   } catch (error: any) {

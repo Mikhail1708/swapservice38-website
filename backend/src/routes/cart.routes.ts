@@ -1,4 +1,4 @@
-// backend/src/routes/cart.routes.ts
+// frontend/backend/src/routes/cart.routes.ts
 import { Router } from 'express';
 import {
   getCart,
@@ -6,13 +6,14 @@ import {
   updateCart,
   clearCart,
 } from '../controllers/cart.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Все эндпоинты публичные (с guestId)
-router.get('/', getCart);
-router.post('/add', addToCart);
-router.put('/update', updateCart);
-router.delete('/clear', clearCart);
+// ✅ ДОБАВЛЯЕМ authMiddleware КО ВСЕМ РОУТАМ
+router.get('/', authMiddleware, getCart);
+router.post('/add', authMiddleware, addToCart);
+router.put('/update', authMiddleware, updateCart);
+router.delete('/clear', authMiddleware, clearCart);
 
 export default router;

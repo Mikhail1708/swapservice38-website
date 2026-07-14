@@ -20,9 +20,10 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     }
   }
 
+  // ✅ ЕСЛИ ТОКЕНА НЕТ — ПРОПУСКАЕМ (НЕ ВОЗВРАЩАЕМ 401!)
   if (!token) {
-    console.log('❌ Токен не найден ни в cookies, ни в headers');
-    return res.status(401).json({ error: 'Не авторизован' });
+    console.log('ℹ️ Токен не найден, пропускаем (гость)');
+    return next(); // ← ВАЖНО! НЕ БЛОКИРУЕМ ГОСТЕЙ
   }
 
   console.log('🔑 Токен найден:', token.substring(0, 20) + '...');
@@ -31,7 +32,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     const JWT_SECRET = process.env.JWT_SECRET;
     if (!JWT_SECRET) {
       console.error('❌ JWT_SECRET не настроен!');
-      return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
+      return next();
     }
 
     console.log('🔑 Проверка токена с секретом:', JWT_SECRET.substring(0, 10) + '...');
@@ -39,7 +40,6 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number };
     console.log('✅ Токен валиден, userId:', decoded.id);
 
-    // ✅ ПРИВОДИМ ID К СТРОКЕ (для поддержки UUID и чисел)
     const userId = String(decoded.id);
     console.log('🔄 Приведённый userId:', userId);
 
@@ -60,12 +60,12 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     if (!user) {
       console.log('❌ Пользователь не найден в БД');
-      return res.status(401).json({ error: 'Пользователь не найден' });
+      return next();
     }
 
     if (user.blockedAt) {
       console.log('❌ Пользователь заблокирован');
-      return res.status(403).json({ error: 'Пользователь заблокирован' });
+      return next();
     }
 
     console.log('✅ Пользователь найден:', user.email);
@@ -73,14 +73,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     next();
   } catch (error: any) {
     console.error('❌ Ошибка верификации токена:', error.message);
-    
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Токен истёк' });
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Невалидный токен' });
-    }
-    
-    return res.status(401).json({ error: 'Недействительный токен' });
+    // ✅ ДАЖЕ ПРИ ОШИБКЕ — ПРОПУСКАЕМ (НЕ БЛОКИРУЕМ ГОСТЕЙ)
+    next();
   }
 };

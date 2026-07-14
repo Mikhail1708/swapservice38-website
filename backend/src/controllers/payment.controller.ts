@@ -1,12 +1,19 @@
 // backend/src/controllers/payment.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { createPayment, handlePaymentWebhook, verifyWebhookSignature, getPaymentStatus } from '../services/payment.service';
+import { 
+  createPayment, 
+  handlePaymentSuccess, 
+  handlePaymentWebhook, 
+  verifyWebhookSignature, 
+  getPaymentStatus,
+  resendOrderToCRM
+} from '../services/payment.service';
 
 const prisma = new PrismaClient();
 
 // ============================================================
-// POST /api/payment/create — СОЗДАНИЕ ПЛАТЕЖА (ТОЛЬКО СВОЙ ЗАКАЗ)
+// POST /api/payment/create — СОЗДАНИЕ ПЛАТЕЖА
 // ============================================================
 export const createPaymentController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -79,7 +86,64 @@ export const createPaymentController = async (req: Request, res: Response): Prom
 };
 
 // ============================================================
-// POST /api/payment/webhook
+// POST /api/payment/confirm — ПОДТВЕРЖДЕНИЕ ОПЛАТЫ (СО СТРАНИЦЫ УСПЕХА)
+// ============================================================
+export const confirmPaymentController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId, paymentId } = req.body;
+    const userId = (req as any).user?.id;
+
+    console.log(`💳 Подтверждение оплаты заказа ${orderId} для пользователя ${userId}`);
+
+    if (!orderId) {
+      res.status(400).json({ error: 'Не указан ID заказа' });
+      return;
+    }
+
+    if (!userId) {
+      res.status(401).json({ error: 'Не авторизован' });
+      return;
+    }
+
+    // ✅ ПРОВЕРЯЕМ, ЧТО ЗАКАЗ ПРИНАДЛЕЖИТ ПОЛЬЗОВАТЕЛЮ
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        userId: userId,
+      },
+    });
+
+    if (!order) {
+      res.status(404).json({ error: 'Заказ не найден' });
+      return;
+    }
+
+    // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОБРАБОТАН — ВОЗВРАЩАЕМ УСПЕХ
+    if (order.status === 'paid' && order.crmOrderId) {
+      console.log(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM`);
+      res.json({ 
+        success: true, 
+        orderId, 
+        status: 'paid', 
+        alreadyProcessed: true,
+        crmOrderId: order.crmOrderId,
+        documentNumber: order.orderNumber,
+      });
+      return;
+    }
+
+    // ✅ ВЫЗЫВАЕМ handlePaymentSuccess
+    const result = await handlePaymentSuccess(orderId);
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ Ошибка подтверждения оплаты:', error);
+    res.status(500).json({ error: error.message || 'Ошибка подтверждения оплаты' });
+  }
+};
+
+// ============================================================
+// POST /api/payment/webhook — WEBHOOK ОТ ЮKASSA
 // ============================================================
 export const paymentWebhookController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -107,7 +171,7 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
 };
 
 // ============================================================
-// GET /api/payment/status/:paymentId
+// GET /api/payment/status/:paymentId — СТАТУС ПЛАТЕЖА
 // ============================================================
 export const getPaymentStatusController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -127,5 +191,44 @@ export const getPaymentStatusController = async (req: Request, res: Response): P
   } catch (error: any) {
     console.error('❌ Ошибка получения статуса платежа:', error);
     res.status(400).json({ error: error.message || 'Ошибка получения статуса платежа' });
+  }
+};
+
+// ============================================================
+// POST /api/payment/resend — ПРИНУДИТЕЛЬНАЯ ОТПРАВКА В CRM (ДЛЯ АДМИНОВ)
+// ============================================================
+export const resendPaymentController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.body;
+    const userId = (req as any).user?.id;
+
+    console.log(`🔄 Принудительная отправка заказа ${orderId} в CRM`);
+
+    if (!orderId) {
+      res.status(400).json({ error: 'Не указан ID заказа' });
+      return;
+    }
+
+    if (!userId) {
+      res.status(401).json({ error: 'Не авторизован' });
+      return;
+    }
+
+    // ✅ ПРОВЕРЯЕМ, ЧТО ПОЛЬЗОВАТЕЛЬ — АДМИН ИЛИ МЕНЕДЖЕР
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
+      res.status(403).json({ error: 'Доступ запрещён' });
+      return;
+    }
+
+    const result = await resendOrderToCRM(orderId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ Ошибка принудительной отправки:', error);
+    res.status(500).json({ error: error.message || 'Ошибка принудительной отправки' });
   }
 };

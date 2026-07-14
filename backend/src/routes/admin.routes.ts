@@ -12,6 +12,7 @@ import {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
+  updateOrder, // ✅ ДОБАВЛЯЕМ
 } from '../controllers/admin/orders.controller';
 
 // Appointments
@@ -27,16 +28,16 @@ import {
 import {
   getUsers,
   getUserById,
-  createUser,           // ✅ НОВОЕ: создание пользователя админом
-  updateUser,           // ✅ НОВОЕ: полное обновление пользователя
-  deleteUser,           // ✅ НОВОЕ: удаление пользователя
+  createUser,
+  updateUser,
+  deleteUser,
   updateUserRole,
   blockUser,
   unblockUser,
-  changeUserPassword,   // ✅ НОВОЕ: смена пароля пользователя админом
+  changeUserPassword,
 } from '../controllers/admin/users.controller';
 
-// ✅ ARTICLES (СВАПЫ + УСЛУГИ)
+// ARTICLES
 import {
   getArticles,
   getArticleById,
@@ -58,6 +59,7 @@ router.get('/dashboard/stats', getDashboardStats);
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
+router.put('/orders/:id', updateOrder); // ✅ ДОБАВЛЯЕМ
 router.delete('/orders/:id', deleteOrder);
 
 // ===== APPOINTMENTS =====
@@ -68,22 +70,15 @@ router.post('/appointments', createAppointment);
 router.patch('/appointments/:id', updateAppointment);
 
 // ===== USERS =====
-// Список и детали
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
-
-// CRUD
-router.post('/users', createUser);              // ✅ Создание
-router.put('/users/:id', updateUser);           // ✅ Полное обновление
-router.delete('/users/:id', deleteUser);        // ✅ Удаление
-
-// Роли и блокировка
+router.post('/users', createUser);
+router.put('/users/:id', updateUser);
+router.delete('/users/:id', deleteUser);
 router.patch('/users/:id/role', updateUserRole);
 router.post('/users/:id/block', blockUser);
 router.post('/users/:id/unblock', unblockUser);
-
-// Пароль
-router.put('/users/:id/password', changeUserPassword); // ✅ Смена пароля
+router.put('/users/:id/password', changeUserPassword);
 
 // ===== ARTICLES =====
 router.get('/articles', getArticles);

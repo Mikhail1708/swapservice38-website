@@ -23,34 +23,47 @@ export function useCart() {
   const [isLoading, setIsLoading] = useState(true);
   const [itemsCount, setItemsCount] = useState(0);
   const fetchedRef = useRef(false);
+  const fetchPromise = useRef<Promise<void> | null>(null);
 
   const fetchCart = useCallback(async () => {
-    try {
-      const response = await fetch('/api/cart', {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const cartData = data.cart || data;
-        setCart(cartData);
-        const items = cartData?.items || [];
-        const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
-        setItemsCount(count);
-      } else {
+    // ✅ ЕСЛИ УЖЕ ЕСТЬ ЗАПРОС В ПРОЦЕССЕ — ЖДЁМ ЕГО
+    if (fetchPromise.current) {
+      return fetchPromise.current;
+    }
+
+    fetchPromise.current = (async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch('/api/cart', {
+          credentials: 'include', // ✅ ВАЖНО! ОТПРАВЛЯЕМ COOKIE (guestId И token)
+          cache: 'no-store',
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const cartData = data.cart || data;
+          setCart(cartData);
+          const items = cartData?.items || [];
+          const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
+          setItemsCount(count);
+        } else {
+          setCart(null);
+          setItemsCount(0);
+        }
+      } catch (error) {
+        console.error('❌ Cart fetch error:', error);
         setCart(null);
         setItemsCount(0);
+      } finally {
+        setIsLoading(false);
+        fetchPromise.current = null;
       }
-    } catch (error) {
-      console.error('❌ Cart fetch error:', error);
-      setCart(null);
-      setItemsCount(0);
-    } finally {
-      setIsLoading(false);
-    }
+    })();
+
+    return fetchPromise.current;
   }, []);
 
+  // ✅ ПЕРВИЧНАЯ ЗАГРУЗКА — ТОЛЬКО 1 РАЗ
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -63,7 +76,7 @@ export function useCart() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantity }),
-        credentials: 'include',
+        credentials: 'include', // ✅ ВАЖНО!
       });
       
       if (response.ok) {
@@ -74,8 +87,6 @@ export function useCart() {
           const items = cartData.items || [];
           const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
           setItemsCount(count);
-        } else {
-          await fetchCart();
         }
         return true;
       }
@@ -84,7 +95,7 @@ export function useCart() {
       console.error('❌ Add to cart error:', error);
       return false;
     }
-  }, [fetchCart]);
+  }, []);
 
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
     try {
@@ -92,7 +103,7 @@ export function useCart() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantity }),
-        credentials: 'include',
+        credentials: 'include', // ✅ ВАЖНО!
       });
       
       if (response.ok) {
@@ -103,8 +114,6 @@ export function useCart() {
           const items = cartData.items || [];
           const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
           setItemsCount(count);
-        } else {
-          await fetchCart();
         }
         return true;
       }
@@ -113,13 +122,13 @@ export function useCart() {
       console.error('Update cart error:', error);
       return false;
     }
-  }, [fetchCart]);
+  }, []);
 
   const clearCart = useCallback(async () => {
     try {
       const response = await fetch('/api/cart/clear', {
         method: 'DELETE',
-        credentials: 'include',
+        credentials: 'include', // ✅ ВАЖНО!
       });
       
       if (response.ok) {
