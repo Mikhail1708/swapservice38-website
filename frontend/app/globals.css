@@ -2,79 +2,143 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-
 @layer base {
+  :root {
+    color-scheme: dark;
+
+    --background: #0c0c0d;
+    --foreground: #f2f2f3;
+    --card: #161618;
+    --card-foreground: #f2f2f3;
+    --muted: #1c1c1f;
+    --muted-foreground: #9a9a9f;
+    --primary: #f4f4f5;
+    --primary-foreground: #0c0c0d;
+    --border: rgba(255, 255, 255, 0.09);
+
+    --surface: #f3f3f4;
+    --surface-foreground: #17171a;
+    --surface-muted: #6b6b70;
+    --surface-card: #ffffff;
+    --surface-border: #e3e3e6;
+
+    --radius: 0.5rem;
+  }
+
   * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
   }
 
   html {
     scroll-behavior: smooth;
   }
 
-  body {
-    background: #ffffff;
-    color: #000000;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
-  }
-
-  /* ВЕСЬ ТЕКСТ — ЧЁРНЫЙ */
-  h1, h2, h3, h4, h5, h6, p, span, a, li, div {
-    color: #000000;
-  }
-
   ::selection {
-    background: rgba(0, 0, 0, 0.1);
-    color: #000000;
+    background: rgba(255, 255, 255, 0.16);
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: #f0f0f0;
+    background: #0c0c0d;
   }
   ::-webkit-scrollbar-thumb {
-    background: #cccccc;
-    border-radius: 3px;
+    background: #33333a;
+    border-radius: 4px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #999999;
+}
+
+@layer utilities {
+  .container-custom {
+    width: 100%;
+    max-width: 1320px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  .heading-display {
+    font-family: var(--font-oswald), var(--font-inter), sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    line-height: 0.95;
   }
 }
 
 @layer components {
-  .container-custom {
-    max-width: 1450px;
-    margin: 0 auto;
-    padding: 0 30px;
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.25rem;
+    background-color: var(--primary);
+    padding: 1rem 2rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--primary-foreground);
+    transition: background-color 0.2s;
+  }
+  .btn-primary:hover {
+    background-color: rgba(244, 244, 245, 0.9);
   }
 
-  .text-graphite {
-    color: #555555;
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border);
+    padding: 1rem 2rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--foreground);
+    transition: background-color 0.2s;
+  }
+  .btn-outline:hover {
+    background-color: var(--card);
   }
 
-  .border-graphite {
-    border-color: #e0e0e0;
+  .input-dark {
+    width: 100%;
+    padding: 0.625rem 1rem;
+    background-color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    color: var(--foreground);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .input-dark:focus {
+    outline: none;
+    border-color: var(--foreground);
+    box-shadow: 0 0 0 2px rgba(244, 244, 245, 0.1);
+  }
+  .input-dark::placeholder {
+    color: var(--muted-foreground);
   }
 
-  .bg-graphite-light {
-    background: #f5f5f5;
+  .label-dark {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    margin-bottom: 0.375rem;
   }
 
-  .bg-graphite-dark {
-    background: #333333;
-  }
-
-  @media (max-width: 768px) {
-    .container-custom {
-      padding: 0 20px;
-    }
+  .card-dark {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    overflow: hidden;
   }
 }

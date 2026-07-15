@@ -1,36 +1,44 @@
-// frontend/app/layout.tsx
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import type { Metadata, Viewport } from 'next';
+import { Inter, Oswald } from 'next/font/google';
 import './globals.css';
-import { Providers } from './providers';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import { SiteHeader } from '@/components/site-header';
+import { SiteFooter } from '@/components/site-footer';
 
 const inter = Inter({
-  subsets: ['cyrillic', 'latin'],
-  weight: ['300', '400', '500', '600', '700', '800', '900'],
+  subsets: ['latin', 'cyrillic'],
   variable: '--font-inter',
+  display: 'swap',
+});
+
+const oswald = Oswald({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-oswald',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: 'SWAPSERVICE38 — Свап двигателей и тюнинг внедорожников',
-  description: 'Профессиональный свап двигателей, тюнинг и ремонт внедорожников в Иркутске. Установка 3UZ, 5VZ, VQ35 и других моторов.',
-  keywords: 'свап двигателей, тюнинг внедорожников, замена двигателя, Иркутск, Nissan Patrol, Toyota Land Cruiser, 3UZ, 5VZ',
+  title: 'SWAP SERVICE 38 — Тюнинг и обслуживание внедорожников',
+  description:
+    'Собственное производство тюнинг-компонентов, свап двигателей, установка защиты, боди-лифт и обслуживание внедорожников в Иркутске.',
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0c0c0d',
+  colorScheme: 'dark',
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="ru">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        <Providers>
-          <Header />
-          <main>{children}</main>
-          <Footer />
-        </Providers>
+    <html lang="ru" className="bg-background">
+      <body className={`${inter.variable} ${oswald.variable} font-sans antialiased`}>
+        <SiteHeader />
+        <main>{children}</main>
+        <SiteFooter />
       </body>
     </html>
   );
