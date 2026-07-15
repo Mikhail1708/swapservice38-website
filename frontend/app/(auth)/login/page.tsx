@@ -1,3 +1,4 @@
+// frontend/app/(auth)/login/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -6,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { OAuthButtons } from '@/components/OAuthButtons';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -21,9 +23,9 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
@@ -132,7 +134,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* ===== OAuth КНОПКИ ===== */}
+        {/* OAuth КНОПКИ */}
         <div className="mt-6">
           <OAuthButtons mode="login" />
         </div>

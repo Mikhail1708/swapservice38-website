@@ -10,7 +10,6 @@ import {
   changePasswordController,
   requestPasswordChangeController,
   confirmPasswordChangeController,
-  // ✅ НОВЫЕ ИМПОРТЫ ДЛЯ ВОССТАНОВЛЕНИЯ ПАРОЛЯ
   requestPasswordResetController,
   verifyResetCodeController,
   confirmResetPasswordController,
@@ -45,16 +44,11 @@ router.post('/request-password-change', authMiddleware, requestPasswordChangeCon
 router.post('/confirm-password-change', authMiddleware, confirmPasswordChangeController);
 
 // ============================================================
-// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ)
+// ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ)
 // ============================================================
 
-// 1. Запрос кода восстановления (не требует авторизации)
 router.post('/reset-password/request', requestPasswordResetController);
-
-// 2. Проверка кода восстановления (не требует авторизации)
 router.post('/reset-password/verify', verifyResetCodeController);
-
-// 3. Установка нового пароля (не требует авторизации)
 router.post('/reset-password/confirm', confirmResetPasswordController);
 
 // ============================================================
@@ -105,7 +99,8 @@ router.get('/yandex/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.redirect(`${process.env.CLIENT_URL}/oauth-success`);
+    // ✅ РЕДИРЕКТ НА ГЛАВНУЮ СТРАНИЦУ
+    res.redirect(`${process.env.CLIENT_URL}/`);
   } catch (error: any) {
     console.error('Yandex OAuth callback error:', error);
     const message = encodeURIComponent(error.message || 'Ошибка входа через Яндекс');
@@ -161,7 +156,8 @@ router.get('/max/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.redirect(`${process.env.CLIENT_URL}/oauth-success`);
+    // ✅ РЕДИРЕКТ НА ГЛАВНУЮ СТРАНИЦУ
+    res.redirect(`${process.env.CLIENT_URL}/`);
   } catch (error: any) {
     console.error('MAX OAuth callback error:', error);
     const message = encodeURIComponent(error.message || 'Ошибка входа через MAX');

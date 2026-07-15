@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getCsrfToken, clearCsrfToken, fetchWithCsrf } from '../csrf';
 
 interface User {
   id: string;
@@ -23,7 +24,6 @@ export function useAuth() {
   const fetchPromise = useRef<Promise<void> | null>(null);
 
   const fetchUser = useCallback(async (force: boolean = false) => {
-    // ✅ ЕСЛИ ЕСТЬ КЭШ И НЕ ФОРСИРУЕМ — ВОЗВРАЩАЕМ
     if (userCache.current && !force) {
       if (isMounted.current) {
         setUser(userCache.current);
@@ -32,18 +32,20 @@ export function useAuth() {
       return;
     }
 
-    // ✅ ЕСЛИ УЖЕ ЕСТЬ ЗАПРОС В ПРОЦЕССЕ — ЖДЁМ ЕГО
     if (fetchPromise.current) {
       return fetchPromise.current;
     }
 
     fetchPromise.current = (async () => {
       try {
+        // ✅ Получаем CSRF токен
+        await getCsrfToken();
+
         const response = await fetch('/api/auth/me', {
           cache: 'no-store',
-          credentials: 'include', // ✅ ВАЖНО! ОТПРАВЛЯЕМ COOKIE
+          credentials: 'include',
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           if (data.user) {
@@ -80,27 +82,24 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     try {
-      const response = await fetch('/api/auth/logout', {
+      const response = await fetchWithCsrf('/api/auth/logout', {
         method: 'POST',
-        credentials: 'include', // ✅ ВАЖНО!
       });
-      
+
       userCache.current = null;
       if (isMounted.current) {
         setUser(null);
       }
-      
-      // ✅ ОЧИЩАЕМ ВСЕ КЭШИ
+
+      clearCsrfToken();
       localStorage.removeItem('token');
-      
-      // ✅ РЕДИРЕКТ
+
       window.location.href = '/';
     } catch (error) {
       console.error('❌ Logout error:', error);
     }
   }, []);
 
-  // ✅ ОБНОВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ (ПОСЛЕ СМЕНЫ ПАРОЛЯ)
   const refresh = useCallback(async () => {
     userCache.current = null;
     fetchPromise.current = null;
@@ -109,11 +108,11 @@ export function useAuth() {
 
   useEffect(() => {
     isMounted.current = true;
-    
+
     if (fetchedRef.current) {
       return;
     }
-    
+
     fetchedRef.current = true;
     fetchUser();
 
@@ -122,10 +121,10 @@ export function useAuth() {
     };
   }, [fetchUser]);
 
-  return { 
-    user, 
-    loading, 
-    logout, 
+  return {
+    user,
+    loading,
+    logout,
     refetch: fetchUser,
     refresh,
   };

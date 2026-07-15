@@ -1,9 +1,11 @@
+// frontend/components/comments/CommentSection.tsx
 'use client';
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { Send, User, Reply, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Comment {
   id: string;
@@ -277,9 +279,9 @@ export function CommentSection({ articleId, initialComments }: CommentSectionPro
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('/api/comments', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/comments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId, content, parentId: parentId || null }),
       });
 

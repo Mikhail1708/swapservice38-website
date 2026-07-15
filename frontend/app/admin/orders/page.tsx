@@ -1,32 +1,49 @@
+// frontend/app/admin/orders/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAdminTable } from '@/lib/hooks/useAdminTable';
 import { OrdersTable } from '@/components/admin/orders/OrdersTable';
 
-export default function OrdersPage() {
-  const [orders, setOrders] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const limit = 20;
+interface Order {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  total: number;
+  status: string;
+  createdAt: string;
+}
 
-  useEffect(() => {
-    fetch(`/api/admin/orders?page=${page}&limit=${limit}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setOrders(data.orders || []);
-        setTotal(data.total || 0);
-        setTotalPages(data.totalPages || 1);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [page]);
+export default function OrdersPage() {
+  const router = useRouter();
+
+  const {
+    data: orders,
+    total,
+    page,
+    totalPages,
+    loading,
+    error,
+    goToPage,
+  } = useAdminTable<Order>({
+    url: '/api/admin/orders',
+    limit: 20,
+  });
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-gray-500">Загрузка...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-red-500">Ошибка: {error}</div>
       </div>
     );
   }
@@ -37,13 +54,14 @@ export default function OrdersPage() {
         <h1 className="text-2xl font-bold text-gray-900">Заказы</h1>
         <p className="text-sm text-gray-500">Управление заказами</p>
       </div>
+
       <OrdersTable
         orders={orders}
         total={total}
         page={page}
-        limit={limit}
+        limit={20}
         totalPages={totalPages}
-        onPageChange={setPage}
+        onPageChange={goToPage}
       />
     </div>
   );

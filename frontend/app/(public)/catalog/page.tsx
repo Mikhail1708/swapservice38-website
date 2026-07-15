@@ -1,9 +1,11 @@
+// frontend/app/(public)/catalog/page.tsx
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { useQuery } from '@tanstack/react-query';
 import { 
   Search, 
   Filter, 
@@ -16,7 +18,6 @@ import {
   Check
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
-import { cache, productCache, categoryCache } from '@/lib/cache';
 
 interface Product {
   id: string | number;
@@ -35,190 +36,163 @@ interface Product {
 
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
-const getImageUrl = (images: string[] | undefined): string => {
-  if (!images || images.length === 0) return PLACEHOLDER_IMAGE;
-  const firstImage = images.find(img => img && img.trim() !== '');
-  return firstImage || PLACEHOLDER_IMAGE;
+const fetchProducts = async (): Promise<Product[]> => {
+  const response = await fetch('/api/products?limit=999', {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Ошибка загрузки товаров');
+  }
+  const data = await response.json();
+  return data.items || data || [];
+};
+
+const fetchCategories = async (): Promise<string[]> => {
+  const response = await fetch('/api/products/categories', {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    return [];
+  }
+  const data = await response.json();
+  return data.categories || [];
 };
 
 export default function CatalogPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
+  // ✅ ЧИТАЕМ ИЗ URL
   const categoryFromUrl = searchParams.get('category') || '';
+  const searchFromUrl = searchParams.get('search') || '';
   const pageFromUrl = parseInt(searchParams.get('page') || '1');
-  
-  // ✅ ИСПОЛЬЗУЕМ КЭШ ЧЕРЕЗ ОБЪЕКТЫ
-  const [allProducts, setAllProducts] = useState<Product[]>(productCache.data || []);
-  const [loading, setLoading] = useState(!productCache.data);
-  const [search, setSearch] = useState(searchParams.get('search') || '');
+
+  // ✅ СОСТОЯНИЯ СИНХРОНИЗИРУЮТСЯ С URL
+  const [search, setSearch] = useState(searchFromUrl);
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
   const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
-  
   const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(productCache.data?.length || 0);
-  const [categories, setCategories] = useState<string[]>(categoryCache.data || []);
-  
-  const { addToCart, refetch, isInCart, getQuantity } = useCart();
   const ITEMS_PER_PAGE = 16;
 
-  // ✅ ЗАГРУЗКА КАТЕГОРИЙ (С КЭШЕМ)
-  useEffect(() => {
-    if (categoryCache.data) {
-      setCategories(categoryCache.data);
-      return;
-    }
+  const { addToCart, refetch: refetchCart, isInCart, getQuantity } = useCart();
 
-    const fetchCategories = async () => {
-      try {
-        const response = await fetch('/api/products/categories');
-        if (response.ok) {
-          const data = await response.json();
-          categoryCache.data = data.categories || [];
-          setCategories(categoryCache.data);
-        }
-      } catch (error) {
-        console.error('❌ Ошибка загрузки категорий:', error);
-      }
-    };
-    fetchCategories();
-  }, []);
+  // ============================================================
+  // REACT QUERY — ТОВАРЫ
+  // ============================================================
+  const {
+    data: allProducts = [],
+    isLoading: productsLoading,
+    error: productsError,
+  } = useQuery({
+    queryKey: ['products'],
+    queryFn: fetchProducts,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  // ✅ ЗАГРУЗКА ТОВАРОВ (С КЭШЕМ — ТОЛЬКО 1 РАЗ!)
-  const fetchProducts = useCallback(async () => {
-    // ✅ ЕСЛИ УЖЕ ЕСТЬ В КЭШЕ — НЕ ГРУЗИМ
-    if (productCache.data) {
-      setAllProducts(productCache.data);
-      setTotalItems(productCache.data.length);
-      setLoading(false);
-      return;
-    }
+  // ============================================================
+  // REACT QUERY — КАТЕГОРИИ
+  // ============================================================
+  const {
+    data: categories = [],
+    isLoading: categoriesLoading,
+  } = useQuery({
+    queryKey: ['categories'],
+    queryFn: fetchCategories,
+    staleTime: 10 * 60 * 1000,
+  });
 
-    // ✅ ПРОВЕРЯЕМ КЭШ ПО КЛЮЧУ
-    const cached = cache.get<Product[]>('products:all');
-    if (cached) {
-      productCache.data = cached;
-      setAllProducts(cached);
-      setTotalItems(cached.length);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const response = await fetch('/api/products?limit=999');
-      const data = await response.json();
-      
-      if (data.items && data.items.length > 0) {
-        productCache.data = data.items;
-        cache.set('products:all', data.items, 600000); // 10 минут
-        setAllProducts(data.items);
-        setTotalItems(data.total || data.items.length);
-      } else {
-        setAllProducts([]);
-        setTotalItems(0);
-      }
-    } catch (error) {
-      console.error('❌ Ошибка загрузки:', error);
-      setAllProducts([]);
-      setTotalItems(0);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
-
-  // ✅ ФИЛЬТРАЦИЯ
-  const filteredProducts = useMemo(() => {
-    let result = [...allProducts];
-    
-    if (selectedCategory) {
-      result = result.filter(p => p.category === selectedCategory);
-    }
-    
-    if (search) {
-      const searchLower = search.toLowerCase();
-      result = result.filter(p => 
-        p.name.toLowerCase().includes(searchLower) ||
-        p.description?.toLowerCase().includes(searchLower) ||
-        p.sku?.toLowerCase().includes(searchLower)
-      );
-    }
-    
-    return result;
-  }, [allProducts, selectedCategory, search]);
-
-  // ✅ УНИКАЛЬНЫЕ КАТЕГОРИИ (из загруженных товаров)
-  const productCategories = useMemo(() => {
-    const cats = new Set(allProducts.map(p => p.category));
-    return Array.from(cats).filter(Boolean);
-  }, [allProducts]);
-
-  // ✅ ПАГИНАЦИЯ НА КЛИЕНТЕ
-  const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return filteredProducts.slice(start, end);
-  }, [filteredProducts, currentPage]);
-
-  // ✅ ОБНОВЛЕНИЕ СТРАНИЦ
-  useEffect(() => {
-    const total = filteredProducts.length;
-    const pages = Math.ceil(total / ITEMS_PER_PAGE) || 1;
-    setTotalPages(pages);
-    
-    if (currentPage > pages) {
-      setCurrentPage(1);
-    }
-  }, [filteredProducts.length, currentPage]);
-
-  // ✅ ОБНОВЛЕНИЕ URL
-  const updateUrl = useCallback(() => {
-    const params = new URLSearchParams();
-    if (selectedCategory) params.set('category', selectedCategory);
-    if (currentPage > 1) params.set('page', String(currentPage));
-    if (search) params.set('search', search);
-    
-    const queryString = params.toString();
-    const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
-    
-    if (window.location.pathname + window.location.search !== newUrl) {
-      window.history.replaceState({}, '', newUrl);
-    }
-  }, [selectedCategory, currentPage, search]);
-
-  useEffect(() => {
-    updateUrl();
-  }, [selectedCategory, currentPage, search, updateUrl]);
-
+  // ============================================================
+  // ✅ ОБНОВЛЯЕМ selectedCategory ПРИ ИЗМЕНЕНИИ URL
+  // ============================================================
   useEffect(() => {
     if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
       setSelectedCategory(categoryFromUrl);
     }
   }, [categoryFromUrl]);
 
+  useEffect(() => {
+    if (searchFromUrl && searchFromUrl !== search) {
+      setSearch(searchFromUrl);
+    }
+  }, [searchFromUrl]);
+
+  // ============================================================
+  // ФИЛЬТРАЦИЯ
+  // ============================================================
+  const filteredProducts = useMemo(() => {
+    let result = [...allProducts];
+
+    if (selectedCategory) {
+      result = result.filter(p => p.category === selectedCategory);
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(searchLower) ||
+        p.description?.toLowerCase().includes(searchLower) ||
+        p.sku?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return result;
+  }, [allProducts, selectedCategory, search]);
+
+  // ============================================================
+  // ПАГИНАЦИЯ
+  // ============================================================
+  const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE) || 1;
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredProducts.slice(start, end);
+  }, [filteredProducts, currentPage]);
+
+  // ============================================================
+  // ✅ ОБНОВЛЕНИЕ URL ПРИ ИЗМЕНЕНИИ ФИЛЬТРОВ
+  // ============================================================
+  const updateUrl = useCallback((category: string, page: number, searchTerm: string) => {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (page > 1) params.set('page', String(page));
+    if (searchTerm) params.set('search', searchTerm);
+
+    const queryString = params.toString();
+    const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
+
+    // ✅ ИСПОЛЬЗУЕМ push ДЛЯ ОБНОВЛЕНИЯ URL (НЕ replace)
+    router.push(newUrl, { scroll: false });
+  }, [router]);
+
+  // ============================================================
+  // ОБРАБОТЧИКИ
+  // ============================================================
+  const selectCategory = useCallback((category: string) => {
+    setSelectedCategory(category);
+    setCurrentPage(1);
+    updateUrl(category, 1, search);
+  }, [search, updateUrl]);
+
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setCurrentPage(1);
+    updateUrl(selectedCategory, 1, value);
+  }, [selectedCategory, updateUrl]);
+
   const handleAddToCart = async (productId: string | number) => {
     const id = String(productId);
     setAddingToCart(id);
-    
+
     try {
       const result = await addToCart(id, 1);
-      if (result) await refetch();
+      if (result) await refetchCart();
     } catch (error) {
       console.error('❌ Ошибка добавления в корзину:', error);
     } finally {
       setAddingToCart(null);
     }
-  };
-
-  const handleImageError = (productId: string | number) => {
-    setImageErrors(prev => ({ ...prev, [String(productId)]: true }));
   };
 
   const clearFilters = () => {
@@ -228,54 +202,44 @@ export default function CatalogPage() {
     router.push('/catalog');
   };
 
-  const selectCategory = (category: string) => {
-    setSelectedCategory(category);
-    setCurrentPage(1);
-    const params = new URLSearchParams();
-    if (category) params.set('category', category);
-    router.push(`/catalog?${params.toString()}`);
-  };
-
   const goToPage = (page: number) => {
     if (page < 1 || page > totalPages || page === currentPage) return;
     setCurrentPage(page);
+    updateUrl(selectedCategory, page, search);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  const goToPreviousPage = () => goToPage(currentPage - 1);
-  const goToNextPage = () => goToPage(currentPage + 1);
 
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
-    
+
     if (totalPages <= maxVisible) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
       const half = Math.floor(maxVisible / 2);
       let start = Math.max(1, currentPage - half);
       let end = Math.min(totalPages, currentPage + half);
-      
+
       if (start === 1) end = Math.min(totalPages, maxVisible);
       if (end === totalPages) start = Math.max(1, totalPages - maxVisible + 1);
-      
+
       if (start > 1) {
         pages.push(1);
         if (start > 2) pages.push('...');
       }
-      
+
       for (let i = start; i <= end; i++) pages.push(i);
-      
+
       if (end < totalPages) {
         if (end < totalPages - 1) pages.push('...');
         pages.push(totalPages);
       }
     }
-    
+
     return pages;
   };
 
-  const showPagination = filteredProducts.length > ITEMS_PER_PAGE;
+  const isLoading = productsLoading || categoriesLoading;
 
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
@@ -294,7 +258,7 @@ export default function CatalogPage() {
             {search && (
               <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
                 Поиск: {search}
-                <button onClick={() => setSearch('')} className="hover:text-black">
+                <button onClick={() => handleSearch('')} className="hover:text-black">
                   <X size={14} />
                 </button>
               </span>
@@ -302,9 +266,9 @@ export default function CatalogPage() {
           </div>
           <p className="text-gray-400 font-light mt-2">
             Тюнинг-комплекты и запчасти для внедорожников
-            {!loading && totalItems > 0 && (
+            {!isLoading && allProducts.length > 0 && (
               <span className="ml-2 text-sm text-gray-300">
-                (всего {totalItems} товаров)
+                (всего {allProducts.length} товаров)
               </span>
             )}
           </p>
@@ -318,11 +282,11 @@ export default function CatalogPage() {
               type="text"
               placeholder="Поиск товаров..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearch(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-black placeholder-gray-400 focus:outline-none focus:border-black/30 transition"
             />
           </div>
-          
+
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition ${
@@ -351,7 +315,7 @@ export default function CatalogPage() {
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black focus:outline-none focus:border-black/30 transition"
                 >
                   <option value="">Все категории</option>
-                  {(categories.length > 0 ? categories : productCategories).map(cat => (
+                  {categories.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -375,11 +339,21 @@ export default function CatalogPage() {
         )}
 
         {/* Результаты */}
-        {loading ? (
+        {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
               <div key={i} className="bg-gray-50 rounded-2xl h-[320px] animate-pulse" />
             ))}
+          </div>
+        ) : productsError ? (
+          <div className="text-center py-16">
+            <p className="text-red-500">Ошибка загрузки товаров</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-6 py-2 bg-black text-white rounded-xl text-sm hover:bg-gray-800 transition"
+            >
+              Попробовать снова
+            </button>
           </div>
         ) : filteredProducts.length === 0 ? (
           <div className="text-center py-16">
@@ -399,14 +373,14 @@ export default function CatalogPage() {
                 const productId = String(product.id);
                 const inCart = isInCart(productId);
                 const quantityInCart = getQuantity(productId);
-                
+
                 return (
                   <ProductCard
                     key={productId}
                     product={product}
                     onAddToCart={handleAddToCart}
                     addingToCart={addingToCart === productId}
-                    onImageError={handleImageError}
+                    onImageError={(id) => setImageErrors(prev => ({ ...prev, [String(id)]: true }))}
                     hasImageError={imageErrors[productId]}
                     inCart={inCart}
                     quantityInCart={quantityInCart}
@@ -426,10 +400,10 @@ export default function CatalogPage() {
               )}
             </div>
 
-            {showPagination && (
+            {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 mt-8">
                 <button
-                  onClick={goToPreviousPage}
+                  onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage === 1}
                   className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition ${
                     currentPage === 1
@@ -464,7 +438,7 @@ export default function CatalogPage() {
                 </div>
 
                 <button
-                  onClick={goToNextPage}
+                  onClick={() => goToPage(currentPage + 1)}
                   disabled={currentPage === totalPages}
                   className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition ${
                     currentPage === totalPages
@@ -484,17 +458,19 @@ export default function CatalogPage() {
   );
 }
 
-// ===== КОМПОНЕНТ КАРТОЧКИ ТОВАРА =====
-function ProductCard({ 
-  product, 
-  onAddToCart, 
+// ============================================================
+// КОМПОНЕНТ КАРТОЧКИ ТОВАРА
+// ============================================================
+function ProductCard({
+  product,
+  onAddToCart,
   addingToCart,
   onImageError,
   hasImageError,
   inCart,
   quantityInCart,
-}: { 
-  product: Product; 
+}: {
+  product: Product;
   onAddToCart: (id: string | number) => void;
   addingToCart: boolean;
   onImageError: (id: string | number) => void;
@@ -502,7 +478,7 @@ function ProductCard({
   inCart: boolean;
   quantityInCart: number;
 }) {
-  const imageUrl = getImageUrl(product.images);
+  const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
   const [imgError, setImgError] = useState(false);
   const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
 
@@ -546,7 +522,7 @@ function ProductCard({
             {product.name}
           </h3>
         </Link>
-        
+
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           {product.sku && (
             <span className="text-xs text-gray-400">Арт: {product.sku}</span>

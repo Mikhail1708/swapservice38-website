@@ -1,9 +1,11 @@
+// frontend/app/admin/content/articles/create/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { ImageUpload } from '@/components/admin/content/ImageUpload';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function CreateArticlePage() {
   const router = useRouter();
@@ -57,9 +59,9 @@ export default function CreateArticlePage() {
 
       console.log('📤 Отправка:', payload);
 
-      const response = await fetch('/api/admin/articles', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/admin/articles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 

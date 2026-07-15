@@ -1,3 +1,4 @@
+// frontend/app/(auth)/register/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -5,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, ArrowRight, User, Mail, Lock } from 'lucide-react';
 import Image from 'next/image';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -24,9 +26,9 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/register', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
 

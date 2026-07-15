@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { getCsrfToken, fetchWithCsrf } from '../csrf';
 
 interface CartItem {
   productId: string;
@@ -26,7 +27,6 @@ export function useCart() {
   const fetchPromise = useRef<Promise<void> | null>(null);
 
   const fetchCart = useCallback(async () => {
-    // ✅ ЕСЛИ УЖЕ ЕСТЬ ЗАПРОС В ПРОЦЕССЕ — ЖДЁМ ЕГО
     if (fetchPromise.current) {
       return fetchPromise.current;
     }
@@ -34,11 +34,16 @@ export function useCart() {
     fetchPromise.current = (async () => {
       try {
         setIsLoading(true);
+        await getCsrfToken();
+
         const response = await fetch('/api/cart', {
-          credentials: 'include', // ✅ ВАЖНО! ОТПРАВЛЯЕМ COOKIE (guestId И token)
+          credentials: 'include',
           cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+          },
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           const cartData = data.cart || data;
@@ -63,7 +68,6 @@ export function useCart() {
     return fetchPromise.current;
   }, []);
 
-  // ✅ ПЕРВИЧНАЯ ЗАГРУЗКА — ТОЛЬКО 1 РАЗ
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -72,13 +76,11 @@ export function useCart() {
 
   const addToCart = useCallback(async (productId: string, quantity: number = 1) => {
     try {
-      const response = await fetch('/api/cart/add', {
+      const response = await fetchWithCsrf('/api/cart/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantity }),
-        credentials: 'include', // ✅ ВАЖНО!
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         const cartData = data.cart || data;
@@ -89,8 +91,11 @@ export function useCart() {
           setItemsCount(count);
         }
         return true;
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Ошибка добавления:', errorData);
+        return false;
       }
-      return false;
     } catch (error) {
       console.error('❌ Add to cart error:', error);
       return false;
@@ -99,13 +104,11 @@ export function useCart() {
 
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
     try {
-      const response = await fetch('/api/cart/update', {
+      const response = await fetchWithCsrf('/api/cart/update', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantity }),
-        credentials: 'include', // ✅ ВАЖНО!
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         const cartData = data.cart || data;
@@ -126,11 +129,10 @@ export function useCart() {
 
   const clearCart = useCallback(async () => {
     try {
-      const response = await fetch('/api/cart/clear', {
+      const response = await fetchWithCsrf('/api/cart/clear', {
         method: 'DELETE',
-        credentials: 'include', // ✅ ВАЖНО!
       });
-      
+
       if (response.ok) {
         setCart(null);
         setItemsCount(0);
@@ -154,13 +156,13 @@ export function useCart() {
     return item?.quantity || 0;
   }, [cart]);
 
-  return { 
-    cart, 
-    isLoading, 
+  return {
+    cart,
+    isLoading,
     itemsCount,
-    addToCart, 
-    updateQuantity, 
-    clearCart, 
+    addToCart,
+    updateQuantity,
+    clearCart,
     refetch: fetchCart,
     isInCart,
     getQuantity,

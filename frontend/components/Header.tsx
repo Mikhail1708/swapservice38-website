@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { 
   ShoppingCart, 
@@ -28,6 +28,7 @@ export default function Header() {
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isLoading, logout } = useAuth();
   const { itemsCount, refetch } = useCart();
 
@@ -109,6 +110,11 @@ export default function Header() {
     setIsMobileMenuOpen(false);
   };
 
+  const isCategoryActive = (categoryLabel: string) => {
+    const categoryFromUrl = searchParams?.get('category') || '';
+    return categoryFromUrl === categoryLabel;
+  };
+
   const categories = [
     { label: 'Все товары', href: '/catalog' },
     { label: 'Компоненты для свапа', href: '/catalog?category=Компоненты для свапа' },
@@ -136,6 +142,11 @@ export default function Header() {
   ];
 
   const contactsLink = { href: '/contacts', label: 'Контакты' };
+
+  const handleCategoryClick = (href: string) => {
+    setOpenDropdown(null);
+    router.push(href);
+  };
 
   return (
     <header className={`fixed top-0 left-0 w-full z-50 transition-all duration-300 ${
@@ -201,20 +212,26 @@ export default function Header() {
                 onMouseEnter={handleDropdownMouseEnter}
                 onMouseLeave={handleDropdownMouseLeave}
               >
-                {categories.map((subItem) => (
-                  <Link
-                    key={subItem.href}
-                    href={subItem.href}
-                    className={`block px-4 py-2.5 text-sm transition hover:bg-gray-50 ${
-                      pathname === subItem.href
-                        ? 'text-black bg-gray-50 font-medium'
-                        : 'text-gray-500 hover:text-black'
-                    }`}
-                    onClick={() => setOpenDropdown(null)}
-                  >
-                    {subItem.label}
-                  </Link>
-                ))}
+                {categories.map((subItem) => {
+                  const isActive = subItem.label === 'Все товары' 
+                    ? pathname === '/catalog' && !searchParams?.get('category')
+                    : isCategoryActive(subItem.label);
+                  
+                  return (
+                    <Link
+                      key={subItem.href}
+                      href={subItem.href}
+                      className={`block px-4 py-2.5 text-sm transition hover:bg-gray-50 ${
+                        isActive
+                          ? 'text-black bg-gray-50 font-medium'
+                          : 'text-gray-500 hover:text-black'
+                      }`}
+                      onClick={() => handleCategoryClick(subItem.href)}
+                    >
+                      {subItem.label}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>

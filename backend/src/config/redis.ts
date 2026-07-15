@@ -2,162 +2,179 @@
 import Redis from 'ioredis';
 
 // ============================================================
-// FALLBACK ХРАНИЛИЩЕ (РАБОТАЕТ БЕЗ REDIS)
+// ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
 // ============================================================
-const fallbackStore = new Map<string, { value: string, expiresAt: number }>();
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 
-// Очистка просроченных записей (каждые 60 секунд)
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of fallbackStore) {
-    if (now > entry.expiresAt) {
-      fallbackStore.delete(key);
-    }
-  }
-}, 60000);
+console.log(`🔌 Подключение к Redis: ${REDIS_HOST}:${REDIS_PORT}`);
 
-const createFallbackRedis = () => ({
-  setex: async (key: string, ttl: number, value: string) => {
-    fallbackStore.set(key, { value, expiresAt: Date.now() + ttl * 1000 });
-    console.log(`📦 Redis fallback: setex ${key}`);
-    return 'OK';
-  },
-  get: async (key: string) => {
-    const entry = fallbackStore.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      fallbackStore.delete(key);
-      return null;
+// ============================================================
+// СОЗДАНИЕ КЛИЕНТА REDIS (БЕЗ FALLBACK)
+// ============================================================
+const redis = new Redis({
+  host: REDIS_HOST,
+  port: REDIS_PORT,
+  password: REDIS_PASSWORD,
+  retryStrategy: (times) => {
+    // После 10 попыток — критическая ошибка
+    if (times > 10) {
+      console.error(`❌ Redis недоступен после ${times} попыток`);
+      process.exit(1);
     }
-    return entry.value;
+    // Экспоненциальная задержка: 1с, 2с, 4с, 8с...
+    return Math.min(times * 1000, 5000);
   },
-  del: async (key: string) => {
-    return fallbackStore.delete(key) ? 1 : 0;
-  },
-  keys: async (pattern: string) => {
-    const results: string[] = [];
-    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-    for (const key of fallbackStore.keys()) {
-      if (regex.test(key)) {
-        results.push(key);
-      }
-    }
-    return results;
-  },
-  on: (event: string, callback: Function) => {
-    if (event === 'connect') {
-      setTimeout(() => callback(), 0);
-    }
-    return createFallbackRedis();
-  },
-  duplicate: () => createFallbackRedis(),
-  defineCommand: () => {},
-  get client() { return createFallbackRedis(); },
-  get subscribers() { return createFallbackRedis(); },
-  ping: async () => 'PONG',
-  quit: async () => 'OK',
+  maxRetriesPerRequest: 3,
+  lazyConnect: false,
+  connectTimeout: 5000,
+  commandTimeout: 5000,
 });
 
 // ============================================================
-// ИНИЦИАЛИЗАЦИЯ REDIS
+// ОБРАБОТЧИКИ СОБЫТИЙ
 // ============================================================
-let redis: any;
-let isRedisConnected = false;
+redis.on('connect', () => {
+  console.log('✅ Redis подключен');
+});
 
-// ✅ ВСЕГДА СОЗДАЁМ FALLBACK
-const fallback = createFallbackRedis();
+redis.on('ready', () => {
+  console.log('✅ Redis готов к работе');
+});
 
-try {
-  const realRedis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    lazyConnect: true,
-    retryStrategy: (times) => {
-      if (times > 3) {
-        console.warn('⚠️ Redis недоступен, переключаемся на fallback');
-        return null;
-      }
-      return Math.min(times * 1000, 3000);
-    },
-    maxRetriesPerRequest: 2,
-  });
+redis.on('error', (error) => {
+  console.error('❌ Redis ошибка:', error.message);
+});
 
-  // ✅ СРАЗУ ВОЗВРАЩАЕМ FALLBACK, ПОКА НЕ ПОДКЛЮЧИМСЯ
-  redis = fallback;
+redis.on('close', () => {
+  console.warn('⚠️ Соединение с Redis закрыто');
+});
 
-  // Проверка подключения
-  const checkConnection = async () => {
-    try {
-      await Promise.race([
-        realRedis.ping(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
-      ]);
-      console.log('✅ Redis подключен');
-      isRedisConnected = true;
-      // ✅ ПЕРЕКЛЮЧАЕМСЯ НА РЕАЛЬНЫЙ REDIS
-      redis = realRedis;
-    } catch (error) {
-      console.warn('⚠️ Redis не доступен, используем fallback');
-      // ✅ ОСТАЁМСЯ НА FALLBACK
-      redis = fallback;
-    }
-  };
-
-  // Запускаем проверку
-  checkConnection();
-
-} catch (error) {
-  console.warn('⚠️ Redis ошибка, используем fallback');
-  redis = fallback;
-}
+redis.on('reconnecting', (delay) => {
+  console.log(`🔄 Переподключение к Redis через ${delay}ms`);
+});
 
 // ============================================================
-// ГАРАНТИРУЕМ, ЧТО redis ВСЕГДА ОПРЕДЕЛЁН
+// ПРОВЕРКА ПОДКЛЮЧЕНИЯ (ПРИ ЗАПУСКЕ)
+// ============================================================
+const checkConnection = async () => {
+  try {
+    await redis.ping();
+    console.log('✅ Redis ping успешен');
+  } catch (error) {
+    console.error('❌ Redis ping не удался:', error);
+    process.exit(1);
+  }
+};
+
+// Выполняем проверку
+checkConnection();
+
+// ============================================================
+// ЭКСПОРТ
 // ============================================================
 export default redis;
 
 // ============================================================
-// ХЕЛПЕРЫ ДЛЯ РАБОТЫ С REDIS (БЕЗОПАСНЫЕ)
+// БЕЗОПАСНЫЕ ХЕЛПЕРЫ (С ОБРАБОТКОЙ ОШИБОК)
 // ============================================================
 export const safeRedis = {
   get: async (key: string): Promise<string | null> => {
     try {
-      if (redis && typeof redis.get === 'function') {
-        return await redis.get(key);
-      }
-      return null;
+      return await redis.get(key);
     } catch (error) {
-      console.warn(`⚠️ Redis get error for ${key}:`, error);
-      return null;
+      console.error(`❌ Redis get error [${key}]:`, error);
+      throw error;
     }
   },
+
   setex: async (key: string, ttl: number, value: string): Promise<void> => {
     try {
-      if (redis && typeof redis.setex === 'function') {
-        await redis.setex(key, ttl, value);
-      }
+      await redis.setex(key, ttl, value);
     } catch (error) {
-      console.warn(`⚠️ Redis setex error for ${key}:`, error);
+      console.error(`❌ Redis setex error [${key}]:`, error);
+      throw error;
     }
   },
-  del: async (key: string): Promise<void> => {
+
+  del: async (key: string): Promise<number> => {
     try {
-      if (redis && typeof redis.del === 'function') {
-        await redis.del(key);
-      }
+      return await redis.del(key);
     } catch (error) {
-      console.warn(`⚠️ Redis del error for ${key}:`, error);
+      console.error(`❌ Redis del error [${key}]:`, error);
+      throw error;
     }
   },
+
   keys: async (pattern: string): Promise<string[]> => {
     try {
-      if (redis && typeof redis.keys === 'function') {
-        return await redis.keys(pattern);
-      }
-      return [];
+      return await redis.keys(pattern);
     } catch (error) {
-      console.warn(`⚠️ Redis keys error for ${pattern}:`, error);
-      return [];
+      console.error(`❌ Redis keys error [${pattern}]:`, error);
+      throw error;
+    }
+  },
+
+  incr: async (key: string): Promise<number> => {
+    try {
+      return await redis.incr(key);
+    } catch (error) {
+      console.error(`❌ Redis incr error [${key}]:`, error);
+      throw error;
+    }
+  },
+
+  expire: async (key: string, ttl: number): Promise<number> => {
+    try {
+      return await redis.expire(key, ttl);
+    } catch (error) {
+      console.error(`❌ Redis expire error [${key}]:`, error);
+      throw error;
+    }
+  },
+
+  ttl: async (key: string): Promise<number> => {
+    try {
+      return await redis.ttl(key);
+    } catch (error) {
+      console.error(`❌ Redis ttl error [${key}]:`, error);
+      throw error;
+    }
+  },
+
+  flushall: async (): Promise<void> => {
+    try {
+      await redis.flushall();
+    } catch (error) {
+      console.error('❌ Redis flushall error:', error);
+      throw error;
+    }
+  },
+
+  // ✅ ДЛЯ РАБОТЫ С JSON
+  setJson: async <T>(key: string, value: T, ttl?: number): Promise<void> => {
+    try {
+      const json = JSON.stringify(value);
+      if (ttl) {
+        await redis.setex(key, ttl, json);
+      } else {
+        await redis.set(key, json);
+      }
+    } catch (error) {
+      console.error(`❌ Redis setJson error [${key}]:`, error);
+      throw error;
+    }
+  },
+
+  getJson: async <T>(key: string): Promise<T | null> => {
+    try {
+      const data = await redis.get(key);
+      if (!data) return null;
+      return JSON.parse(data) as T;
+    } catch (error) {
+      console.error(`❌ Redis getJson error [${key}]:`, error);
+      throw error;
     }
   },
 };

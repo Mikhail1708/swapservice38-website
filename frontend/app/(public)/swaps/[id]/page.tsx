@@ -1,3 +1,4 @@
+// frontend/app/(public)/swaps/[id]/page.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { CommentSection, countAllComments } from '@/components/comments/CommentSection';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Article {
   id: string;
@@ -185,6 +187,7 @@ export default function ArticlePage() {
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [shareCopied, setShareCopied] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
   const fetchedRef = useRef(false);
 
   // ЗАГРУЗКА СТАТЬИ — ТОЛЬКО 1 РАЗ
@@ -230,21 +233,34 @@ export default function ArticlePage() {
     checkLike();
   }, [user, article, id]);
 
+  // ✅ ЛАЙК С CSRF
   const handleLike = async () => {
     if (!article) return;
+    if (isLiking) return;
+    
+    setIsLiking(true);
     try {
-      const response = await fetch('/api/likes', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/likes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId: article.id }),
       });
+      
       if (response.ok) {
         const data = await response.json();
         setLiked(data.liked);
         setLikesCount((prev) => data.liked ? prev + 1 : prev - 1);
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Ошибка лайка:', errorData);
+        if (response.status === 403) {
+          alert('Ошибка CSRF. Попробуйте обновить страницу.');
+        }
       }
     } catch (error) {
-      console.error('Ошибка лайка:', error);
+      console.error('❌ Ошибка лайка:', error);
+    } finally {
+      setIsLiking(false);
     }
   };
 
@@ -362,13 +378,18 @@ export default function ArticlePage() {
         <div className="flex flex-wrap gap-4 mt-8 pt-6 border-t border-gray-200">
           <button
             onClick={handleLike}
+            disabled={isLiking}
             className={`flex items-center gap-2 px-6 py-2.5 border rounded-xl transition text-sm font-medium ${
               liked 
                 ? 'border-red-500 bg-red-50 text-red-500' 
                 : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-            }`}
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
+            {isLiking ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
+            )}
             <span>{liked ? 'Нравится' : 'Нравится'} ({likesCount})</span>
           </button>
           

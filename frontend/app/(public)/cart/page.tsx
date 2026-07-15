@@ -1,3 +1,4 @@
+// frontend/app/(public)/cart/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface CartItem {
   productId: string;
@@ -461,85 +463,86 @@ export default function CartPage() {
     }
   };
 
-  const handleCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ АВТОРИЗОВАН — ПРЕДЛАГАЕМ ВОЙТИ
-    if (!user) {
-      setOrderError('Для оформления заказа необходимо авторизоваться');
-      router.push('/login?redirect=/cart');
-      return;
-    }
-    
-    if (!validateForm()) return;
-    if (items.length === 0) {
-      setOrderError('Корзина пуста');
-      return;
-    }
+  // ✅ ОФОРМЛЕНИЕ ЗАКАЗА С CSRF
+ // frontend/app/(public)/cart/page.tsx
 
-    setIsCheckingOut(true);
-    setOrderError(null);
+const handleCheckout = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  if (!user) {
+    setOrderError('Для оформления заказа необходимо авторизоваться');
+    router.push('/login?redirect=/cart');
+    return;
+  }
+  
+  if (!validateForm()) return;
+  if (items.length === 0) {
+    setOrderError('Корзина пуста');
+    return;
+  }
 
+  setIsCheckingOut(true);
+  setOrderError(null);
+
+  try {
+    const cleanedPhone = cleanPhone(formData.phone);
+    
+    const orderData = {
+      client: {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        phone: cleanedPhone,
+        email: formData.email.trim(),
+        address: formData.address.trim(),
+      },
+      items: items.map((item: CartItem) => ({
+        productId: parseInt(item.productId),
+        quantity: item.quantity,
+        price: item.price,
+      })),
+      deliveryMethod: 'courier',
+      deliveryAddress: formData.address.trim(),
+      comment: formData.comment.trim(),
+      source: 'website',
+    };
+
+    // ✅ Используем fetchWithCsrf
+    const response = await fetchWithCsrf('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData),
+    });
+
+    let data;
+    const text = await response.text();
     try {
-      const cleanedPhone = cleanPhone(formData.phone);
-      
-      const orderData = {
-        client: {
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
-          phone: cleanedPhone,
-          email: formData.email.trim(),
-          address: formData.address.trim(),
-        },
-        items: items.map((item: CartItem) => ({
-          productId: parseInt(item.productId),
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        deliveryMethod: 'courier',
-        deliveryAddress: formData.address.trim(),
-        comment: formData.comment.trim(),
-        source: 'website',
-      };
-
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData),
-        credentials: 'include',
-      });
-
-      let data;
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error('Ошибка сервера: ' + text.substring(0, 100));
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Ошибка создания заказа');
-      }
-
-      await clearCart();
-
-      if (data.paymentUrl) {
-        router.push(data.paymentUrl);
-      } else if (data.order?.id) {
-        router.push(`/payment/${data.order.id}`);
-      } else if (data.orderId) {
-        router.push(`/payment/${data.orderId}`);
-      } else {
-        router.push('/payment/success');
-      }
-
-    } catch (error: any) {
-      console.error('❌ Ошибка оформления заказа:', error);
-      setOrderError(error.message || 'Ошибка оформления заказа');
-    } finally {
-      setIsCheckingOut(false);
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Ошибка сервера: ' + text.substring(0, 100));
     }
-  };
+
+    if (!response.ok) {
+      throw new Error(data.error || data.message || 'Ошибка создания заказа');
+    }
+
+    await clearCart();
+
+    if (data.paymentUrl) {
+      router.push(data.paymentUrl);
+    } else if (data.order?.id) {
+      router.push(`/payment/${data.order.id}`);
+    } else if (data.orderId) {
+      router.push(`/payment/${data.orderId}`);
+    } else {
+      router.push('/payment/success');
+    }
+
+  } catch (error: any) {
+    console.error('❌ Ошибка оформления заказа:', error);
+    setOrderError(error.message || 'Ошибка оформления заказа');
+  } finally {
+    setIsCheckingOut(false);
+  }
+};
 
   const getFieldStatus = (field: string) => {
     if (!touched[field]) return 'idle';
@@ -555,7 +558,6 @@ export default function CartPage() {
     );
   }
 
-  // ✅ КОРЗИНА ПУСТА — ПОКАЗЫВАЕМ СООБЩЕНИЕ
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-white pt-32 pb-20">
@@ -578,7 +580,6 @@ export default function CartPage() {
     );
   }
 
-  // ✅ КОРЗИНА ПОКАЗЫВАЕТСЯ ВСЕМ! (УБРАЛИ ПРОВЕРКУ НА USER)
   return (
     <div className="min-h-screen bg-gray-50 pt-32 pb-20">
       <div className="container-custom max-w-7xl mx-auto px-4">
@@ -698,7 +699,6 @@ export default function CartPage() {
                 Оформление заказа
               </h2>
 
-              {/* ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ АВТОРИЗОВАН — ПОКАЗЫВАЕМ ПРЕДЛОЖЕНИЕ ВОЙТИ */}
               {!user ? (
                 <div className="text-center py-8">
                   <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />

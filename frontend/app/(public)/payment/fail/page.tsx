@@ -13,7 +13,6 @@ export default function PaymentFailPage() {
   return (
     <div className="min-h-screen bg-white pt-32 pb-20">
       <div className="container-custom max-w-2xl">
-        {/* Ошибка */}
         <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
           <div className="flex justify-center mb-4">
             <XCircle className="w-20 h-20 text-red-500" />

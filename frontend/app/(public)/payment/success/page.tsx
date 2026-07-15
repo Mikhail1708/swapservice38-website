@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle, Package, Loader2, ShoppingBag, AlertCircle } from 'lucide-react';
+import { getCsrfToken } from '@/lib/csrf';
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
@@ -27,11 +28,21 @@ export default function PaymentSuccessPage() {
       try {
         console.log(`🔄 Обработка оплаты заказа ${orderId}...`);
 
-        // ✅ ВЫЗЫВАЕМ /api/payment/confirm
+        // Получаем CSRF токен
+        const csrfToken = await getCsrfToken();
+
+        // Отправляем подтверждение оплаты с CSRF токеном
         const response = await fetch('/api/payment/confirm', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, paymentId }),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
+          body: JSON.stringify({ 
+            orderId, 
+            paymentId,
+            _csrf: csrfToken,
+          }),
           credentials: 'include',
         });
 
@@ -46,7 +57,7 @@ export default function PaymentSuccessPage() {
 
         console.log('✅ Оплата обработана:', data);
 
-        // ✅ ЗАГРУЖАЕМ ОБНОВЛЁННЫЙ ЗАКАЗ
+        // Загружаем обновлённый заказ
         const orderResponse = await fetch(`/api/orders/details?id=${orderId}`, {
           credentials: 'include',
         });
@@ -55,7 +66,6 @@ export default function PaymentSuccessPage() {
           const orderData = await orderResponse.json();
           setOrder(orderData.order || orderData);
         } else {
-          // Даже если не удалось загрузить заказ, оплата прошла
           setOrder({ id: orderId, status: 'paid' });
         }
 

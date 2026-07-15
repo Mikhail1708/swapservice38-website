@@ -1,9 +1,11 @@
+// frontend/app/admin/content/articles/edit/[id]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { ImageUpload } from '@/components/admin/content/ImageUpload';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function EditArticlePage() {
   const router = useRouter();
@@ -67,9 +69,9 @@ export default function EditArticlePage() {
 
       console.log('📤 Обновление:', payload);
 
-      const response = await fetch(`/api/articles/${id}`, {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf(`/api/articles/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 

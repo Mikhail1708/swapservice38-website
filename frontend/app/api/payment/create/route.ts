@@ -1,76 +1,77 @@
 // frontend/app/api/payment/create/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { orderId } = body;
-
     console.log('💳 Создание платежа через API proxy');
-    console.log('📦 Данные:', { orderId });
+    
+    // Получаем данные из запроса
+    const body = await request.json();
+    console.log('📦 Данные:', body);
 
-    if (!orderId) {
-      return NextResponse.json(
-        { error: 'Не указан ID заказа' },
-        { status: 400 }
-      );
-    }
+    // ✅ Получаем CSRF токен из заголовков запроса (клиент → Next.js)
+    const csrfToken = request.headers.get('x-csrf-token') || 
+                      request.headers.get('csrf-token') ||
+                      request.headers.get('CSRF-Token');
 
-    const token = request.cookies.get('token')?.value;
+    console.log('🛡️ CSRF токен из заголовков:', csrfToken ? csrfToken.substring(0, 10) + '...' : 'отсутствует');
 
-    const headers: Record<string, string> = {
+    // ✅ Формируем заголовки для бэкенда
+    const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
 
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    // ✅ Передаём CSRF токен в бэкенд
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
     }
 
-    // ✅ ПРОВЕРЯЕМ, ЧТО ЗАКАЗ СУЩЕСТВУЕТ
-    // Сначала получаем заказ из бэкенда
-    const orderCheck = await fetch(`${BACKEND_URL}/api/orders/${orderId}`, {
-      headers,
-      credentials: 'include',
+    // ✅ Передаём токен авторизации
+    const authHeader = request.headers.get('authorization');
+    if (authHeader) {
+      headers['Authorization'] = authHeader;
+    }
+
+    // ✅ Передаём cookies
+    const cookieHeader = request.headers.get('cookie');
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+
+    // ✅ Добавляем _csrf в тело
+    const requestBody = {
+      ...body,
+      _csrf: csrfToken || undefined,
+    };
+
+    console.log('📤 Отправка в бэкенд:', {
+      url: `${BACKEND_URL}/api/payment/create`,
+      headers: Object.keys(headers),
+      hasCsrf: !!csrfToken,
+      bodyKeys: Object.keys(requestBody),
     });
 
-    if (!orderCheck.ok) {
-      console.error('❌ Заказ не найден в бэкенде');
-      return NextResponse.json(
-        { error: 'Заказ не найден' },
-        { status: 404 }
-      );
-    }
-
-    const orderData = await orderCheck.json();
-    console.log('✅ Заказ найден:', orderData);
-
-    // Создаём платёж в бэкенде
     const response = await fetch(`${BACKEND_URL}/api/payment/create`, {
       method: 'POST',
       headers,
+      body: JSON.stringify(requestBody),
       credentials: 'include',
-      body: JSON.stringify({ orderId }),
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      console.error('❌ Ошибка создания платежа:', data);
-      return NextResponse.json(
-        { error: data.error || 'Ошибка создания платежа' },
-        { status: response.status }
-      );
-    }
+    console.log('📦 Ответ бэкенда:', response.status, data);
 
-    console.log('✅ Платёж создан:', data);
-    return NextResponse.json(data);
-
+    return NextResponse.json(data, {
+      status: response.status,
+    });
   } catch (error: any) {
-    console.error('❌ Ошибка:', error);
+    console.error('❌ Ошибка прокси создания платежа:', error);
     return NextResponse.json(
-      { error: error.message || 'Внутренняя ошибка сервера' },
+      { error: error.message || 'Ошибка создания платежа' },
       { status: 500 }
     );
   }

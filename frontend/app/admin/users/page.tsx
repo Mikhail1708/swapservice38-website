@@ -1,3 +1,4 @@
+// frontend/app/admin/users/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { PhoneInput } from '@/components/ui/PhoneInput';
 import { AddressInput } from '@/components/ui/AddressInput';
+import { fetchWithCsrf, getCsrfToken } from '@/lib/csrf';
 
 // ============================================================
 // ТИПЫ
@@ -221,7 +223,6 @@ const UserModal = ({ isOpen, onClose, onSave, user, title, loading }: UserModalP
             }}
             onSelect={(address, data) => {
               console.log('📍 Выбран адрес:', address, data);
-              // Можно сохранить дополнительные данные (широта/долгота) если нужно
             }}
             label="Адрес"
             placeholder="Начните вводить адрес для автоподсказок"
@@ -299,12 +300,19 @@ export default function UsersPage() {
   const limit = 20;
 
   // ============================================================
-  // ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ
+  // ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ С CSRF
   // ============================================================
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/users?page=${page}&limit=${limit}`);
+      const token = await getCsrfToken();
+      const res = await fetch(`/api/admin/users?page=${page}&limit=${limit}`, {
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': token,
+          'CSRF-Token': token,
+        },
+      });
       const data = await res.json();
       setUsers(data.users || []);
       setTotal(data.total || 0);
@@ -321,7 +329,7 @@ export default function UsersPage() {
   }, [page]);
 
   // ============================================================
-  // СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
+  // СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ С CSRF
   // ============================================================
   const handleCreate = () => {
     setEditingUser(null);
@@ -332,32 +340,22 @@ export default function UsersPage() {
   const handleSave = async (data: any) => {
     setActionLoading(true);
     try {
-      // Подготовка данных для отправки
       const payload = { ...data };
       
-      // Если это редактирование и пароль пустой - удаляем поле
       if (editingUser && !payload.password) {
         delete payload.password;
       }
-
-      // Если телефон пустой - удаляем поле
-      if (!payload.phone) {
-        delete payload.phone;
-      }
-
-      // Если адрес пустой - удаляем поле
-      if (!payload.address) {
-        delete payload.address;
-      }
+      if (!payload.phone) delete payload.phone;
+      if (!payload.address) delete payload.address;
 
       const url = editingUser
         ? `/api/admin/users/${editingUser.id}`
         : '/api/admin/users';
       const method = editingUser ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const res = await fetchWithCsrf(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -387,13 +385,13 @@ export default function UsersPage() {
   };
 
   // ============================================================
-  // УДАЛЕНИЕ
+  // УДАЛЕНИЕ С CSRF
   // ============================================================
   const handleDelete = async (user: User) => {
     if (!confirm(`Удалить пользователя ${user.email}?`)) return;
 
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
+      const res = await fetchWithCsrf(`/api/admin/users/${user.id}`, {
         method: 'DELETE',
       });
 
@@ -410,7 +408,7 @@ export default function UsersPage() {
   };
 
   // ============================================================
-  // БЛОКИРОВКА / РАЗБЛОКИРОВКА
+  // БЛОКИРОВКА / РАЗБЛОКИРОВКА С CSRF
   // ============================================================
   const handleToggleBlock = async (user: User) => {
     const action = user.blockedAt ? 'разблокировать' : 'заблокировать';
@@ -421,7 +419,9 @@ export default function UsersPage() {
         ? `/api/admin/users/${user.id}/unblock`
         : `/api/admin/users/${user.id}/block`;
       
-      const res = await fetch(url, { method: 'POST' });
+      const res = await fetchWithCsrf(url, {
+        method: 'POST',
+      });
 
       if (res.ok) {
         fetchUsers();

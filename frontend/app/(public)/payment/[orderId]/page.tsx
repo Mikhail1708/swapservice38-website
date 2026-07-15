@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, CreditCard, ArrowLeft } from 'lucide-react';
+import { getCsrfToken } from '@/lib/csrf';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -48,14 +49,26 @@ export default function PaymentPage() {
         console.log('✅ 4. Заказ получен:', orderData);
         setOrder(orderData.order || orderData);
 
-        // 2. Создаём платёж
+        // 2. Принудительно получаем CSRF токен
+        console.log('🛡️ Получение CSRF токена...');
+        const csrfToken = await getCsrfToken();
+        console.log('✅ CSRF токен получен:', csrfToken.substring(0, 10) + '...');
+
+        // 3. Создаём платёж с CSRF токеном в заголовках
         console.log(`💳 5. Создание платежа для заказа ${orderId}...`);
         setIsCreatingPayment(true);
 
         const paymentResponse = await fetch('/api/payment/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: orderId }),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+            'CSRF-Token': csrfToken,
+          },
+          body: JSON.stringify({ 
+            orderId: orderId,
+            _csrf: csrfToken,
+          }),
           credentials: 'include',
         });
 

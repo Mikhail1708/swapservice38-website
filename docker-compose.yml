@@ -1,59 +1,105 @@
 version: '3.8'
 
 services:
-  postgres-site:
-    image: postgres:15
-    container_name: site-db
-    environment:
-      POSTGRES_USER: site_user
-      POSTGRES_PASSWORD: site_pass
-      POSTGRES_DB: site_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - site_pgdata:/var/lib/postgresql/data
-
+  # ============================================================
+  # REDIS (ОБЯЗАТЕЛЬНЫЙ)
+  # ============================================================
   redis:
     image: redis:7-alpine
-    container_name: site-redis
+    container_name: swapservice38-redis
+    restart: always
     ports:
-      - "6380:6379"
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
-    container_name: site-backend
-    ports:
-      - "5001:5000"
-    environment:
-      DATABASE_URL: postgresql://site_user:site_pass@postgres-site:5432/site_db
-      REDIS_URL: redis://redis:6379
-      PORT: 5000
-      CRM_API_URL: http://crm:5000   # если CRM тоже поднимем
-    depends_on:
-      - postgres-site
-      - redis
+      - "6379:6379"
     volumes:
-      - ./backend:/app
-      - /app/node_modules
-    command: npm run dev
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: site-frontend
+  # ============================================================
+  # POSTGRESQL (САЙТ)
+  # ============================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: swapservice38-postgres
+    restart: always
     ports:
-      - "3000:3000"
+      - "5433:5432"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:5001
+      POSTGRES_USER: site_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: site_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U site_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # БЭКЕНД САЙТА
+  # ============================================================
+  backend:
+    build: ./backend
+    container_name: swapservice38-backend
+    restart: always
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: 5001
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://site_user:${DB_PASSWORD}@postgres:5432/site_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      EMAIL_FROM: ${EMAIL_FROM}
+      CRM_API_URL: ${CRM_API_URL:-http://crm:5000}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ============================================================
+  # ФРОНТЕНД САЙТА
+  # ============================================================
+  frontend:
+    build: ./frontend
+    container_name: swapservice38-frontend
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:5001}
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: npm run dev
+    networks:
+      - internal
 
 volumes:
-  site_pgdata:
+  redis_data:
+  postgres_data:
+
+networks:
+  internal:
+    driver: bridge
