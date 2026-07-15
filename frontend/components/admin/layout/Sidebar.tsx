@@ -1,3 +1,4 @@
+// frontend/components/admin/layout/Sidebar.tsx
 'use client';
 
 import Link from 'next/link';
@@ -5,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   ShoppingBag,
-  Calendar,
   Users,
   FileText,
   Settings,
@@ -15,9 +15,8 @@ import {
 const menuItems = [
   { icon: LayoutDashboard, label: 'Дашборд', href: '/admin' },
   { icon: ShoppingBag, label: 'Заказы', href: '/admin/orders' },
-  { icon: Calendar, label: 'Записи', href: '/admin/appointments' },
   { icon: Users, label: 'Пользователи', href: '/admin/users' },
-  { icon: FileText, label: 'Контент', href: '/admin/content/articles' },  // ✅ ПРАВИЛЬНО
+  { icon: FileText, label: 'Контент', href: '/admin/content/articles' },
   { icon: Settings, label: 'Настройки', href: '/admin/settings' },
 ];
 

@@ -12,17 +12,9 @@ import {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
-  updateOrder, // ✅ ДОБАВЛЯЕМ
+  updateOrder,
+  deleteOrderWithPassword, // ✅ НОВЫЙ ИМПОРТ
 } from '../controllers/admin/orders.controller';
-
-// Appointments
-import {
-  getAppointments,
-  getAppointmentsCalendar,
-  getAppointmentById,
-  updateAppointment,
-  createAppointment,
-} from '../controllers/admin/appointments.controller';
 
 // Users
 import {
@@ -59,15 +51,11 @@ router.get('/dashboard/stats', getDashboardStats);
 router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
-router.put('/orders/:id', updateOrder); // ✅ ДОБАВЛЯЕМ
-router.delete('/orders/:id', deleteOrder);
+router.put('/orders/:id', updateOrder);
+router.delete('/orders/:id', deleteOrder); // Обычное удаление (если нужно)
 
-// ===== APPOINTMENTS =====
-router.get('/appointments', getAppointments);
-router.get('/appointments/calendar', getAppointmentsCalendar);
-router.get('/appointments/:id', getAppointmentById);
-router.post('/appointments', createAppointment);
-router.patch('/appointments/:id', updateAppointment);
+// ✅ НОВЫЙ МАРШРУТ — УДАЛЕНИЕ С ПАРОЛЕМ
+router.post('/orders/:id/delete-with-password', deleteOrderWithPassword);
 
 // ===== USERS =====
 router.get('/users', getUsers);

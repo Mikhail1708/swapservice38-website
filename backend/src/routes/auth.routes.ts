@@ -71,11 +71,11 @@ router.get('/yandex/callback', async (req, res) => {
 
     if (error) {
       const message = typeof error === 'string' ? error : 'Ошибка авторизации';
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent(message)}`);
+      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(message)}`);
     }
 
     if (!code) {
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Не получен код авторизации')}`);
+      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent('Не получен код авторизации')}`);
     }
 
     const guestId = req.cookies?.guestId;
@@ -99,12 +99,12 @@ router.get('/yandex/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // ✅ РЕДИРЕКТ НА ГЛАВНУЮ СТРАНИЦУ
-    res.redirect(`${process.env.CLIENT_URL}/`);
+    console.log('🔄 Редирект на:', `${process.env.CLIENT_URL}/oauth-callback`);
+    res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
   } catch (error: any) {
     console.error('Yandex OAuth callback error:', error);
     const message = encodeURIComponent(error.message || 'Ошибка входа через Яндекс');
-    res.redirect(`${process.env.CLIENT_URL}/login?error=${message}`);
+    res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
   }
 });
 
@@ -128,11 +128,11 @@ router.get('/max/callback', async (req, res) => {
 
     if (error) {
       const message = typeof error === 'string' ? error : 'Ошибка авторизации';
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent(message)}`);
+      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(message)}`);
     }
 
     if (!code) {
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Не получен код авторизации')}`);
+      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent('Не получен код авторизации')}`);
     }
 
     const guestId = req.cookies?.guestId;
@@ -156,12 +156,12 @@ router.get('/max/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // ✅ РЕДИРЕКТ НА ГЛАВНУЮ СТРАНИЦУ
-    res.redirect(`${process.env.CLIENT_URL}/`);
+    console.log('🔄 Редирект на:', `${process.env.CLIENT_URL}/oauth-callback`);
+    res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
   } catch (error: any) {
     console.error('MAX OAuth callback error:', error);
     const message = encodeURIComponent(error.message || 'Ошибка входа через MAX');
-    res.redirect(`${process.env.CLIENT_URL}/login?error=${message}`);
+    res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
   }
 });
 

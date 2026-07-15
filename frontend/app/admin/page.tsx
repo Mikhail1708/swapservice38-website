@@ -1,7 +1,8 @@
+// frontend/app/admin/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ShoppingBag, Users, Calendar, DollarSign } from 'lucide-react';
+import { ShoppingBag, Users, DollarSign } from 'lucide-react';
 import { StatsCard } from '@/components/admin/common/StatsCard';
 import { OrdersChart } from '@/components/admin/dashboard/OrdersChart';
 
@@ -44,7 +45,7 @@ export default function AdminDashboard() {
         <p className="text-sm text-gray-500">Общая статистика и аналитика</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatsCard
           title="Заказы"
           value={s.orders.total}
@@ -56,12 +57,6 @@ export default function AdminDashboard() {
           value={`${s.revenue.total.toLocaleString()} ₽`}
           icon={<DollarSign size={20} />}
           subtitle={`${s.revenue.month.toLocaleString()} ₽ за месяц`}
-        />
-        <StatsCard
-          title="Записи"
-          value={s.appointments.total}
-          icon={<Calendar size={20} />}
-          subtitle={`${s.appointments.today} сегодня`}
         />
         <StatsCard
           title="Пользователи"
@@ -88,7 +83,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-700 mb-4">Последние заказы</h3>
           {stats.recent?.orders?.length > 0 ? (
@@ -123,43 +118,6 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <p className="text-sm text-gray-400">Нет заказов</p>
-          )}
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-700 mb-4">Последние записи</h3>
-          {stats.recent?.appointments?.length > 0 ? (
-            <div className="space-y-3">
-              {stats.recent.appointments.map((app: any) => (
-                <div
-                  key={app.id}
-                  className="flex items-center justify-between py-2 border-b border-gray-100"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{app.userName}</p>
-                    <p className="text-xs text-gray-500">{app.serviceName}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-600">
-                      {new Date(app.dateTime).toLocaleDateString('ru-RU')}
-                    </p>
-                    <span
-                      className={`
-                        text-xs px-2 py-0.5 rounded-full
-                        ${app.status === 'confirmed' ? 'bg-green-100 text-green-700' : ''}
-                        ${app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : ''}
-                        ${app.status === 'completed' ? 'bg-blue-100 text-blue-700' : ''}
-                        ${app.status === 'cancelled' ? 'bg-red-100 text-red-700' : ''}
-                      `}
-                    >
-                      {app.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">Нет записей</p>
           )}
         </div>
       </div>

@@ -27,17 +27,17 @@ model User {
   yandexId      String?  @unique
   maxId         String?  @unique
 
-  // ✅ ДОБАВЛЯЕМ ПОЛЯ ДЛЯ БЛОКИРОВКИ
+  // Блокировка
   blockedAt     DateTime?
   blockedReason String?
 
   // Связи
   orders        Order[]
-  appointments  Appointment[]
   sessions      Session[]
   articles      Article[]
   comments      Comment[]
   likes         Like[]
+  
 }
 
 // ============================================================
@@ -52,9 +52,6 @@ model Session {
   createdAt DateTime @default(now())
 }
 
-// ============================================================
-// СТАТЬИ (ПОСТЫ)
-// ============================================================
 // ============================================================
 // СТАТЬИ (ПОСТЫ)
 // ============================================================
@@ -134,11 +131,9 @@ model Comment {
   articleId String
   article   Article  @relation(fields: [articleId], references: [id])
   
-  // ✅ ВЛОЖЕННОСТЬ: parentId указывает на родительский комментарий
+  // ВЛОЖЕННОСТЬ
   parentId  String?
   parent    Comment? @relation("CommentHierarchy", fields: [parentId], references: [id])
-  
-  // ✅ ДОЧЕРНИЕ КОММЕНТАРИИ
   replies   Comment[] @relation("CommentHierarchy")
 
   likesCount Int     @default(0)
@@ -183,26 +178,6 @@ model Order {
 }
 
 // ============================================================
-// ЗАПИСИ НА РЕМОНТ
-// ============================================================
-model Appointment {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  serviceId    String
-  service      Service  @relation(fields: [serviceId], references: [id])
-  carInfo      String?  // Марка, модель, год, госномер
-  dateTime     DateTime
-  status       String   @default("pending") // pending | confirmed | in_progress | completed | cancelled
-  assignedTo   String?
-  crmAppointmentId String?
-  comment      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-
-// ============================================================
 // УСЛУГИ
 // ============================================================
 model Service {
@@ -215,7 +190,7 @@ model Service {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  appointments Appointment[]
+  
 }
 
 // ============================================================

@@ -31,7 +31,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       where: { status: 'pending' },
     });
 
-    // ===== ВЫРУЧКА (через Prisma, без SQL) =====
+    // ===== ВЫРУЧКА =====
     const allPaidOrders = await prisma.order.findMany({
       where: { status: 'paid' },
       select: { total: true },
@@ -46,18 +46,6 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       select: { total: true },
     });
     const revenueMonth = paidOrdersMonth.reduce((sum, o) => sum + o.total, 0);
-
-    // ===== ЗАПИСИ =====
-    const totalAppointments = await prisma.appointment.count();
-    const appointmentsToday = await prisma.appointment.count({
-      where: { dateTime: { gte: today } },
-    });
-    const pendingAppointments = await prisma.appointment.count({
-      where: { status: 'pending' },
-    });
-    const confirmedAppointments = await prisma.appointment.count({
-      where: { status: 'confirmed' },
-    });
 
     // ===== ПОЛЬЗОВАТЕЛИ =====
     const totalUsers = await prisma.user.count();
@@ -107,13 +95,6 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       orderBy: { createdAt: 'desc' },
     });
 
-    // ===== ПОСЛЕДНИЕ ЗАПИСИ =====
-    const recentAppointments = await prisma.appointment.findMany({
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      include: { service: { select: { name: true } } },
-    });
-
     res.json({
       stats: {
         orders: {
@@ -128,12 +109,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
           total: revenueTotal,
           month: revenueMonth,
         },
-        appointments: {
-          total: totalAppointments,
-          today: appointmentsToday,
-          pending: pendingAppointments,
-          confirmed: confirmedAppointments,
-        },
+       
         users: {
           total: totalUsers,
           newWeek: newUsersWeek,
@@ -152,13 +128,6 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
           total: o.total,
           status: o.status,
           createdAt: o.createdAt,
-        })),
-        appointments: recentAppointments.map((a: any) => ({
-          id: a.id,
-          userName: 'Клиент',
-          serviceName: a.service?.name || 'Услуга',
-          dateTime: a.dateTime,
-          status: a.status,
         })),
       },
     });

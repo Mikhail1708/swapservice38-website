@@ -1,3 +1,4 @@
+// backend/src/controllers/admin/users.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
@@ -8,10 +9,8 @@ const prisma = new PrismaClient();
 // ВАЛИДАЦИЯ ТЕЛЕФОНА
 // ============================================================
 const validatePhone = (phone: string): boolean => {
-  if (!phone) return true; // Поле необязательное
-  
+  if (!phone) return true;
   const digits = phone.replace(/\D/g, '');
-  // Должно быть 11 цифр и начинаться с 7
   return digits.length === 11 && digits.startsWith('7');
 };
 
@@ -83,7 +82,7 @@ export const getUserById = async (req: Request, res: Response) => {
         createdAt: true,
         updatedAt: true,
         _count: {
-          select: { orders: true, appointments: true },
+          select: { orders: true },
         },
       },
     });
@@ -106,22 +105,18 @@ export const createUser = async (req: Request, res: Response) => {
   try {
     const { email, password, firstName, lastName, phone, address, role, isVerified } = req.body;
 
-    // Проверка email
     if (!email || !email.trim()) {
       return res.status(400).json({ error: 'Email обязателен' });
     }
 
-    // Проверка пароля
     if (!password || password.length < 6) {
       return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
     }
 
-    // Валидация телефона
     if (phone && !validatePhone(phone)) {
       return res.status(400).json({ error: 'Некорректный номер телефона' });
     }
 
-    // Проверка на существующего пользователя
     const existing = await prisma.user.findUnique({
       where: { email: email.trim() },
     });
@@ -130,7 +125,6 @@ export const createUser = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
     }
 
-    // Хеширование пароля
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
@@ -174,13 +168,11 @@ export const updateUser = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { firstName, lastName, phone, address, role, isVerified } = req.body;
 
-    // Проверяем существование
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
-    // Валидация телефона
     if (phone && !validatePhone(phone)) {
       return res.status(400).json({ error: 'Некорректный номер телефона' });
     }
@@ -218,7 +210,7 @@ export const updateUser = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// DELETE /api/admin/users/:id — УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
+// ✅ DELETE /api/admin/users/:id — УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
 // ============================================================
 export const deleteUser = async (req: Request, res: Response) => {
   try {
@@ -235,12 +227,47 @@ export const deleteUser = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Нельзя удалить самого себя' });
     }
 
-    // Удаляем связанные данные (каскадно)
+    // ✅ НАХОДИМ ВСЕ СТАТЬИ ПОЛЬЗОВАТЕЛЯ
+    const userArticles = await prisma.article.findMany({
+      where: { authorId: id },
+      select: { id: true },
+    });
+
+    const articleIds = userArticles.map(a => a.id);
+
+    // ✅ УДАЛЯЕМ ВСЕ СВЯЗАННЫЕ ДАННЫЕ В ПРАВИЛЬНОМ ПОРЯДКЕ
     await prisma.$transaction([
+      // 1. Удаляем связи статей с тегами
+      prisma.articleTagRelation.deleteMany({
+        where: { articleId: { in: articleIds } },
+      }),
+      // 2. Удаляем изображения статей
+      prisma.articleImage.deleteMany({
+        where: { articleId: { in: articleIds } },
+      }),
+      // 3. Удаляем лайки статей
+      prisma.like.deleteMany({
+        where: { articleId: { in: articleIds } },
+      }),
+      // 4. Удаляем комментарии к статьям
+      prisma.comment.deleteMany({
+        where: { articleId: { in: articleIds } },
+      }),
+      // 5. Удаляем сами статьи
+      prisma.article.deleteMany({
+        where: { authorId: id },
+      }),
+      // 6. Удаляем сессии
       prisma.session.deleteMany({ where: { userId: id } }),
+      // 7. Удаляем корзину
       prisma.cart.deleteMany({ where: { userId: id } }),
+      // 8. Удаляем оставшиеся лайки (если есть)
+      prisma.like.deleteMany({ where: { userId: id } }),
+      // 9. Удаляем оставшиеся комментарии (если есть)
+      prisma.comment.deleteMany({ where: { authorId: id } }),
+      // 10. Удаляем заказы
       prisma.order.deleteMany({ where: { userId: id } }),
-      prisma.appointment.deleteMany({ where: { userId: id } }),
+      // 11. Удаляем самого пользователя
       prisma.user.delete({ where: { id } }),
     ]);
 
@@ -268,7 +295,6 @@ export const updateUserRole = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
-    // Не даём понизить себя
     if ((req as any).user?.id === id) {
       return res.status(400).json({ error: 'Нельзя изменить свою роль' });
     }
