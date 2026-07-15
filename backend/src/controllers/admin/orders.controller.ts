@@ -1,9 +1,11 @@
-// backend/src/controllers/admin/orders.controller.ts (САЙТ)
-
+// backend/src/controllers/admin/orders.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import bcrypt from 'bcrypt';
+import { log } from '../../config/logger';
+import { AppError, NotFoundError, UnauthorizedError, ForbiddenError } from '../../middleware/error.middleware';
+import { addOrderToCRMQueue, retryFailedOrders } from '../../queues/crm.queue';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -19,7 +21,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
     const limitNum = parseInt(limit as string);
     const skip = (pageNum - 1) * limitNum;
 
-    console.log('📋 GET /api/admin/orders', { page: pageNum, limit: limitNum });
+    log.debug('📋 GET /api/admin/orders', { page: pageNum, limit: limitNum });
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
@@ -30,7 +32,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
       prisma.order.count(),
     ]);
 
-    console.log(`✅ Найдено ${orders.length} заказов, всего ${total}`);
+    log.debug(`✅ Найдено ${orders.length} заказов, всего ${total}`);
 
     res.json({
       orders: orders.map((o: any) => ({
@@ -43,8 +45,8 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
       totalPages: Math.ceil(total / limitNum),
     });
   } catch (error: any) {
-    console.error('❌ Get orders error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения заказов' });
+    log.error('❌ Get orders error', { error: error.message });
+    throw new AppError('Ошибка получения заказов', 500);
   }
 };
 
@@ -55,14 +57,16 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
   try {
     const { id } = req.params;
     const order = await prisma.order.findUnique({ where: { id } });
+    
     if (!order) {
-      res.status(404).json({ error: 'Заказ не найден' });
-      return;
+      throw new NotFoundError('Заказ не найден');
     }
+    
     res.json({ order });
   } catch (error: any) {
-    console.error('❌ Get order error:', error);
-    res.status(500).json({ error: error.message });
+    if (error instanceof AppError) throw error;
+    log.error('❌ Get order error', { error: error.message });
+    throw new AppError('Ошибка получения заказа', 500);
   }
 };
 
@@ -73,14 +77,17 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
   try {
     const { id } = req.params;
     const { status } = req.body;
+    
     const order = await prisma.order.update({
       where: { id },
       data: { status },
     });
+    
+    log.info(`📝 Статус заказа ${id} обновлён на ${status}`);
     res.json({ success: true, order });
   } catch (error: any) {
-    console.error('❌ Update order status error:', error);
-    res.status(500).json({ error: error.message });
+    log.error('❌ Update order status error', { error: error.message });
+    throw new AppError('Ошибка обновления статуса', 500);
   }
 };
 
@@ -90,7 +97,6 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 export const updateOrder = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-
     const {
       guestName,
       guestPhone,
@@ -101,24 +107,21 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
       items,
     } = req.body;
 
-    console.log(`📝 Обновление заказа ${id}`);
+    log.info(`📝 Обновление заказа ${id}`);
 
     const order = await prisma.order.findUnique({
       where: { id },
     });
 
     if (!order) {
-      res.status(404).json({ error: 'Заказ не найден' });
-      return;
+      throw new NotFoundError('Заказ не найден');
     }
 
     if (!order.crmOrderId) {
-      res.status(400).json({
-        error: 'Заказ ещё не синхронизирован с CRM, редактирование недоступно',
-      });
-      return;
+      throw new AppError('Заказ ещё не синхронизирован с CRM, редактирование недоступно', 400);
     }
 
+    // Обновляем в CRM через очередь
     try {
       const crmPayload: any = {
         clientData: {
@@ -132,29 +135,10 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
         items: items || order.items,
       };
 
-      console.log('📤 Отправка в CRM с Internal API Key:');
-      console.log('  URL:', `${CRM_API_URL}/api/sale-documents/${order.crmOrderId}/full`);
-      console.log('  Данные:', JSON.stringify(crmPayload, null, 2));
-
-      const crmResponse = await axios.put(
-        `${CRM_API_URL}/api/sale-documents/${order.crmOrderId}/full`,
-        crmPayload,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': INTERNAL_API_KEY,
-          },
-          timeout: 15000,
-        }
-      );
-
-      console.log('✅ CRM ответ:', crmResponse.status);
+      await addOrderToCRMQueue(order.id, crmPayload);
+      log.info(`📤 Обновление заказа ${id} добавлено в очередь CRM`);
     } catch (crmError: any) {
-      console.error('❌ Ошибка обновления в CRM:', crmError.message);
-      if (crmError.response) {
-        console.error('📦 Статус:', crmError.response.status);
-        console.error('📦 Ответ:', crmError.response.data);
-      }
+      log.error('❌ Ошибка обновления в CRM', { error: crmError.message });
     }
 
     const updatedOrder = await prisma.order.update({
@@ -171,11 +155,12 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
       },
     });
 
-    console.log(`✅ Заказ ${id} обновлён`);
+    log.info(`✅ Заказ ${id} обновлён`);
     res.json({ success: true, order: updatedOrder });
   } catch (error: any) {
-    console.error('❌ Ошибка обновления заказа:', error.message);
-    res.status(500).json({ error: error.message || 'Ошибка обновления заказа' });
+    if (error instanceof AppError) throw error;
+    log.error('❌ Ошибка обновления заказа', { error: error.message });
+    throw new AppError('Ошибка обновления заказа', 500);
   }
 };
 
@@ -187,76 +172,61 @@ export const deleteOrderWithPassword = async (req: Request, res: Response): Prom
     const { id } = req.params;
     const { password } = req.body;
 
-    console.log(`🗑️ Запрос на удаление заказа ${id}`);
+    log.info(`🗑️ Запрос на удаление заказа ${id}`);
 
     if (!password) {
-      res.status(400).json({ error: 'Требуется ввод пароля' });
-      return;
+      throw new AppError('Требуется ввод пароля', 400);
     }
 
-    // ✅ ПОЛУЧАЕМ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ИЗ REQUEST
     const userId = (req as any).user?.id;
     if (!userId) {
-      res.status(401).json({ error: 'Не авторизован' });
-      return;
+      throw new UnauthorizedError('Не авторизован');
     }
 
-    // ✅ НАХОДИМ ПОЛЬЗОВАТЕЛЯ В БД
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { passwordHash: true, role: true },
     });
 
     if (!user) {
-      res.status(401).json({ error: 'Пользователь не найден' });
-      return;
+      throw new UnauthorizedError('Пользователь не найден');
     }
 
-    // ✅ ПРОВЕРЯЕМ, ЧТО ПОЛЬЗОВАТЕЛЬ — АДМИН
     if (user.role !== 'admin' && user.role !== 'manager') {
-      res.status(403).json({ error: 'Доступ запрещён. Требуется роль admin или manager' });
-      return;
+      throw new ForbiddenError('Доступ запрещён. Требуется роль admin или manager');
     }
 
-    // ✅ ПРОВЕРЯЕМ ПАРОЛЬ
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash!);
     if (!isPasswordValid) {
-      res.status(401).json({ error: 'Неверный пароль' });
-      return;
+      throw new AppError('Неверный пароль', 401);
     }
 
-    // ✅ НАХОДИМ ЗАКАЗ
     const order = await prisma.order.findUnique({
       where: { id },
     });
 
     if (!order) {
-      res.status(404).json({ error: 'Заказ не найден' });
-      return;
+      throw new NotFoundError('Заказ не найден');
     }
 
-    // ✅ ЛОГИРУЕМ УДАЛЕНИЕ
-    console.log(`🗑️ Удаление заказа ${id} пользователем ${userId}`);
-
-    // ✅ УДАЛЯЕМ ЗАКАЗ
     await prisma.order.delete({
       where: { id },
     });
 
-    console.log(`✅ Заказ ${id} удалён`);
-
+    log.info(`🗑️ Заказ ${id} удалён пользователем ${userId}`);
     res.json({
       success: true,
       message: 'Заказ успешно удалён',
     });
   } catch (error: any) {
-    console.error('❌ Ошибка удаления заказа:', error.message);
-    res.status(500).json({ error: error.message || 'Ошибка удаления заказа' });
+    if (error instanceof AppError) throw error;
+    log.error('❌ Ошибка удаления заказа', { error: error.message });
+    throw new AppError('Ошибка удаления заказа', 500);
   }
 };
 
 // ============================================================
-// DELETE /api/admin/orders/:id — УДАЛЕНИЕ БЕЗ ПАРОЛЯ (СТАРЫЙ МЕТОД)
+// DELETE /api/admin/orders/:id — УДАЛЕНИЕ (старый метод)
 // ============================================================
 export const deleteOrder = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -264,7 +234,75 @@ export const deleteOrder = async (req: Request, res: Response): Promise<void> =>
     await prisma.order.delete({ where: { id } });
     res.json({ success: true });
   } catch (error: any) {
-    console.error('❌ Delete order error:', error);
-    res.status(500).json({ error: error.message });
+    log.error('❌ Delete order error', { error: error.message });
+    throw new AppError('Ошибка удаления заказа', 500);
+  }
+};
+
+// ============================================================
+// ✅ POST /api/admin/orders/:id/retry — ПОВТОРНАЯ ОТПРАВКА В CRM
+// ============================================================
+export const retryOrderToCRM = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    log.info(`🔄 Повторная отправка заказа ${id} в CRM`);
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new NotFoundError('Заказ не найден');
+    }
+
+    if (order.crmOrderId) {
+      throw new AppError('Заказ уже отправлен в CRM', 400);
+    }
+
+    if (order.status !== 'paid' && order.status !== 'crm_failed') {
+      throw new AppError(`Заказ в статусе ${order.status} нельзя отправить в CRM`, 400);
+    }
+
+    const phone = order.guestPhone || '';
+    const orderData = {
+      items: (order.items as any[]).map((item: any) => ({
+        productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
+        quantity: item.quantity || 1,
+        price: item.price || 0,
+      })),
+      client: {
+        firstName: order.guestName || 'Клиент',
+        lastName: '',
+        phone: phone || '+79999999999',
+        email: order.guestEmail || '',
+        city: '',
+        address: order.deliveryAddress || '',
+      },
+      deliveryMethod: order.deliveryMethod || 'pickup',
+      deliveryAddress: order.deliveryAddress || '',
+      comment: order.comment || '',
+      source: 'website_retry'
+    };
+
+    await addOrderToCRMQueue(id, orderData);
+
+    await prisma.order.update({
+      where: { id },
+      data: {
+        status: 'paid',
+        comment: 'Повторная отправка в CRM через очередь',
+      },
+    });
+
+    log.info(`✅ Заказ ${id} добавлен в очередь для повторной отправки`);
+    res.json({
+      success: true,
+      message: 'Заказ добавлен в очередь для повторной отправки',
+    });
+  } catch (error: any) {
+    if (error instanceof AppError) throw error;
+    log.error('❌ Ошибка повторной отправки заказа', { error: error.message });
+    throw new AppError('Ошибка повторной отправки заказа', 500);
   }
 };

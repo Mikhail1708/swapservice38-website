@@ -1,4 +1,4 @@
-// frontend/backend/src/routes/cart.routes.ts
+// backend/src/routes/cart.routes.ts
 import { Router } from 'express';
 import {
   getCart,
@@ -10,7 +10,6 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// ✅ ДОБАВЛЯЕМ authMiddleware КО ВСЕМ РОУТАМ
 router.get('/', authMiddleware, getCart);
 router.post('/add', authMiddleware, addToCart);
 router.put('/update', authMiddleware, updateCart);

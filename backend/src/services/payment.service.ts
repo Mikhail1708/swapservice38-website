@@ -6,6 +6,8 @@ import {
   sendOrderConfirmationToCustomer, 
   sendOrderNotificationToManager 
 } from './email.service';
+import { addOrderToCRMQueue } from '../queues/crm.queue';
+import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
 
@@ -17,7 +19,7 @@ const YOO_KASSA_API_URL = 'https://api.yookassa.ru/v3';
 // ✅ ПРОВЕРКА: ЕСЛИ КЛЮЧИ НЕ НАСТРОЕНЫ — ТЕСТОВЫЙ РЕЖИМ
 const isTestMode = !YOO_KASSA_SHOP_ID || !YOO_KASSA_SECRET_KEY || YOO_KASSA_SECRET_KEY.startsWith('test_');
 
-console.log(`💳 ЮKassa режим: ${isTestMode ? 'ТЕСТОВЫЙ' : 'БОЕВОЙ'}`);
+log.info(`💳 ЮKassa режим: ${isTestMode ? 'ТЕСТОВЫЙ' : 'БОЕВОЙ'}`);
 
 // ============================================================
 // ОЧИСТКА ТЕЛЕФОНА
@@ -54,13 +56,11 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       throw new Error('Заказ уже оплачен');
     }
 
-    console.log('💳 Создание платежа для заказа:', orderId);
-    console.log('📦 Сумма:', order.total);
-    console.log(`🔧 Режим: ${isTestMode ? 'ТЕСТОВЫЙ' : 'БОЕВОЙ'}`);
+    log.info('💳 Создание платежа', { orderId, total: order.total });
 
-    // ✅ ТЕСТОВЫЙ РЕЖИМ — ТОЛЬКО СОЗДАЁМ ПЛАТЁЖ, НЕ ОТПРАВЛЯЕМ В CRM
+    // ✅ ТЕСТОВЫЙ РЕЖИМ
     if (isTestMode) {
-      console.log('⚠️ ЮKassa в тестовом режиме, возвращаем тестовый URL');
+      log.info('⚠️ ЮKassa в тестовом режиме');
       
       const testPaymentId = `test_${Date.now()}`;
       
@@ -69,9 +69,6 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
         data: { paymentId: testPaymentId },
       });
       
-      // ✅ НЕ ВЫЗЫВАЕМ handlePaymentSuccess ЗДЕСЬ!
-      // Заказ будет отправлен в CRM ТОЛЬКО со страницы успеха
-      
       return {
         paymentId: testPaymentId,
         paymentUrl: `${process.env.CLIENT_URL || 'http://localhost:3001'}/payment/success?orderId=${orderId}`,
@@ -79,7 +76,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       };
     }
 
-    // ===== БОЕВОЙ РЕЖИМ — РЕАЛЬНАЯ ЮKASSA =====
+    // ===== БОЕВОЙ РЕЖИМ =====
     const auth = Buffer.from(`${YOO_KASSA_SHOP_ID}:${YOO_KASSA_SECRET_KEY}`).toString('base64');
 
     const headers = {
@@ -139,7 +136,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       },
     };
 
-    console.log('📤 Отправка в ЮKassa:', JSON.stringify(paymentData, null, 2));
+    log.debug('📤 Отправка в ЮKassa', { paymentData });
 
     const response = await axios.post(
       `${YOO_KASSA_API_URL}/payments`,
@@ -147,7 +144,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       { headers }
     );
 
-    console.log('✅ Платёж создан:', response.data.id);
+    log.info('✅ Платёж создан', { paymentId: response.data.id });
 
     await prisma.order.update({
       where: { id: orderId },
@@ -160,85 +157,77 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       status: response.data.status,
     };
   } catch (error: any) {
-    console.error('❌ Ошибка создания платежа:', error.response?.data || error.message);
+    log.error('❌ Ошибка создания платежа', { 
+      orderId, 
+      error: error.response?.data || error.message 
+    });
     throw new Error(error.response?.data?.description || 'Ошибка создания платежа');
   }
 };
 
 // ============================================================
-// ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ → ОТПРАВКА В CRM
+// ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ → ОТПРАВКА В CRM ЧЕРЕЗ ОЧЕРЕДЬ
 // ============================================================
 export const handlePaymentSuccess = async (orderId: string) => {
-  console.log(`🔄 [handlePaymentSuccess] Начало обработки заказа ${orderId}`);
+  log.info(`🔄 [handlePaymentSuccess] Начало обработки заказа ${orderId}`);
   
-  // ✅ БЛОКИРУЕМ ОБРАБОТКУ — СОХРАНЯЕМ В REDIS СРАЗУ
   const processedKey = `order:processed:${orderId}`;
   const lockKey = `order:processing:${orderId}`;
   
-  // ✅ ПРОВЕРЯЕМ, НЕ ОБРАБАТЫВАЕТСЯ ЛИ УЖЕ ЗАКАЗ
+  // ✅ БЛОКИРУЕМ
   try {
     const processing = await safeRedis.get(lockKey);
     if (processing) {
-      console.log(`ℹ️ Заказ ${orderId} уже обрабатывается, пропускаем`);
+      log.info(`ℹ️ Заказ ${orderId} уже обрабатывается, пропускаем`);
       return { success: true, orderId, status: 'paid', alreadyProcessing: true };
     }
-    
-    // ✅ УСТАНАВЛИВАЕМ БЛОКИРОВКУ НА 30 СЕКУНД
     await safeRedis.setex(lockKey, 30, 'true');
-    console.log(`🔒 Заказ ${orderId} заблокирован для обработки`);
+    log.debug(`🔒 Заказ ${orderId} заблокирован для обработки`);
   } catch (error) {
-    console.warn('⚠️ Ошибка блокировки Redis:', error);
+    log.warn('⚠️ Ошибка блокировки Redis', { error });
   }
   
-  // ✅ ПРОВЕРЯЕМ, НЕ БЫЛ ЛИ УЖЕ ОБРАБОТАН ЗАКАЗ
+  // ✅ ПРОВЕРЯЕМ, НЕ БЫЛ ЛИ УЖЕ ОБРАБОТАН
   try {
     const cached = await safeRedis.get(processedKey);
     if (cached) {
-      console.log(`ℹ️ Заказ ${orderId} уже был обработан, пропускаем`);
-      // ✅ СНИМАЕМ БЛОКИРОВКУ
+      log.info(`ℹ️ Заказ ${orderId} уже был обработан, пропускаем`);
       await safeRedis.del(lockKey);
       return { success: true, orderId, status: 'paid', alreadyProcessed: true };
     }
   } catch (error) {
-    console.warn('⚠️ Ошибка проверки Redis:', error);
+    log.warn('⚠️ Ошибка проверки Redis', { error });
   }
 
-  // ✅ ПОЛУЧАЕМ ЗАКАЗ ИЗ БД
+  // ✅ ПОЛУЧАЕМ ЗАКАЗ
   const order = await prisma.order.findUnique({
     where: { id: orderId },
   });
 
   if (!order) {
-    console.error(`❌ Заказ ${orderId} не найден`);
-    // ✅ СНИМАЕМ БЛОКИРОВКУ
+    log.error(`❌ Заказ ${orderId} не найден`);
     await safeRedis.del(lockKey);
     throw new Error(`Заказ ${orderId} не найден`);
   }
 
-  console.log(`📦 Заказ ${orderId} найден:`, {
+  log.debug(`📦 Заказ ${orderId} найден`, {
     status: order.status,
     crmOrderId: order.crmOrderId,
     orderNumber: order.orderNumber,
     total: order.total,
-    itemsCount: (order.items as any[])?.length || 0,
   });
 
   // ✅ ЕСЛИ УЖЕ ОПЛАЧЕН И ЕСТЬ crmOrderId — ПРОПУСКАЕМ
   if (order.status === 'paid' && order.crmOrderId) {
-    console.log(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM, пропускаем`);
+    log.info(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM, пропускаем`);
     await safeRedis.del(lockKey);
     return { success: true, orderId, status: 'paid', alreadyProcessed: true };
   }
 
-  console.log(`✅ Заказ ${orderId} оплачен!`);
+  log.info(`✅ Заказ ${orderId} оплачен!`);
 
-  let crmResult = null;
-  let crmError = null;
-
-  // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM (ТОЛЬКО ЕСЛИ НЕТ crmOrderId)
-  if (order.crmOrderId) {
-    console.log(`ℹ️ Заказ ${orderId} уже имеет crmOrderId: ${order.crmOrderId}, пропускаем отправку в CRM`);
-  } else {
+  // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM ЧЕРЕЗ ОЧЕРЕДЬ
+  if (!order.crmOrderId) {
     try {
       const phone = cleanPhone(order.guestPhone || '');
       
@@ -262,29 +251,15 @@ export const handlePaymentSuccess = async (orderId: string) => {
         source: 'website'
       };
 
-      console.log(`📤 Отправка заказа ${orderId} в CRM...`);
-      console.log('  URL:', `${process.env.CRM_API_URL || 'http://localhost:5000'}/api/sale-documents/public`);
-      console.log('  Данные:', JSON.stringify(orderData, null, 2));
-
-      const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
-      const crmResponse = await axios.post(
-        `${CRM_API_URL}/api/sale-documents/public`,
-        orderData,
-        { timeout: 15000 }
-      );
-      
-      crmResult = crmResponse.data;
-      console.log(`✅ Заказ ${orderId} отправлен в CRM:`, crmResult);
+      // ✅ ДОБАВЛЯЕМ В ОЧЕРЕДЬ, А НЕ ОТПРАВЛЯЕМ ПРЯМО
+      await addOrderToCRMQueue(orderId, orderData);
+      log.info(`✅ Заказ ${orderId} добавлен в очередь CRM`);
     } catch (error: any) {
-      crmError = error;
-      console.error(`❌ Ошибка отправки заказа ${orderId} в CRM:`);
-      console.error('  Message:', error.message);
-      if (error.response) {
-        console.error('  Статус:', error.response.status);
-        console.error('  Ответ:', JSON.stringify(error.response.data, null, 2));
-      }
-      // ✅ НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ — заказ всё равно помечаем как оплаченный
+      log.error(`❌ Ошибка добавления заказа ${orderId} в очередь`, { error: error.message });
+      // Заказ уже помечен как paid, очередь попытается отправить позже
     }
+  } else {
+    log.info(`ℹ️ Заказ ${orderId} уже имеет crmOrderId: ${order.crmOrderId}, пропускаем отправку в CRM`);
   }
 
   // ✅ 2. ОБНОВЛЯЕМ СТАТУС ЗАКАЗА
@@ -293,14 +268,12 @@ export const handlePaymentSuccess = async (orderId: string) => {
       where: { id: orderId },
       data: {
         status: 'paid',
-        crmOrderId: crmResult?.orderId ? String(crmResult.orderId) : order.crmOrderId,
-        orderNumber: crmResult?.documentNumber || order.orderNumber,
         updatedAt: new Date(),
       },
     });
-    console.log(`✅ Статус заказа ${orderId} обновлён на "paid"`);
+    log.info(`✅ Статус заказа ${orderId} обновлён на "paid"`);
   } catch (error) {
-    console.error(`❌ Ошибка обновления статуса заказа ${orderId}:`, error);
+    log.error(`❌ Ошибка обновления статуса заказа ${orderId}`, { error });
   }
 
   // ✅ 3. ОЧИЩАЕМ КОРЗИНУ
@@ -310,134 +283,97 @@ export const handlePaymentSuccess = async (orderId: string) => {
         where: { userId: order.userId },
         data: { items: [] },
       });
-      console.log(`🧹 Корзина очищена для пользователя: ${order.userId}`);
+      log.debug(`🧹 Корзина очищена для пользователя: ${order.userId}`);
     } catch (error) {
-      console.warn(`⚠️ Не удалось очистить корзину для ${order.userId}:`, error);
+      log.warn(`⚠️ Не удалось очистить корзину для ${order.userId}`, { error });
     }
   }
 
-  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ (ТОЛЬКО ЕСЛИ ЗАКАЗ УСПЕШНО ОТПРАВЛЕН В CRM)
-  if (crmResult && !crmError) {
-    try {
-      const emailData = {
-        orderId: order.id,
-        documentNumber: crmResult?.documentNumber || order.orderNumber || order.id.slice(0, 8),
-        customerName: order.guestName || 'Клиент',
-        customerEmail: order.guestEmail || '',
-        customerPhone: order.guestPhone || '',
-        total: order.total,
-        items: (order.items as any[]).map((item: any) => ({
-          name: item.name || 'Товар',
-          quantity: item.quantity,
-          price: item.price,
-          total: item.price * item.quantity,
-        })),
-        deliveryAddress: order.deliveryAddress || '',
-        comment: order.comment || '',
-        paymentId: order.paymentId || 'test',
-      };
+  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
+  try {
+    const emailData = {
+      orderId: order.id,
+      documentNumber: order.orderNumber || order.id.slice(0, 8),
+      customerName: order.guestName || 'Клиент',
+      customerEmail: order.guestEmail || '',
+      customerPhone: order.guestPhone || '',
+      total: order.total,
+      items: (order.items as any[]).map((item: any) => ({
+        name: item.name || 'Товар',
+        quantity: item.quantity,
+        price: item.price,
+        total: item.price * item.quantity,
+      })),
+      deliveryAddress: order.deliveryAddress || '',
+      comment: order.comment || '',
+      paymentId: order.paymentId || 'test',
+    };
 
-      // ✅ ОТПРАВЛЯЕМ ОБА ПИСЬМА
-      await sendOrderConfirmationToCustomer(emailData);
-      await sendOrderNotificationToManager(emailData);
-      
-      console.log(`✅ Уведомления отправлены для заказа ${orderId}`);
-    } catch (emailError) {
-      console.error(`❌ Ошибка отправки email для заказа ${orderId}:`, emailError);
-      // НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ
-    }
-  } else if (crmError) {
-    console.warn(`⚠️ Уведомления НЕ отправлены для заказа ${orderId}, т.к. заказ не попал в CRM`);
-    // Отправляем уведомление менеджеру о проблеме
-    try {
-      await sendOrderNotificationToManager({
-        orderId: order.id,
-        documentNumber: order.orderNumber || order.id.slice(0, 8),
-        customerName: order.guestName || 'Клиент',
-        customerEmail: order.guestEmail || '',
-        customerPhone: order.guestPhone || '',
-        total: order.total,
-        items: (order.items as any[]).map((item: any) => ({
-          name: item.name || 'Товар',
-          quantity: item.quantity,
-          price: item.price,
-          total: item.price * item.quantity,
-        })),
-        deliveryAddress: order.deliveryAddress || '',
-        comment: order.comment || '',
-        paymentId: order.paymentId || 'test',
-      });
-      console.log(`⚠️ Отправлено уведомление менеджеру о проблеме с заказом ${orderId}`);
-    } catch (emailError) {
-      console.error(`❌ Ошибка отправки уведомления о проблеме для заказа ${orderId}:`, emailError);
-    }
+    await sendOrderConfirmationToCustomer(emailData);
+    await sendOrderNotificationToManager(emailData);
+    log.info(`✅ Уведомления отправлены для заказа ${orderId}`);
+  } catch (emailError) {
+    log.error(`❌ Ошибка отправки email для заказа ${orderId}`, { error: emailError });
   }
 
-  // ✅ 5. СОХРАНЯЕМ В REDIS, ЧТО ЗАКАЗ ОБРАБОТАН, И СНИМАЕМ БЛОКИРОВКУ
+  // ✅ 5. СОХРАНЯЕМ В REDIS
   try {
     await safeRedis.setex(processedKey, 7 * 24 * 60 * 60, 'true');
     await safeRedis.del(lockKey);
-    console.log(`✅ Ключи сохранены в Redis, блокировка снята`);
+    log.debug(`✅ Ключи сохранены в Redis, блокировка снята`);
   } catch (error) {
-    console.warn('⚠️ Не удалось сохранить в Redis:', error);
+    log.warn('⚠️ Не удалось сохранить в Redis', { error });
   }
 
-  console.log(`✅ [handlePaymentSuccess] Заказ ${orderId} успешно обработан`);
+  log.info(`✅ [handlePaymentSuccess] Заказ ${orderId} успешно обработан`);
   return { 
     success: true, 
     orderId, 
-    status: 'paid', 
-    crmResult,
-    crmError: crmError ? crmError.message : null,
+    status: 'paid',
   };
 };
 
 // ============================================================
-// ОБРАБОТКА WEBHOOK ОТ ЮKASSA
+// ОБРАБОТКА WEBHOOK
 // ============================================================
 export const handlePaymentWebhook = async (event: any) => {
-  console.log('📥 Webhook от ЮKassa:', event.object?.id, event.object?.status);
+  log.info('📥 Webhook от ЮKassa', { paymentId: event.object?.id, status: event.object?.status });
 
   const payment = event.object;
   
   if (!payment || !payment.metadata) {
-    console.error('❌ Невалидный webhook: нет metadata');
+    log.error('❌ Невалидный webhook: нет metadata');
     throw new Error('Невалидный webhook');
   }
 
   const { orderId } = payment.metadata;
   const status = payment.status;
 
-  console.log(`📦 Webhook: orderId=${orderId}, status=${status}`);
-
   if (!orderId) {
-    console.error('❌ Webhook: нет orderId в metadata');
+    log.error('❌ Webhook: нет orderId в metadata');
     throw new Error('Нет orderId в metadata');
   }
 
-  // ===== УСПЕШНАЯ ОПЛАТА =====
   if (status === 'succeeded') {
-    console.log(`✅ Webhook: оплата заказа ${orderId} успешна`);
+    log.info(`✅ Webhook: оплата заказа ${orderId} успешна`);
     return await handlePaymentSuccess(orderId);
   }
 
-  // ===== ОТМЕНА =====
   if (status === 'canceled') {
-    console.log(`❌ Webhook: заказ ${orderId} отменён`);
+    log.info(`❌ Webhook: заказ ${orderId} отменён`);
     try {
       await prisma.order.update({
         where: { id: orderId },
         data: { status: 'cancelled' },
       });
-      console.log(`✅ Статус заказа ${orderId} обновлён на "cancelled"`);
+      log.info(`✅ Статус заказа ${orderId} обновлён на "cancelled"`);
     } catch (error) {
-      console.error(`❌ Ошибка обновления статуса заказа ${orderId}:`, error);
+      log.error(`❌ Ошибка обновления статуса заказа ${orderId}`, { error });
     }
     return { success: true, orderId, status: 'cancelled' };
   }
 
-  // ===== ДРУГИЕ СТАТУСЫ =====
-  console.log(`ℹ️ Webhook: заказ ${orderId}, статус ${status} (не обрабатывается)`);
+  log.info(`ℹ️ Webhook: заказ ${orderId}, статус ${status} (не обрабатывается)`);
   return { success: true, orderId, status };
 };
 
@@ -446,7 +382,7 @@ export const handlePaymentWebhook = async (event: any) => {
 // ============================================================
 export const getPaymentStatus = async (paymentId: string) => {
   if (isTestMode || paymentId.startsWith('test_')) {
-    console.log('ℹ️ Тестовый платеж, возвращаем статус "pending"');
+    log.debug('ℹ️ Тестовый платеж, возвращаем статус "pending"');
     return { status: 'pending' };
   }
 
@@ -463,7 +399,7 @@ export const getPaymentStatus = async (paymentId: string) => {
     );
     return response.data;
   } catch (error: any) {
-    console.error('❌ Ошибка получения статуса платежа:', error.message);
+    log.error('❌ Ошибка получения статуса платежа', { error: error.message });
     throw new Error('Ошибка получения статуса платежа');
   }
 };
@@ -474,7 +410,7 @@ export const getPaymentStatus = async (paymentId: string) => {
 export const verifyWebhookSignature = (body: string, signature: string | null): boolean => {
   if (!signature) return false;
   if (isTestMode) {
-    console.log('ℹ️ Тестовый режим: проверка подписи пропущена');
+    log.debug('ℹ️ Тестовый режим: проверка подписи пропущена');
     return true;
   }
   
@@ -486,16 +422,16 @@ export const verifyWebhookSignature = (body: string, signature: string | null): 
       .digest('base64');
     return hash === signature;
   } catch (error) {
-    console.error('❌ Ошибка проверки подписи:', error);
+    log.error('❌ Ошибка проверки подписи', { error });
     return false;
   }
 };
 
 // ============================================================
-// ФУНКЦИЯ ДЛЯ ПРИНУДИТЕЛЬНОЙ ОТПРАВКИ ЗАКАЗА В CRM (ДЛЯ АДМИНОВ)
+// ПРИНУДИТЕЛЬНАЯ ОТПРАВКА ЗАКАЗА В CRM (ДЛЯ АДМИНОВ)
 // ============================================================
 export const resendOrderToCRM = async (orderId: string): Promise<any> => {
-  console.log(`🔄 [resendOrderToCRM] Принудительная отправка заказа ${orderId} в CRM`);
+  log.info(`🔄 [resendOrderToCRM] Принудительная отправка заказа ${orderId} в CRM`);
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -509,7 +445,7 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
     throw new Error(`Заказ ${orderId} уже отправлен в CRM (crmOrderId: ${order.crmOrderId})`);
   }
 
-  if (order.status !== 'paid') {
+  if (order.status !== 'paid' && order.status !== 'crm_failed') {
     throw new Error(`Заказ ${orderId} не оплачен (статус: ${order.status})`);
   }
 
@@ -536,7 +472,7 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
       source: 'website_resend'
     };
 
-    console.log(`📤 Принудительная отправка заказа ${orderId} в CRM...`);
+    log.info(`📤 Принудительная отправка заказа ${orderId} в CRM...`);
 
     const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
     const crmResponse = await axios.post(
@@ -547,17 +483,20 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
     
     const crmResult = crmResponse.data;
 
-    // Обновляем заказ
     await prisma.order.update({
       where: { id: orderId },
       data: {
         crmOrderId: crmResult?.orderId ? String(crmResult.orderId) : null,
         orderNumber: crmResult?.documentNumber || null,
+        status: 'paid',
         updatedAt: new Date(),
       },
     });
 
-    console.log(`✅ Заказ ${orderId} принудительно отправлен в CRM:`, crmResult);
+    log.info(`✅ Заказ ${orderId} принудительно отправлен в CRM`, { 
+      crmOrderId: crmResult?.orderId,
+      documentNumber: crmResult?.documentNumber 
+    });
 
     // Отправляем уведомления
     try {
@@ -581,9 +520,9 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
 
       await sendOrderConfirmationToCustomer(emailData);
       await sendOrderNotificationToManager(emailData);
-      console.log(`✅ Уведомления отправлены для заказа ${orderId}`);
+      log.info(`✅ Уведомления отправлены для заказа ${orderId}`);
     } catch (emailError) {
-      console.error(`❌ Ошибка отправки email для заказа ${orderId}:`, emailError);
+      log.error(`❌ Ошибка отправки email для заказа ${orderId}`, { error: emailError });
     }
 
     return {
@@ -594,11 +533,10 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
     };
 
   } catch (error: any) {
-    console.error(`❌ Ошибка принудительной отправки заказа ${orderId} в CRM:`, error.message);
-    if (error.response) {
-      console.error('  Статус:', error.response.status);
-      console.error('  Ответ:', JSON.stringify(error.response.data, null, 2));
-    }
+    log.error(`❌ Ошибка принудительной отправки заказа ${orderId} в CRM`, { 
+      error: error.message,
+      response: error.response?.data 
+    });
     throw error;
   }
 };

@@ -16,6 +16,7 @@ import {
 } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import * as oauthService from '../services/oauth.service';
+import { log } from '../config/logger';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.get('/yandex', (req, res) => {
     const url = oauthService.getYandexAuthUrl();
     res.redirect(url);
   } catch (error: any) {
-    console.error('Yandex OAuth redirect error:', error);
+    log.error('Yandex OAuth redirect error', { error: error.message });
     res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Ошибка входа через Яндекс')}`);
   }
 });
@@ -79,7 +80,7 @@ router.get('/yandex/callback', async (req, res) => {
     }
 
     const guestId = req.cookies?.guestId;
-    console.log('🍪 guestId в OAuth callback:', guestId || 'нет');
+    log.info('OAuth callback', { guestId: guestId || 'нет' });
 
     const { token } = await oauthService.handleYandexCallback(code as string, guestId);
 
@@ -99,10 +100,10 @@ router.get('/yandex/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    console.log('🔄 Редирект на:', `${process.env.CLIENT_URL}/oauth-callback`);
+    log.info('OAuth успешен, редирект', { url: `${process.env.CLIENT_URL}/oauth-callback` });
     res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
   } catch (error: any) {
-    console.error('Yandex OAuth callback error:', error);
+    log.error('Yandex OAuth callback error', { error: error.message });
     const message = encodeURIComponent(error.message || 'Ошибка входа через Яндекс');
     res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
   }
@@ -117,7 +118,7 @@ router.get('/max', (req, res) => {
     const url = oauthService.getMaxAuthUrl();
     res.redirect(url);
   } catch (error: any) {
-    console.error('MAX OAuth redirect error:', error);
+    log.error('MAX OAuth redirect error', { error: error.message });
     res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Ошибка входа через MAX')}`);
   }
 });
@@ -136,7 +137,7 @@ router.get('/max/callback', async (req, res) => {
     }
 
     const guestId = req.cookies?.guestId;
-    console.log('🍪 guestId в OAuth callback:', guestId || 'нет');
+    log.info('OAuth callback MAX', { guestId: guestId || 'нет' });
 
     const { token } = await oauthService.handleMaxCallback(code as string, guestId);
 
@@ -156,10 +157,10 @@ router.get('/max/callback', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    console.log('🔄 Редирект на:', `${process.env.CLIENT_URL}/oauth-callback`);
+    log.info('OAuth MAX успешен, редирект', { url: `${process.env.CLIENT_URL}/oauth-callback` });
     res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
   } catch (error: any) {
-    console.error('MAX OAuth callback error:', error);
+    log.error('MAX OAuth callback error', { error: error.message });
     const message = encodeURIComponent(error.message || 'Ошибка входа через MAX');
     res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
   }

@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import redis from './config/redis';
 import csrfMiddleware from './middleware/csrf.middleware';
+import { errorHandler, notFoundHandler } from './middleware/error.middleware';
+import { log } from './config/logger';
 
 // Routes
 import authRoutes from './routes/auth.routes';
@@ -44,7 +46,7 @@ app.use(cors({
     if (allowedOrigins.includes(origin) || origin.includes('localhost')) {
       callback(null, true);
     } else {
-      console.warn('🚫 CORS blocked:', origin);
+      log.warn('CORS blocked', { origin });
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -80,33 +82,35 @@ app.use(helmet({
 
 app.use(cookieParser());
 
-// RAW body для webhook (ДО express.json)
+// RAW body для webhook
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// CSRF
+app.use(csrfMiddleware);
+
 // ============================================================
-// 3. ЛОГИРОВАНИЕ
+// 3. ЛОГИРОВАНИЕ ЗАПРОСОВ
 // ============================================================
 app.use((req, res, next) => {
-  console.log(`📡 ${req.method} ${req.url}`);
+  log.info(`${req.method} ${req.url}`, {
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+  });
   next();
 });
 
 // ============================================================
-// 4. CSRF ЗАЩИТА (ТОЛЬКО ДЛЯ НЕ-ПУБЛИЧНЫХ POST/PUT/DELETE/PATCH)
-// ============================================================
-// Публичные пути пропускают CSRF внутри middleware
-app.use(csrfMiddleware);
-
-// ============================================================
-// 5. АУТЕНТИФИКАЦИЯ
+// 4. АУТЕНТИФИКАЦИЯ
 // ============================================================
 import { authMiddleware } from './middleware/auth.middleware';
 
 // ============================================================
-// 6. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
+// 5. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
 // ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -114,101 +118,59 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/csrf-token', csrfRoutes);
 
-// Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development'
+    env: process.env.NODE_ENV || 'development',
   });
 });
 
 // ============================================================
-// 7. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
+// 6. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
 // ============================================================
-
-// Заказы
 app.use('/api/orders', authMiddleware);
 app.use('/api/orders', orderRoutes);
 
-// Платежи
 app.use('/api/payment', authMiddleware);
 app.use('/api/payment', paymentRoutes);
 
-// Админ-панель
 app.use('/api/admin', authMiddleware);
 app.use('/api/admin', adminRoutes);
 
-// Статьи
 app.use('/api/articles', authMiddleware);
 app.use('/api/articles', articlesRoutes);
 
-// Комментарии
 app.use('/api/comments', authMiddleware);
 app.use('/api/comments', commentsRoutes);
 
-// Лайки
 app.use('/api/likes', authMiddleware);
 app.use('/api/likes', likesRoutes);
 
 // ============================================================
-// 8. ОБРАБОТЧИК 404
+// 7. ОБРАБОТЧИК 404
 // ============================================================
-app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Не найдено',
-    path: req.path 
-  });
-});
+app.use(notFoundHandler);
 
 // ============================================================
-// 9. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
+// 8. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 // ============================================================
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('❌ Server error:', err);
-
-  // CSRF ошибка
-  if (err.code === 'EBADCSRFTOKEN') {
-    return res.status(403).json({
-      error: 'Неверный CSRF токен',
-      code: 'CSRF_TOKEN_INVALID'
-    });
-  }
-
-  // Ошибка валидации
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      error: 'Ошибка валидации',
-      details: err.errors
-    });
-  }
-
-  // Ошибка аутентификации
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      error: 'Не авторизован'
-    });
-  }
-
-  res.status(err.status || 500).json({
-    error: err.message || 'Внутренняя ошибка сервера',
-  });
-});
+app.use(errorHandler);
 
 // ============================================================
-// 10. ЗАПУСК
+// 9. ЗАПУСК
 // ============================================================
 app.listen(port, () => {
-  console.log(`🚀 Site Backend running on port ${port}`);
-  console.log(`📋 Health: http://localhost:${port}/api/health`);
-  console.log(`🔐 Auth: http://localhost:${port}/api/auth`);
-  console.log(`💰 Payment: http://localhost:${port}/api/payment`);
-  console.log(`🛡️ CSRF: http://localhost:${port}/api/csrf-token`);
-  console.log(`📦 Products: http://localhost:${port}/api/products`);
-  console.log(`🛒 Cart: http://localhost:${port}/api/cart`);
-  console.log(`📝 Orders: http://localhost:${port}/api/orders`);
-  console.log(`👑 Admin: http://localhost:${port}/api/admin`);
-  console.log(`📰 Articles: http://localhost:${port}/api/articles`);
-  console.log(`💬 Comments: http://localhost:${port}/api/comments`);
-  console.log(`❤️ Likes: http://localhost:${port}/api/likes`);
+  log.info(`🚀 Site Backend running on port ${port}`);
+  log.info(`📋 Health: http://localhost:${port}/api/health`);
+  log.info(`🔐 Auth: http://localhost:${port}/api/auth`);
+  log.info(`💰 Payment: http://localhost:${port}/api/payment`);
+  log.info(`🛡️ CSRF: http://localhost:${port}/api/csrf-token`);
+  log.info(`📦 Products: http://localhost:${port}/api/products`);
+  log.info(`🛒 Cart: http://localhost:${port}/api/cart`);
+  log.info(`📝 Orders: http://localhost:${port}/api/orders`);
+  log.info(`👑 Admin: http://localhost:${port}/api/admin`);
+  log.info(`📰 Articles: http://localhost:${port}/api/articles`);
+  log.info(`💬 Comments: http://localhost:${port}/api/comments`);
+  log.info(`❤️ Likes: http://localhost:${port}/api/likes`);
 });
