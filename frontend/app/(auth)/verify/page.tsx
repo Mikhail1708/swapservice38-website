@@ -1,69 +1,61 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { 
+  Loader2, 
+  CheckCircle, 
+  XCircle, 
+  ArrowLeft, 
+  ArrowRight,
+  Mail,
+  AlertCircle
+} from 'lucide-react';
 import Image from 'next/image';
-import { ArrowRight, CheckCircle } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function VerifyPage() {
-  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const emailFromUrl = searchParams.get('email') || '';
+  
+  const [email, setEmail] = useState(emailFromUrl);
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [timer, setTimer] = useState(60);
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const email = searchParams.get('email') || '';
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
+  // Таймер для редиректа после успеха
   useEffect(() => {
-    if (!email) {
-      router.push('/register');
+    if (success) {
+      const timer = setTimeout(() => {
+        router.push('/login?verified=true');
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-  }, [email, router]);
+  }, [success, router]);
 
+  // Таймер для повторной отправки
   useEffect(() => {
-    if (timer > 0) {
-      const interval = setInterval(() => setTimer(timer - 1), 1000);
-      return () => clearInterval(interval);
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
     }
-  }, [timer]);
-
-  const handleChange = (index: number, value: string) => {
-    if (value.length > 1) return;
-    const newCode = [...code];
-    newCode[index] = value;
-    setCode(newCode);
-
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
+  }, [countdown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const fullCode = code.join('');
-    if (fullCode.length !== 6) {
-      setError('Введите полный код из 6 цифр');
-      return;
-    }
-
     setError('');
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/verify', {
+      const response = await fetchWithCsrf('/api/auth/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: fullCode }),
+        body: JSON.stringify({ email, code }),
       });
 
       const data = await response.json();
@@ -73,7 +65,6 @@ export default function VerifyPage() {
       }
 
       setSuccess(true);
-      setTimeout(() => router.push('/login'), 2000);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -82,13 +73,15 @@ export default function VerifyPage() {
   };
 
   const handleResend = async () => {
+    if (countdown > 0) return;
+    
     setResendLoading(true);
     setError('');
+    setResendSuccess(false);
 
     try {
-      const response = await fetch('/api/auth/resend-verification', {
+      const response = await fetchWithCsrf('/api/auth/resend-verification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
 
@@ -98,7 +91,8 @@ export default function VerifyPage() {
         throw new Error(data.error || 'Ошибка отправки');
       }
 
-      setTimer(60);
+      setResendSuccess(true);
+      setCountdown(60);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -106,33 +100,16 @@ export default function VerifyPage() {
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const paste = e.clipboardData.getData('text').slice(0, 6);
-    if (/^\d+$/.test(paste)) {
-      const digits = paste.split('');
-      const newCode = [...code];
-      digits.forEach((digit, i) => {
-        if (i < 6) newCode[i] = digit;
-      });
-      setCode(newCode);
-      if (digits.length === 6) {
-        inputRefs.current[5]?.focus();
-      } else {
-        inputRefs.current[digits.length]?.focus();
-      }
-    }
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
+      {/* Фоновые эффекты */}
       <div className="absolute inset-0">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-gray-50 via-white to-gray-50" />
-        <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-gray-200/30 blur-[120px]" />
-        <div className="absolute bottom-1/4 left-1/4 w-[300px] h-[300px] rounded-full bg-gray-200/20 blur-[100px]" />
+        <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
+        <div className="absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-md px-6">
+        {/* Логотип */}
         <div className="text-center mb-10">
           <Link href="/" className="inline-block">
             <Image 
@@ -140,81 +117,141 @@ export default function VerifyPage() {
               alt="SWAP SERVICE 38" 
               width={220} 
               height={55} 
-              className="h-12 w-auto brightness-0 mx-auto"
+              className="h-12 w-auto brightness-0 invert mx-auto"
             />
           </Link>
-          <h1 className="text-2xl font-bold text-black mt-6 mb-2">Подтверждение email</h1>
-          <p className="text-gray-400 text-sm font-light">
-            Введите код, отправленный на <span className="text-black font-medium">{email}</span>
+          <p className="text-muted-foreground text-sm mt-3 font-light">
+            Подтверждение email
           </p>
         </div>
 
         {success ? (
-          <div className="text-center py-8">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-green-500" />
+          // Успешное подтверждение
+          <div className="bg-card border border-border rounded-2xl p-8 text-center">
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                <CheckCircle className="w-10 h-10 text-green-500" />
+              </div>
             </div>
-            <h2 className="text-xl font-medium text-black">Email подтверждён!</h2>
-            <p className="text-gray-400 text-sm mt-2">Перенаправление на вход...</p>
+            <h1 className="text-2xl font-bold text-foreground mb-2">
+              Email подтверждён! ✅
+            </h1>
+            <p className="text-muted-foreground">
+              Спасибо за регистрацию! Теперь вы можете войти в аккаунт.
+            </p>
+            <p className="text-sm text-muted-foreground/70 mt-2">
+              Перенаправление на страницу входа...
+            </p>
+            <div className="mt-6 w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }} />
+            </div>
+            <Link
+              href="/login"
+              className="mt-6 inline-flex items-center gap-2 text-sm text-foreground hover:text-muted-foreground transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Перейти к входу
+            </Link>
           </div>
         ) : (
+          // Форма подтверждения
           <>
+            {/* Информация о письме */}
+            <div className="bg-card border border-border rounded-lg p-4 mb-6 flex items-start gap-3">
+              <Mail className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-foreground">
+                  Код отправлен на <strong>{email || 'ваш email'}</strong>
+                </p>
+                <p className="text-xs text-muted-foreground/70 mt-1">
+                  Проверьте почту и введите 6-значный код подтверждения
+                </p>
+              </div>
+            </div>
+
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm mb-6">
-                {error}
+              <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-8">
-              <div className="flex justify-center gap-3" onPaste={handlePaste}>
-                {code.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={(el) => { inputRefs.current[index] = el; }}
-                    id={`code-${index}`}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(index, e)}
-                    className="w-14 h-16 text-center text-2xl font-light bg-gray-50 border border-gray-200 rounded-2xl text-black focus:outline-none focus:border-black/30 transition"
-                    autoFocus={index === 0}
-                  />
-                ))}
+            {resendSuccess && (
+              <div className="bg-green-500/10 border border-green-500/20 text-green-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                <span>Код отправлен повторно!</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label htmlFor="code" className="block text-sm text-muted-foreground font-medium mb-2">
+                  Код подтверждения
+                </label>
+                <input
+                  id="code"
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition text-center text-2xl font-bold tracking-[0.5em]"
+                  required
+                  maxLength={6}
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground/50 mt-2 text-center">
+                  Введите 6-значный код из письма
+                </p>
               </div>
 
               <button
                 type="submit"
-                disabled={loading || code.join('').length !== 6}
-                className="w-full py-4 bg-black text-white rounded-2xl font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={loading || code.length < 6}
+                className="w-full py-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loading ? 'Проверка...' : 'Подтвердить'}
-                {!loading && <ArrowRight className="w-4 h-4" />}
+                {loading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    Подтвердить email
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
 
-            <div className="text-center mt-6">
-              <p className="text-sm text-gray-400 font-light">
+            {/* Повторная отправка */}
+            <div className="mt-6 text-center">
+              <p className="text-sm text-muted-foreground">
                 Не пришло письмо?{' '}
                 <button
-                  type="button"
                   onClick={handleResend}
-                  disabled={resendLoading || timer > 0}
-                  className="text-black hover:text-gray-600 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={resendLoading || countdown > 0}
+                  className="text-foreground hover:text-muted-foreground transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {resendLoading ? 'Отправка...' : timer > 0 ? `Отправить повторно (${timer}с)` : 'Отправить повторно'}
+                  {resendLoading ? (
+                    <Loader2 className="w-4 h-4 inline animate-spin" />
+                  ) : countdown > 0 ? (
+                    `Отправить повторно (${countdown})`
+                  ) : (
+                    'Отправить повторно'
+                  )}
                 </button>
               </p>
+              <p className="text-xs text-muted-foreground/50 mt-1">
+                Проверьте папку «Спам», если письмо не пришло
+              </p>
+            </div>
+
+            {/* Ссылка назад */}
+            <div className="text-center mt-6">
+              <Link href="/register" className="text-sm text-muted-foreground hover:text-foreground transition font-light inline-flex items-center gap-1">
+                <ArrowLeft className="w-4 h-4" />
+                Вернуться к регистрации
+              </Link>
             </div>
           </>
         )}
-
-        <div className="text-center mt-6">
-          <Link href="/" className="text-sm text-gray-400 hover:text-black transition font-light">
-            ← На главную
-          </Link>
-        </div>
       </div>
     </div>
   );

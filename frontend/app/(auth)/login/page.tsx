@@ -1,10 +1,9 @@
-// frontend/app/(auth)/login/page.tsx
 'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import { OAuthButtons } from '@/components/OAuthButtons';
 import { fetchWithCsrf } from '@/lib/csrf';
@@ -23,7 +22,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
       const response = await fetchWithCsrf('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
@@ -45,14 +43,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
+      {/* Фоновые эффекты */}
       <div className="absolute inset-0">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-gray-50 via-white to-gray-50" />
-        <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-gray-200/30 blur-[120px]" />
-        <div className="absolute bottom-1/4 left-1/4 w-[300px] h-[300px] rounded-full bg-gray-200/20 blur-[100px]" />
+        <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
+        <div className="absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-md px-6">
+        {/* Логотип */}
         <div className="text-center mb-10">
           <Link href="/" className="inline-block">
             <Image 
@@ -60,21 +59,23 @@ export default function LoginPage() {
               alt="SWAP SERVICE 38" 
               width={220} 
               height={55} 
-              className="h-12 w-auto brightness-0 mx-auto"
+              className="h-12 w-auto brightness-0 invert mx-auto"
             />
           </Link>
-          <p className="text-gray-400 text-sm mt-3 font-light">Войдите в свой аккаунт</p>
+          <p className="text-muted-foreground text-sm mt-3 font-light">Войдите в свой аккаунт</p>
         </div>
 
+        {/* Ошибка */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm mb-6">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6">
             {error}
           </div>
         )}
 
+        {/* Форма */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="email" className="block text-sm text-gray-600 font-medium mb-2">
+            <label htmlFor="email" className="block text-sm text-muted-foreground font-medium mb-2">
               Email
             </label>
             <input
@@ -83,13 +84,13 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="ivan@mail.ru"
-              className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-black placeholder-gray-400 focus:outline-none focus:border-black/30 transition font-light"
+              className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition font-light"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm text-gray-600 font-medium mb-2">
+            <label htmlFor="password" className="block text-sm text-muted-foreground font-medium mb-2">
               Пароль
             </label>
             <div className="relative">
@@ -99,14 +100,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-black placeholder-gray-400 focus:outline-none focus:border-black/30 transition font-light pr-12"
+                className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition font-light pr-12"
                 required
                 minLength={6}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
                 aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -115,11 +116,11 @@ export default function LoginPage() {
           </div>
 
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-gray-500 font-light cursor-pointer">
-              <input type="checkbox" className="w-4 h-4 border-gray-300 rounded accent-black" />
+            <label className="flex items-center gap-2 text-sm text-muted-foreground font-light cursor-pointer">
+              <input type="checkbox" className="w-4 h-4 border-border rounded accent-primary bg-muted" />
               Запомнить меня
             </label>
-            <Link href="/reset-password" className="text-sm text-gray-400 hover:text-black transition font-light">
+            <Link href="/reset-password" className="text-sm text-muted-foreground hover:text-foreground transition font-light">
               Забыли пароль?
             </Link>
           </div>
@@ -127,28 +128,30 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-black text-white rounded-2xl font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+            className="w-full py-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
           >
             {loading ? 'Вход...' : 'Войти'}
             {!loading && <ArrowRight className="w-4 h-4" />}
           </button>
         </form>
 
-        {/* OAuth КНОПКИ */}
+        {/* OAuth */}
         <div className="mt-6">
           <OAuthButtons mode="login" />
         </div>
 
-        <p className="text-center text-gray-400 text-sm mt-8 font-light">
+        {/* Ссылка на регистрацию */}
+        <p className="text-center text-muted-foreground text-sm mt-8 font-light">
           Нет аккаунта?{' '}
-          <Link href="/register" className="text-black hover:text-gray-600 transition font-medium">
+          <Link href="/register" className="text-foreground hover:text-muted-foreground transition font-medium">
             Зарегистрироваться
           </Link>
         </p>
 
         <div className="text-center mt-6">
-          <Link href="/" className="text-sm text-gray-400 hover:text-black transition font-light">
-            ← На главную
+          <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition font-light inline-flex items-center gap-1">
+            <ArrowLeft className="w-4 h-4" />
+            На главную
           </Link>
         </div>
       </div>

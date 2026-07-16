@@ -1,18 +1,27 @@
-// frontend/app/(auth)/profile/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  User, Mail, Phone, MapPin, 
-  Loader2, Save, X, AlertCircle,
-  Package, LogOut, Lock
+  User, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Loader2, 
+  Save, 
+  X, 
+  AlertCircle,
+  Package, 
+  LogOut, 
+  Lock,
+  ChevronRight,
+  CheckCircle
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 
 export default function ProfilePage() {
-  const { user, isLoading: authLoading, logout } = useAuth();
+  const { user, isLoading: authLoading, logout, refresh } = useAuth();
   const router = useRouter();
   
   const [formData, setFormData] = useState({
@@ -57,7 +66,7 @@ export default function ProfilePage() {
       }
 
       setSuccess('Профиль успешно обновлён');
-      window.location.reload();
+      await refresh();
     } catch (error: any) {
       console.error('❌ Ошибка обновления профиля:', error);
       setError(error.message);
@@ -73,30 +82,33 @@ export default function ProfilePage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white pt-32">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      <div className="min-h-screen flex items-center justify-center bg-background pt-32">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Загрузка...</p>
+        </div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-white pt-32 pb-20">
+      <div className="min-h-screen bg-background pt-32 pb-20">
         <div className="container-custom max-w-2xl">
-          <div className="text-center py-16">
-            <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-black">Требуется авторизация</h2>
-            <p className="text-gray-400 mt-2">Войдите в аккаунт, чтобы просмотреть профиль</p>
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
+            <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-foreground">Требуется авторизация</h2>
+            <p className="text-muted-foreground mt-2">Войдите в аккаунт, чтобы просмотреть профиль</p>
             <div className="flex flex-wrap justify-center gap-4 mt-6">
               <Link 
                 href="/login?redirect=/profile" 
-                className="px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
+                className="px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
               >
                 Войти
               </Link>
               <Link 
                 href="/register" 
-                className="px-8 py-3 border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-100 transition"
+                className="px-8 py-3 border border-border text-foreground rounded-lg hover:bg-muted transition"
               >
                 Зарегистрироваться
               </Link>
@@ -108,132 +120,162 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white pt-32 pb-20">
-      <div className="container-custom max-w-2xl">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <User className="w-6 h-6 text-gray-400" />
-            <h1 className="text-2xl font-bold text-black">Профиль</h1>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-xl transition"
-          >
-            <LogOut className="w-4 h-4" />
-            Выйти
-          </button>
+    <div className="min-h-screen bg-background pt-32 pb-20">
+      <div className="container-custom max-w-4xl">
+        {/* Хлебные крошки */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
+          <Link href="/" className="hover:text-foreground transition">Главная</Link>
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-foreground">Профиль</span>
         </div>
 
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-8">
-          <div className="flex items-center gap-4 pb-6 mb-6 border-b border-gray-200">
-            <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center text-2xl font-bold text-white">
-              {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || 'U'}
-            </div>
-            <div>
-              <p className="font-semibold text-black">
-                {user.firstName} {user.lastName}
-              </p>
-              <p className="text-sm text-gray-400">{user.email}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Левая колонка — информация о пользователе */}
+          <div className="lg:col-span-1">
+            <div className="bg-card border border-border rounded-2xl p-6 sticky top-32">
+              <div className="flex items-center gap-4 pb-6 mb-6 border-b border-border">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-2xl font-bold text-foreground border border-border">
+                  {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">
+                    {user.firstName} {user.lastName}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{user.email}</p>
+                  {user.isVerified && (
+                    <span className="inline-flex items-center gap-1 text-xs text-green-500 mt-1">
+                      <CheckCircle className="w-3 h-3" />
+                      Подтверждён
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Link
+                  href="/profile"
+                  className="flex items-center gap-3 px-4 py-2.5 bg-muted rounded-lg text-sm font-medium text-foreground"
+                >
+                  <User className="w-4 h-4" />
+                  Профиль
+                </Link>
+                <Link
+                  href="/profile/orders"
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                >
+                  <Package className="w-4 h-4" />
+                  Мои заказы
+                </Link>
+                <Link
+                  href="/profile/change-password"
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                >
+                  <Lock className="w-4 h-4" />
+                  Сменить пароль
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-red-500 hover:bg-red-500/10 transition"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Выйти
+                </button>
+              </div>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                  Имя
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition"
-                  placeholder="Имя"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                  Фамилия
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition"
-                  placeholder="Фамилия"
-                />
-              </div>
-            </div>
+          {/* Правая колонка — форма профиля */}
+          <div className="lg:col-span-2">
+            <div className="bg-card border border-border rounded-2xl p-6">
+              <h2 className="text-xl font-bold text-foreground mb-6">Личные данные</h2>
 
-            <div>
-              <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                <Phone className="w-4 h-4 inline mr-1 text-gray-400" />
-                Телефон
-              </label>
-              <input
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition"
-                placeholder="+7 (999) 999-99-99"
-              />
-            </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      Имя
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.firstName}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                      placeholder="Имя"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      Фамилия
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.lastName}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                      placeholder="Фамилия"
+                    />
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm text-gray-600 font-medium mb-1.5">
-                <MapPin className="w-4 h-4 inline mr-1 text-gray-400" />
-                Адрес
-              </label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition"
-                placeholder="г. Иркутск, ул. Новаторов 36"
-              />
-            </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                    <Phone className="w-4 h-4 inline mr-1 text-muted-foreground" />
+                    Телефон
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                    placeholder="+7 (999) 999-99-99"
+                  />
+                </div>
 
-            <div className="pt-4 flex items-center gap-4">
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-2 px-6 py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 transition disabled:opacity-50"
-              >
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
+                <div>
+                  <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                    <MapPin className="w-4 h-4 inline mr-1 text-muted-foreground" />
+                    Адрес
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                    placeholder="г. Иркутск, ул. Новаторов 36"
+                  />
+                </div>
+
+                {error && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+                    <X className="w-4 h-4 flex-shrink-0" />
+                    <span>{error}</span>
+                  </div>
                 )}
-                Сохранить
-              </button>
-              {success && (
-                <span className="text-sm text-green-600">{success}</span>
-              )}
-              {error && (
-                <span className="text-sm text-red-600 flex items-center gap-1">
-                  <X className="w-4 h-4" />
-                  {error}
-                </span>
-              )}
-            </div>
-          </form>
-        </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-4">
-          <Link
-            href="/profile/orders"
-            className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl hover:border-gray-400 transition"
-          >
-            <Package className="w-5 h-5 text-gray-400" />
-            <span className="text-sm font-medium text-black">Мои заказы</span>
-          </Link>
-          <Link
-            href="/profile/change-password"
-            className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl hover:border-gray-400 transition"
-          >
-            <Lock className="w-5 h-5 text-gray-400" />
-            <span className="text-sm font-medium text-black">Сменить пароль</span>
-          </Link>
+                {success && (
+                  <div className="bg-green-500/10 border border-green-500/20 text-green-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{success}</span>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-border flex items-center gap-4">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Сохранить
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
       </div>
     </div>

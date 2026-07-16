@@ -1,4 +1,3 @@
-// frontend/app/(public)/swaps/[id]/page.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -6,8 +5,18 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { 
-  ArrowLeft, Calendar, Clock, Share2, MessageCircle, 
-  Heart, Eye, Loader2, Check 
+  ArrowLeft, 
+  Calendar, 
+  Clock, 
+  Share2, 
+  MessageCircle, 
+  Heart, 
+  Eye, 
+  Loader2, 
+  Check,
+  ChevronRight,
+  ChevronLeft,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { CommentSection, countAllComments } from '@/components/comments/CommentSection';
@@ -39,6 +48,7 @@ interface Comment {
   replies?: Comment[];
 }
 
+// Галерея изображений
 function Gallery({ images }: { images: string[] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -83,17 +93,17 @@ function Gallery({ images }: { images: string[] }) {
           <button
             key={index}
             onClick={() => openGallery(index)}
-            className="aspect-square bg-gray-100 rounded-xl overflow-hidden relative hover:opacity-80 transition"
+            className="aspect-square bg-muted rounded-lg overflow-hidden relative hover:opacity-80 transition group"
           >
             <Image
               src={img}
               alt={`Фото ${index + 1}`}
               fill
-              className="object-cover"
+              className="object-cover group-hover:scale-105 transition duration-300"
               unoptimized
             />
             {index === 3 && images.length > 4 && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-medium text-sm">
+              <div className="absolute inset-0 bg-background/70 flex items-center justify-center text-foreground font-medium text-sm backdrop-blur-sm">
                 +{images.length - 4}
               </div>
             )}
@@ -101,18 +111,17 @@ function Gallery({ images }: { images: string[] }) {
         ))}
       </div>
 
+      {/* Лайтбокс */}
       {isOpen && (
         <div 
-          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
+          className="fixed inset-0 z-[9999] bg-background/98 flex items-center justify-center"
           onClick={closeGallery}
         >
           <button
             onClick={closeGallery}
-            className="absolute top-4 right-4 text-white/60 hover:text-white transition p-2 z-10"
+            className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition p-2 z-10"
           >
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-8 h-8" />
           </button>
 
           <div 
@@ -123,19 +132,15 @@ function Gallery({ images }: { images: string[] }) {
               <>
                 <button
                   onClick={(e) => { e.stopPropagation(); goToPrev(); }}
-                  className="absolute left-4 text-white/40 hover:text-white transition p-3 z-10"
+                  className="absolute left-4 text-muted-foreground/40 hover:text-foreground transition p-3 z-10"
                 >
-                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
+                  <ChevronLeft className="w-10 h-10" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); goToNext(); }}
-                  className="absolute right-4 text-white/40 hover:text-white transition p-3 z-10"
+                  className="absolute right-4 text-muted-foreground/40 hover:text-foreground transition p-3 z-10"
                 >
-                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+                  <ChevronRight className="w-10 h-10" />
                 </button>
               </>
             )}
@@ -156,13 +161,13 @@ function Gallery({ images }: { images: string[] }) {
                   key={index}
                   onClick={() => setCurrentIndex(index)}
                   className={`w-2 h-2 rounded-full transition ${
-                    index === currentIndex ? 'bg-white' : 'bg-white/30'
+                    index === currentIndex ? 'bg-foreground' : 'bg-foreground/30'
                   }`}
                 />
               ))}
             </div>
 
-            <div className="absolute bottom-4 right-4 text-white/40 text-sm">
+            <div className="absolute bottom-4 right-4 text-muted-foreground/40 text-sm">
               {currentIndex + 1} / {images.length}
             </div>
           </div>
@@ -172,9 +177,6 @@ function Gallery({ images }: { images: string[] }) {
   );
 }
 
-// ============================================================
-// ОСНОВНАЯ СТРАНИЦА
-// ============================================================
 export default function ArticlePage() {
   const params = useParams();
   const router = useRouter();
@@ -190,7 +192,7 @@ export default function ArticlePage() {
   const [isLiking, setIsLiking] = useState(false);
   const fetchedRef = useRef(false);
 
-  // ЗАГРУЗКА СТАТЬИ — ТОЛЬКО 1 РАЗ
+  // Загрузка статьи
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -203,7 +205,7 @@ export default function ArticlePage() {
         setArticle(data);
         setLikesCount(data.likesCount || 0);
       } catch (err) {
-        console.error('❌ Ошибка загрузки статьи:', err);
+        console.error('❌ Ошибка:', err);
         setError('Статья не найдена');
       } finally {
         setLoading(false);
@@ -213,7 +215,7 @@ export default function ArticlePage() {
     fetchArticle();
   }, [id]);
 
-  // ПРОВЕРКА ЛАЙКА — ТОЛЬКО КОГДА ЕСТЬ ПОЛЬЗОВАТЕЛЬ
+  // Проверка лайка
   useEffect(() => {
     if (!user || !article) return;
 
@@ -233,14 +235,12 @@ export default function ArticlePage() {
     checkLike();
   }, [user, article, id]);
 
-  // ✅ ЛАЙК С CSRF
+  // Лайк
   const handleLike = async () => {
-    if (!article) return;
-    if (isLiking) return;
+    if (!article || isLiking) return;
     
     setIsLiking(true);
     try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
       const response = await fetchWithCsrf('/api/likes', {
         method: 'POST',
         body: JSON.stringify({ articleId: article.id }),
@@ -250,12 +250,6 @@ export default function ArticlePage() {
         const data = await response.json();
         setLiked(data.liked);
         setLikesCount((prev) => data.liked ? prev + 1 : prev - 1);
-      } else {
-        const errorData = await response.json();
-        console.error('❌ Ошибка лайка:', errorData);
-        if (response.status === 403) {
-          alert('Ошибка CSRF. Попробуйте обновить страницу.');
-        }
       }
     } catch (error) {
       console.error('❌ Ошибка лайка:', error);
@@ -264,6 +258,7 @@ export default function ArticlePage() {
     }
   };
 
+  // Поделиться
   const handleShare = () => {
     const url = window.location.href;
     if (navigator.clipboard) {
@@ -271,33 +266,32 @@ export default function ArticlePage() {
         setShareCopied(true);
         setTimeout(() => setShareCopied(false), 3000);
       });
-    } else {
-      const input = document.createElement('input');
-      input.value = url;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 3000);
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white pt-32 pb-20 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-gray-200 border-t-black rounded-full animate-spin" />
+      <div className="min-h-screen bg-background pt-32 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-muted-foreground mx-auto mb-4" />
+          <p className="text-muted-foreground">Загрузка...</p>
+        </div>
       </div>
     );
   }
 
   if (error || !article) {
     return (
-      <div className="min-h-screen bg-white pt-32 pb-20 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-black">Статья не найдена</h1>
-          <p className="text-gray-400 mt-2">{error || 'Такой статьи нет'}</p>
-          <Link href="/swaps" className="inline-block mt-6 px-6 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition">
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom max-w-4xl text-center py-16">
+          <div className="text-4xl mb-4">🔧</div>
+          <h1 className="text-2xl font-bold text-foreground">Статья не найдена</h1>
+          <p className="text-muted-foreground mt-2">{error || 'Такой статьи нет'}</p>
+          <Link 
+            href="/swaps" 
+            className="inline-flex items-center gap-2 mt-6 rounded-sm bg-primary px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <ArrowLeft className="w-4 h-4" />
             Вернуться к списку
           </Link>
         </div>
@@ -308,25 +302,38 @@ export default function ArticlePage() {
   const totalComments = countAllComments(article.comments || []);
 
   return (
-    <div className="min-h-screen bg-white pt-32 pb-20">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <Link href="/swaps" className="inline-flex items-center gap-2 text-gray-400 hover:text-black transition mb-6">
+    <div className="min-h-screen bg-background pt-32 pb-20">
+      <div className="container-custom max-w-4xl">
+        {/* Хлебные крошки */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+          <Link href="/" className="hover:text-foreground transition">Главная</Link>
+          <ChevronRight className="w-4 h-4" />
+          <Link href="/swaps" className="hover:text-foreground transition">Свапы</Link>
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-foreground truncate">{article.title}</span>
+        </div>
+
+        <Link 
+          href="/swaps" 
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition mb-6"
+        >
           <ArrowLeft className="w-4 h-4" />
           Все проекты
         </Link>
 
+        {/* Заголовок */}
         <div className="mb-8">
           <div className="flex flex-wrap gap-2 mb-4">
-            {article.tags?.map((tag: string) => (
-              <span key={tag} className="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded-full font-medium">
+            {(article.tags || []).map((tag: string) => (
+              <span key={tag} className="text-xs bg-muted text-foreground px-3 py-1 rounded-full">
                 {tag}
               </span>
             ))}
           </div>
-          <h1 className="text-[clamp(28px,4vw,40px)] font-bold text-black leading-tight">
+          <h1 className="heading-display text-[clamp(28px,4vw,44px)] text-foreground leading-tight">
             {article.title}
           </h1>
-          <div className="flex items-center gap-6 mt-4 text-sm text-gray-400 flex-wrap">
+          <div className="flex flex-wrap items-center gap-6 mt-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
               {new Date(article.date).toLocaleDateString('ru-RU')}
@@ -339,15 +346,12 @@ export default function ArticlePage() {
               <Eye className="w-4 h-4" />
               {article.views || 0} просмотров
             </span>
-            <span className="flex items-center gap-1.5">
-              <Heart className="w-4 h-4" />
-              {likesCount} лайков
-            </span>
           </div>
         </div>
 
+        {/* Главное изображение */}
         {article.imageUrl && (
-          <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden relative mb-6">
+          <div className="aspect-video bg-muted rounded-lg overflow-hidden relative mb-6 border border-border">
             <Image
               src={article.imageUrl}
               alt={article.title}
@@ -359,30 +363,34 @@ export default function ArticlePage() {
           </div>
         )}
 
-        <p className="text-lg text-gray-600 font-light leading-relaxed mb-6">
+        {/* Описание */}
+        <p className="text-lg text-muted-foreground leading-relaxed mb-6">
           {article.description}
         </p>
 
+        {/* Галерея */}
         {article.images && article.images.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-lg font-semibold text-black mb-3">Фотографии проекта</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Фотографии проекта</h2>
             <Gallery images={article.images} />
           </div>
         )}
 
+        {/* Контент */}
         <div 
-          className="prose prose-gray max-w-none prose-headings:text-black prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-black prose-a:text-black"
+          className="prose prose-invert max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-a:text-foreground prose-li:text-muted-foreground prose-ul:text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: article.content }}
         />
 
-        <div className="flex flex-wrap gap-4 mt-8 pt-6 border-t border-gray-200">
+        {/* Кнопки */}
+        <div className="flex flex-wrap gap-4 mt-8 pt-6 border-t border-border">
           <button
             onClick={handleLike}
             disabled={isLiking}
-            className={`flex items-center gap-2 px-6 py-2.5 border rounded-xl transition text-sm font-medium ${
+            className={`flex items-center gap-2 px-6 py-2.5 border rounded-lg transition text-sm font-medium ${
               liked 
-                ? 'border-red-500 bg-red-50 text-red-500' 
-                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                ? 'border-red-500 bg-red-500/10 text-red-500' 
+                : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isLiking ? (
@@ -395,10 +403,10 @@ export default function ArticlePage() {
           
           <button
             onClick={handleShare}
-            className={`flex items-center gap-2 px-6 py-2.5 border rounded-xl transition text-sm font-medium ${
+            className={`flex items-center gap-2 px-6 py-2.5 border rounded-lg transition text-sm font-medium ${
               shareCopied 
-                ? 'border-green-500 bg-green-50 text-green-600' 
-                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                ? 'border-green-500 bg-green-500/10 text-green-500' 
+                : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
           >
             {shareCopied ? (
@@ -421,19 +429,21 @@ export default function ArticlePage() {
                 commentsSection.scrollIntoView({ behavior: 'smooth' });
               }
             }}
-            className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 rounded-xl text-gray-600 hover:bg-gray-50 transition text-sm font-medium"
+            className="flex items-center gap-2 px-6 py-2.5 border border-border rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition text-sm font-medium"
           >
             <MessageCircle className="w-4 h-4" />
             <span>Комментарии ({totalComments})</span>
           </button>
         </div>
 
+        {/* Комментарии */}
         <CommentSection initialComments={article.comments || []} articleId={article.id} />
 
-        <div className="flex flex-col sm:flex-row justify-between gap-4 mt-12 pt-6 border-t border-gray-200">
+        {/* Навигация назад */}
+        <div className="mt-12 pt-6 border-t border-border">
           <button 
             onClick={() => router.push('/swaps')}
-            className="text-gray-400 hover:text-black transition flex items-center gap-2"
+            className="text-muted-foreground hover:text-foreground transition flex items-center gap-2 text-sm"
           >
             <ArrowLeft className="w-4 h-4" />
             Все проекты

@@ -128,7 +128,7 @@ export function SiteFooter() {
             </li>
             <li className="flex items-start gap-2">
               <Clock className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Ежедневно с 9:00 до 21:00</span>
+              <span>Ежедневно с 10:00 до 20:00</span>
             </li>
           </ul>
         </div>

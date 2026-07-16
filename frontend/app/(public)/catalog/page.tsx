@@ -1,4 +1,3 @@
-// frontend/app/(public)/catalog/page.tsx
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -15,7 +14,11 @@ import {
   ChevronRight,
   Loader2,
   X,
-  Check
+  Check,
+  Grid3X3,
+  List,
+  SlidersHorizontal,
+  ChevronUp
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 
@@ -35,7 +38,11 @@ interface Product {
 }
 
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
+const ITEMS_PER_PAGE = 16;
 
+// ============================================================
+// API ФУНКЦИИ
+// ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
   const response = await fetch('/api/products?limit=999', {
     credentials: 'include',
@@ -58,42 +65,177 @@ const fetchCategories = async (): Promise<string[]> => {
   return data.categories || [];
 };
 
+// ============================================================
+// КОМПОНЕНТ КАРТОЧКИ ТОВАРА
+// ============================================================
+function ProductCard({
+  product,
+  onAddToCart,
+  addingToCart,
+  onImageError,
+  hasImageError,
+  inCart,
+  quantityInCart,
+}: {
+  product: Product;
+  onAddToCart: (id: string | number) => void;
+  addingToCart: boolean;
+  onImageError: (id: string | number) => void;
+  hasImageError?: boolean;
+  inCart: boolean;
+  quantityInCart: number;
+}) {
+  const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
+  const [imgError, setImgError] = useState(false);
+  const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
+  const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
+
+  return (
+    <div className="group bg-card border border-border rounded-2xl overflow-hidden hover:border-foreground/30 transition hover:shadow-lg hover:shadow-black/5 flex flex-col">
+      <Link href={`/catalog/${product.id}`} className="block aspect-square bg-muted relative overflow-hidden">
+        <div className="relative w-full h-full">
+          <Image
+            src={finalImageUrl}
+            alt={product.name}
+            fill
+            className="object-contain p-4 group-hover:scale-105 transition duration-500"
+            onError={() => {
+              setImgError(true);
+              onImageError(product.id);
+            }}
+            unoptimized
+          />
+        </div>
+        
+        {/* Бейджи */}
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+          {isOutOfStock && (
+            <span className="bg-red-500/90 backdrop-blur-sm text-white text-[10px] font-medium px-3 py-1 rounded-full">
+              Нет в наличии
+            </span>
+          )}
+          {product.oldPrice && (
+            <span className="bg-green-500/90 backdrop-blur-sm text-white text-[10px] font-medium px-3 py-1 rounded-full">
+              -{Math.round((1 - product.price / product.oldPrice) * 100)}%
+            </span>
+          )}
+        </div>
+        
+        {inCart && !isOutOfStock && (
+          <div className="absolute bottom-3 right-3 bg-foreground/90 backdrop-blur-sm text-background text-[10px] font-medium px-3 py-1 rounded-full flex items-center gap-1">
+            <Check className="w-3 h-3" />
+            {quantityInCart > 1 ? `${quantityInCart} шт.` : 'В корзине'}
+          </div>
+        )}
+      </Link>
+
+      <div className="p-4 flex flex-col flex-1">
+        <Link href={`/catalog/${product.id}`}>
+          <h3 className="font-semibold text-foreground hover:text-muted-foreground transition line-clamp-2 text-sm leading-snug">
+            {product.name}
+          </h3>
+        </Link>
+
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {product.sku && (
+            <span className="text-xs text-muted-foreground/60">Арт: {product.sku}</span>
+          )}
+        </div>
+
+        {product.description && (
+          <p className="text-xs text-muted-foreground/60 mt-1 line-clamp-2 flex-1">
+            {product.description}
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          {product.category && (
+            <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
+              {product.category}
+            </span>
+          )}
+          {product.stock !== undefined && product.stock > 0 && (
+            <span className="text-[10px] text-green-500 px-2 py-0.5 rounded-full bg-green-500/10">
+              {product.stock} шт.
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-end justify-between mt-3 pt-3 border-t border-border">
+          <div>
+            <span className="text-xl font-bold text-foreground">
+              {product.price.toLocaleString()} ₽
+            </span>
+            {product.oldPrice && (
+              <span className="text-sm text-muted-foreground/50 line-through ml-2">
+                {product.oldPrice.toLocaleString()} ₽
+              </span>
+            )}
+          </div>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAddToCart(product.id);
+            }}
+            disabled={isOutOfStock || addingToCart}
+            className={`p-2.5 rounded-xl transition ${
+              isOutOfStock
+                ? 'bg-muted text-muted-foreground/30 cursor-not-allowed'
+                : inCart
+                  ? 'bg-green-500 hover:bg-green-600 text-white'
+                  : 'bg-foreground hover:bg-foreground/80 text-background'
+            }`}
+          >
+            {addingToCart ? (
+              <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+            ) : inCart ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <ShoppingCart className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ОСНОВНАЯ СТРАНИЦА КАТАЛОГА
+// ============================================================
 export default function CatalogPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // ✅ ЧИТАЕМ ИЗ URL
+  // Читаем из URL
   const categoryFromUrl = searchParams.get('category') || '';
   const searchFromUrl = searchParams.get('search') || '';
   const pageFromUrl = parseInt(searchParams.get('page') || '1');
 
-  // ✅ СОСТОЯНИЯ СИНХРОНИЗИРУЮТСЯ С URL
+  // Состояния
   const [search, setSearch] = useState(searchFromUrl);
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
   const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
-  const ITEMS_PER_PAGE = 16;
 
   const { addToCart, refetch: refetchCart, isInCart, getQuantity } = useCart();
 
-  // ============================================================
-  // REACT QUERY — ТОВАРЫ
-  // ============================================================
+  // ===== REACT QUERY: ТОВАРЫ =====
   const {
     data: allProducts = [],
     isLoading: productsLoading,
     error: productsError,
+    refetch: refetchProducts,
   } = useQuery({
     queryKey: ['products'],
     queryFn: fetchProducts,
     staleTime: 5 * 60 * 1000,
   });
 
-  // ============================================================
-  // REACT QUERY — КАТЕГОРИИ
-  // ============================================================
+  // ===== REACT QUERY: КАТЕГОРИИ =====
   const {
     data: categories = [],
     isLoading: categoriesLoading,
@@ -103,9 +245,7 @@ export default function CatalogPage() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // ============================================================
-  // ✅ ОБНОВЛЯЕМ selectedCategory ПРИ ИЗМЕНЕНИИ URL
-  // ============================================================
+  // Синхронизация с URL
   useEffect(() => {
     if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
       setSelectedCategory(categoryFromUrl);
@@ -118,9 +258,13 @@ export default function CatalogPage() {
     }
   }, [searchFromUrl]);
 
-  // ============================================================
-  // ФИЛЬТРАЦИЯ
-  // ============================================================
+  useEffect(() => {
+    if (pageFromUrl !== currentPage) {
+      setCurrentPage(pageFromUrl);
+    }
+  }, [pageFromUrl]);
+
+  // ===== ФИЛЬТРАЦИЯ =====
   const filteredProducts = useMemo(() => {
     let result = [...allProducts];
 
@@ -140,9 +284,7 @@ export default function CatalogPage() {
     return result;
   }, [allProducts, selectedCategory, search]);
 
-  // ============================================================
-  // ПАГИНАЦИЯ
-  // ============================================================
+  // ===== ПАГИНАЦИЯ =====
   const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE) || 1;
   const paginatedProducts = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -150,9 +292,7 @@ export default function CatalogPage() {
     return filteredProducts.slice(start, end);
   }, [filteredProducts, currentPage]);
 
-  // ============================================================
-  // ✅ ОБНОВЛЕНИЕ URL ПРИ ИЗМЕНЕНИИ ФИЛЬТРОВ
-  // ============================================================
+  // ===== ОБНОВЛЕНИЕ URL =====
   const updateUrl = useCallback((category: string, page: number, searchTerm: string) => {
     const params = new URLSearchParams();
     if (category) params.set('category', category);
@@ -162,13 +302,10 @@ export default function CatalogPage() {
     const queryString = params.toString();
     const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
 
-    // ✅ ИСПОЛЬЗУЕМ push ДЛЯ ОБНОВЛЕНИЯ URL (НЕ replace)
     router.push(newUrl, { scroll: false });
   }, [router]);
 
-  // ============================================================
-  // ОБРАБОТЧИКИ
-  // ============================================================
+  // ===== ОБРАБОТЧИКИ =====
   const selectCategory = useCallback((category: string) => {
     setSelectedCategory(category);
     setCurrentPage(1);
@@ -242,32 +379,33 @@ export default function CatalogPage() {
   const isLoading = productsLoading || categoriesLoading;
 
   return (
-    <div className="min-h-screen bg-white pt-32 pb-20">
+    <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom">
+        {/* Заголовок */}
         <div className="mb-8">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-4xl font-bold text-black">Каталог</h1>
+            <h1 className="text-4xl font-bold text-foreground">Каталог</h1>
             {selectedCategory && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
                 {selectedCategory}
-                <button onClick={() => selectCategory('')} className="hover:text-black">
+                <button onClick={() => selectCategory('')} className="hover:text-muted-foreground transition">
                   <X size={14} />
                 </button>
               </span>
             )}
             {search && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
                 Поиск: {search}
-                <button onClick={() => handleSearch('')} className="hover:text-black">
+                <button onClick={() => handleSearch('')} className="hover:text-muted-foreground transition">
                   <X size={14} />
                 </button>
               </span>
             )}
           </div>
-          <p className="text-gray-400 font-light mt-2">
+          <p className="text-muted-foreground font-light mt-2">
             Тюнинг-комплекты и запчасти для внедорожников
             {!isLoading && allProducts.length > 0 && (
-              <span className="ml-2 text-sm text-gray-300">
+              <span className="ml-2 text-sm text-muted-foreground/50">
                 (всего {allProducts.length} товаров)
               </span>
             )}
@@ -277,13 +415,13 @@ export default function CatalogPage() {
         {/* Поиск и фильтры */}
         <div className="flex flex-col md:flex-row gap-4 mb-8">
           <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground/50" />
             <input
               type="text"
               placeholder="Поиск товаров..."
               value={search}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-black placeholder-gray-400 focus:outline-none focus:border-black/30 transition"
+              className="w-full pl-12 pr-4 py-3 bg-muted border border-border rounded-2xl text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
             />
           </div>
 
@@ -291,46 +429,74 @@ export default function CatalogPage() {
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition ${
               showFilters || selectedCategory || search
-                ? 'bg-black text-white'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                ? 'bg-foreground text-background'
+                : 'bg-muted border border-border text-foreground hover:bg-muted/80'
             }`}
           >
-            <Filter className="w-5 h-5" />
+            <SlidersHorizontal className="w-5 h-5" />
             <span className="font-medium">Фильтры</span>
             <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
+
+          {/* Сброс фильтров */}
+          {(selectedCategory || search) && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-foreground transition"
+            >
+              <X className="w-4 h-4" />
+              Сбросить
+            </button>
+          )}
         </div>
 
         {/* Панель фильтров */}
         {showFilters && (
-          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
-            <div className="grid md:grid-cols-1 gap-6">
+          <div className="bg-card border border-border rounded-2xl p-6 mb-8 animate-in slide-in-from-top-2 duration-200">
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Категории */}
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-2">
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
                   Категория
                 </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => selectCategory(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-black focus:outline-none focus:border-black/30 transition"
-                >
-                  <option value="">Все категории</option>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => selectCategory('')}
+                    className={`px-4 py-2 rounded-lg text-sm transition ${
+                      !selectedCategory
+                        ? 'bg-foreground text-background'
+                        : 'bg-muted text-foreground hover:bg-muted/80'
+                    }`}
+                  >
+                    Все
+                  </button>
                   {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
+                    <button
+                      key={cat}
+                      onClick={() => selectCategory(cat)}
+                      className={`px-4 py-2 rounded-lg text-sm transition ${
+                        selectedCategory === cat
+                          ? 'bg-foreground text-background'
+                          : 'bg-muted text-foreground hover:bg-muted/80'
+                      }`}
+                    >
+                      {cat}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
             </div>
-            <div className="flex gap-3 mt-4">
+            
+            <div className="flex gap-3 mt-6 pt-4 border-t border-border">
               <button
                 onClick={clearFilters}
-                className="px-4 py-2 text-sm text-gray-500 hover:text-black transition border border-gray-200 rounded-xl"
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition border border-border rounded-lg"
               >
-                Сбросить все фильтры
+                Сбросить все
               </button>
               <button
                 onClick={() => setShowFilters(false)}
-                className="px-4 py-2 text-sm bg-black text-white rounded-xl hover:bg-gray-800 transition"
+                className="px-4 py-2 text-sm bg-foreground text-background rounded-lg hover:bg-foreground/90 transition"
               >
                 Применить
               </button>
@@ -342,26 +508,34 @@ export default function CatalogPage() {
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
-              <div key={i} className="bg-gray-50 rounded-2xl h-[320px] animate-pulse" />
+              <div key={i} className="bg-card border border-border rounded-2xl h-[320px] animate-pulse">
+                <div className="h-48 bg-muted rounded-t-2xl" />
+                <div className="p-4 space-y-3">
+                  <div className="h-4 bg-muted rounded w-3/4" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
+                  <div className="h-6 bg-muted rounded w-1/3" />
+                </div>
+              </div>
             ))}
           </div>
         ) : productsError ? (
-          <div className="text-center py-16">
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
             <p className="text-red-500">Ошибка загрузки товаров</p>
             <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-6 py-2 bg-black text-white rounded-xl text-sm hover:bg-gray-800 transition"
+              onClick={() => refetchProducts()}
+              className="mt-4 px-6 py-2 bg-foreground text-background rounded-lg text-sm hover:bg-foreground/90 transition"
             >
               Попробовать снова
             </button>
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="text-center py-16">
-            <p className="text-gray-400 text-lg">Товаров не найдено</p>
-            <p className="text-gray-300 text-sm mt-1">Попробуйте изменить фильтры</p>
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
+            <div className="text-4xl mb-4">🔍</div>
+            <p className="text-foreground text-lg font-medium">Товаров не найдено</p>
+            <p className="text-muted-foreground text-sm mt-1">Попробуйте изменить фильтры</p>
             <button
               onClick={clearFilters}
-              className="mt-4 px-6 py-2 bg-black text-white rounded-xl text-sm hover:bg-gray-800 transition"
+              className="mt-4 px-6 py-2 bg-foreground text-background rounded-lg text-sm hover:bg-foreground/90 transition"
             >
               Сбросить фильтры
             </button>
@@ -389,7 +563,8 @@ export default function CatalogPage() {
               })}
             </div>
 
-            <div className="text-center mt-6 text-sm text-gray-400">
+            {/* Информация о количестве */}
+            <div className="text-center mt-6 text-sm text-muted-foreground/60">
               Показано {paginatedProducts.length} товаров
               {filteredProducts.length > ITEMS_PER_PAGE && ` из ${filteredProducts.length}`}
               {totalPages > 1 && (
@@ -400,15 +575,16 @@ export default function CatalogPage() {
               )}
             </div>
 
+            {/* Пагинация */}
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 mt-8">
                 <button
                   onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition ${
+                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
                     currentPage === 1
-                      ? 'text-gray-300 cursor-not-allowed'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'text-muted-foreground/30 cursor-not-allowed'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -421,16 +597,16 @@ export default function CatalogPage() {
                       <button
                         key={index}
                         onClick={() => goToPage(page)}
-                        className={`w-10 h-10 rounded-xl text-sm font-medium transition ${
+                        className={`w-10 h-10 rounded-lg text-sm font-medium transition ${
                           page === currentPage
-                            ? 'bg-black text-white'
-                            : 'text-gray-600 hover:bg-gray-100'
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                         }`}
                       >
                         {page}
                       </button>
                     ) : (
-                      <span key={index} className="w-10 h-10 flex items-center justify-center text-gray-400">
+                      <span key={index} className="w-10 h-10 flex items-center justify-center text-muted-foreground/50">
                         {page}
                       </span>
                     )
@@ -440,10 +616,10 @@ export default function CatalogPage() {
                 <button
                   onClick={() => goToPage(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className={`flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium transition ${
+                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
                     currentPage === totalPages
-                      ? 'text-gray-300 cursor-not-allowed'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'text-muted-foreground/30 cursor-not-allowed'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}
                 >
                   Вперёд
@@ -453,136 +629,6 @@ export default function CatalogPage() {
             )}
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// КОМПОНЕНТ КАРТОЧКИ ТОВАРА
-// ============================================================
-function ProductCard({
-  product,
-  onAddToCart,
-  addingToCart,
-  onImageError,
-  hasImageError,
-  inCart,
-  quantityInCart,
-}: {
-  product: Product;
-  onAddToCart: (id: string | number) => void;
-  addingToCart: boolean;
-  onImageError: (id: string | number) => void;
-  hasImageError?: boolean;
-  inCart: boolean;
-  quantityInCart: number;
-}) {
-  const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
-  const [imgError, setImgError] = useState(false);
-  const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
-
-  return (
-    <div className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:border-gray-400 transition hover:shadow-lg flex flex-col">
-      <Link href={`/catalog/${product.id}`} className="block aspect-square bg-gray-50 relative overflow-hidden">
-        <div className="relative w-full h-full">
-          <Image
-            src={finalImageUrl}
-            alt={product.name}
-            fill
-            className="object-contain p-4 group-hover:scale-105 transition duration-500"
-            onError={() => {
-              setImgError(true);
-              onImageError(product.id);
-            }}
-            unoptimized
-          />
-        </div>
-        {!product.inStock && (
-          <div className="absolute top-3 right-3 bg-red-500 text-white text-xs px-3 py-1 rounded-full font-medium">
-            Нет в наличии
-          </div>
-        )}
-        {product.oldPrice && (
-          <div className="absolute top-3 left-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
-            -{Math.round((1 - product.price / product.oldPrice) * 100)}%
-          </div>
-        )}
-        {inCart && (
-          <div className="absolute bottom-3 right-3 bg-black text-white text-xs px-3 py-1 rounded-full font-medium flex items-center gap-1">
-            <Check className="w-3 h-3" />
-            {quantityInCart > 1 ? `${quantityInCart} шт.` : 'В корзине'}
-          </div>
-        )}
-      </Link>
-
-      <div className="p-4 flex flex-col flex-1">
-        <Link href={`/catalog/${product.id}`}>
-          <h3 className="font-semibold text-black hover:text-gray-600 transition line-clamp-2 text-sm">
-            {product.name}
-          </h3>
-        </Link>
-
-        <div className="flex items-center gap-2 mt-1 flex-wrap">
-          {product.sku && (
-            <span className="text-xs text-gray-400">Арт: {product.sku}</span>
-          )}
-        </div>
-
-        {product.description && (
-          <p className="text-xs text-gray-400 mt-1 line-clamp-2 flex-1">
-            {product.description}
-          </p>
-        )}
-
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {product.category && (
-            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-500">
-              {product.category}
-            </span>
-          )}
-          {product.stock !== undefined && product.stock > 0 && (
-            <span className="text-xs text-green-500 px-2 py-0.5 rounded-full bg-green-50">
-              {product.stock} шт.
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-end justify-between mt-3 pt-3 border-t border-gray-100">
-          <div>
-            <span className="text-xl font-bold text-black">
-              {product.price.toLocaleString()} ₽
-            </span>
-            {product.oldPrice && (
-              <span className="text-sm text-gray-400 line-through ml-2">
-                {product.oldPrice.toLocaleString()} ₽
-              </span>
-            )}
-          </div>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAddToCart(product.id);
-            }}
-            disabled={!product.inStock || addingToCart}
-            className={`p-2.5 rounded-xl transition ${
-              product.inStock
-                ? inCart
-                  ? 'bg-green-500 hover:bg-green-600 text-white'
-                  : 'bg-black hover:bg-gray-800 text-white'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {addingToCart ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : inCart ? (
-              <Check className="w-4 h-4" />
-            ) : (
-              <ShoppingCart className="w-4 h-4" />
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );

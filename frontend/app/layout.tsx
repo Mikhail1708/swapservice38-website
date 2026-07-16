@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Oswald } from 'next/font/google';
 import './globals.css';
+import { Providers } from './providers'; // 👈 ДОБАВЛЯЕМ ИМПОРТ
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 
@@ -36,9 +37,11 @@ export default function RootLayout({
   return (
     <html lang="ru" className="bg-background">
       <body className={`${inter.variable} ${oswald.variable} font-sans antialiased`}>
-        <SiteHeader />
-        <main>{children}</main>
-        <SiteFooter />
+        <Providers> {/* 👈 ОБЁРТЫВАЕМ ВСЁ В PROVIDERS */}
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+        </Providers>
       </body>
     </html>
   );

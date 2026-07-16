@@ -13,6 +13,7 @@ import {
   requestPasswordResetController,
   verifyResetCodeController,
   confirmResetPasswordController,
+  resendVerificationController, // 👈 НОВЫЙ ИМПОРТ
 } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import * as oauthService from '../services/oauth.service';
@@ -26,6 +27,7 @@ const router = Router();
 
 router.post('/register', registerController);
 router.post('/verify', verifyController);
+router.post('/resend-verification', resendVerificationController); // 👈 НОВЫЙ РОУТ
 router.post('/login', loginController);
 router.post('/logout', logoutController);
 router.get('/me', authMiddleware, meController);

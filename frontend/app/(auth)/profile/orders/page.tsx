@@ -1,21 +1,20 @@
-// frontend/app/(auth)/profile/orders/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Loader2, Package, ChevronRight, ShoppingBag, AlertCircle } from 'lucide-react';
+import { Loader2, Package, ChevronRight, ShoppingBag, AlertCircle, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 
 const statusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: '⏳ Ожидает оплаты', color: 'bg-yellow-100 text-yellow-700' },
-  paid: { label: '✅ Оплачен, ожидает подтверждения', color: 'bg-blue-100 text-blue-700' },
-  confirmed: { label: '📦 Подтверждён', color: 'bg-indigo-100 text-indigo-700' },
-  assembling: { label: '🔧 Собирается', color: 'bg-purple-100 text-purple-700' },
-  packing: { label: '📦 Упаковывается', color: 'bg-purple-100 text-purple-700' },
-  shipped: { label: '🚚 Отправлен', color: 'bg-green-100 text-green-700' },
-  delivered: { label: '✅ Доставлен', color: 'bg-emerald-100 text-emerald-700' },
-  cancelled: { label: '❌ Отменён', color: 'bg-red-100 text-red-700' },
-  ordered: { label: '📋 Оформлен', color: 'bg-gray-100 text-gray-700' },
+  pending: { label: '⏳ Ожидает оплаты', color: 'bg-yellow-500/10 text-yellow-500' },
+  paid: { label: '✅ Оплачен, ожидает подтверждения', color: 'bg-blue-500/10 text-blue-500' },
+  confirmed: { label: '📦 Подтверждён', color: 'bg-indigo-500/10 text-indigo-500' },
+  assembling: { label: '🔧 Собирается', color: 'bg-purple-500/10 text-purple-500' },
+  packing: { label: '📦 Упаковывается', color: 'bg-purple-500/10 text-purple-500' },
+  shipped: { label: '🚚 Отправлен', color: 'bg-green-500/10 text-green-500' },
+  delivered: { label: '✅ Доставлен', color: 'bg-emerald-500/10 text-emerald-500' },
+  cancelled: { label: '❌ Отменён', color: 'bg-red-500/10 text-red-500' },
+  ordered: { label: '📋 Оформлен', color: 'bg-gray-500/10 text-gray-500' },
 };
 
 export default function OrdersPage() {
@@ -25,13 +24,11 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // ✅ ЖДЁМ ЗАГРУЗКУ АВТОРИЗАЦИИ
     if (authLoading) {
       setLoading(true);
       return;
     }
 
-    // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ — ПОКАЗЫВАЕМ СТРАНИЦУ ВХОДА
     if (!user) {
       setLoading(false);
       return;
@@ -74,7 +71,7 @@ export default function OrdersPage() {
   }, [user, authLoading]);
 
   const getStatus = (status: string) => {
-    return statusMap[status] || { label: status || 'Неизвестно', color: 'bg-gray-100 text-gray-700' };
+    return statusMap[status] || { label: status || 'Неизвестно', color: 'bg-gray-500/10 text-gray-500' };
   };
 
   const formatDate = (date: string) => {
@@ -88,37 +85,35 @@ export default function OrdersPage() {
     });
   };
 
-  // ✅ ПОКАЗЫВАЕМ ЛОАДЕР ТОЛЬКО КОГДА РЕАЛЬНО ИДЁТ ЗАГРУЗКА
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white pt-32">
+      <div className="min-h-screen flex items-center justify-center bg-background pt-32">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
-          <p className="text-sm text-gray-400">Загрузка заказов...</p>
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Загрузка заказов...</p>
         </div>
       </div>
     );
   }
 
-  // ✅ ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ — ПОКАЗЫВАЕМ СТРАНИЦУ ВХОДА
   if (!user) {
     return (
-      <div className="min-h-screen bg-white pt-32 pb-20">
-        <div className="container-custom max-w-4xl mx-auto px-4">
-          <div className="text-center py-16">
-            <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-medium text-black">Требуется авторизация</h2>
-            <p className="text-gray-400 mt-2">Войдите в аккаунт, чтобы просмотреть свои заказы</p>
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom max-w-4xl">
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
+            <AlertCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-medium text-foreground">Требуется авторизация</h2>
+            <p className="text-muted-foreground mt-2">Войдите в аккаунт, чтобы просмотреть свои заказы</p>
             <div className="flex flex-wrap justify-center gap-4 mt-6">
               <Link 
                 href="/login?redirect=/profile/orders" 
-                className="px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
+                className="px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
               >
                 Войти
               </Link>
               <Link 
                 href="/register" 
-                className="px-8 py-3 border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-100 transition"
+                className="px-8 py-3 border border-border text-foreground rounded-lg hover:bg-muted transition"
               >
                 Зарегистрироваться
               </Link>
@@ -130,31 +125,40 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white pt-32 pb-20">
-      <div className="container-custom max-w-4xl mx-auto px-4">
+    <div className="min-h-screen bg-background pt-32 pb-20">
+      <div className="container-custom max-w-4xl">
+        {/* Хлебные крошки */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
+          <Link href="/" className="hover:text-foreground transition">Главная</Link>
+          <ChevronRight className="w-4 h-4" />
+          <Link href="/profile" className="hover:text-foreground transition">Профиль</Link>
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-foreground">Мои заказы</span>
+        </div>
+
         <div className="flex items-center gap-3 mb-8">
-          <Package className="w-6 h-6 text-gray-400" />
-          <h1 className="text-2xl font-bold text-black">Мои заказы</h1>
-          <span className="text-sm text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+          <Package className="w-6 h-6 text-muted-foreground" />
+          <h1 className="text-2xl font-bold text-foreground">Мои заказы</h1>
+          <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full">
             {orders.length}
           </span>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {orders.length === 0 ? (
-          <div className="text-center py-16">
-            <ShoppingBag className="w-16 h-16 text-gray-200 mx-auto mb-4" />
-            <h2 className="text-xl font-medium text-black">У вас пока нет заказов</h2>
-            <p className="text-gray-400 mt-2">Перейдите в каталог и сделайте свой первый заказ</p>
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
+            <ShoppingBag className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
+            <h2 className="text-xl font-medium text-foreground">У вас пока нет заказов</h2>
+            <p className="text-muted-foreground mt-2">Перейдите в каталог и сделайте свой первый заказ</p>
             <Link 
               href="/catalog" 
-              className="inline-block mt-6 px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
+              className="inline-block mt-6 px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
             >
               Перейти в каталог
             </Link>
@@ -170,19 +174,19 @@ export default function OrdersPage() {
                 <Link
                   key={order.id}
                   href={`/profile/orders/details?id=${order.id}`}
-                  className="block bg-gray-50 border border-gray-200 rounded-2xl p-6 hover:border-gray-400 transition group"
+                  className="block bg-card border border-border rounded-2xl p-6 hover:border-foreground/30 transition group"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <span className="font-medium text-black">
+                        <span className="font-medium text-foreground">
                           Заказ #{displayNumber}
                         </span>
                         <span className={`text-xs px-3 py-1 rounded-full font-medium ${status.color}`}>
                           {status.label}
                         </span>
                       </div>
-                      <div className="text-sm text-gray-500 flex flex-wrap items-center gap-x-2">
+                      <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2">
                         <span>{formatDate(order.createdAt)}</span>
                         <span className="hidden sm:inline">•</span>
                         <span>{itemsCount} {itemsCount === 1 ? 'товар' : itemsCount < 5 ? 'товара' : 'товаров'}</span>
@@ -195,10 +199,10 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="text-xl font-bold text-black">
+                      <span className="text-xl font-bold text-foreground">
                         {order.total.toLocaleString()} ₽
                       </span>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-black transition" />
+                      <ChevronRightIcon className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition" />
                     </div>
                   </div>
                 </Link>

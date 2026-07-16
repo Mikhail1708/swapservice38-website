@@ -1,18 +1,30 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, Check, Loader2 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 
-const FEATURED_PRODUCTS = [
-  { id: '1', title: 'Комплект для боди-лифта', sub: 'Nissan Patrol Y60/Y61', price: 18900, image: '/images/product-liftkit.png' },
-  { id: '2', title: 'Крепление канистры', sub: 'Универсальное', price: 6500, image: '/images/product-canister.png' },
-  { id: '3', title: 'Бак в крыло Y60', sub: '90 литров', price: 24900, image: '/images/product-tank.png' },
-  { id: '4', title: 'Усилитель рамы', sub: 'Nissan Patrol Y60/Y61', price: 9900, image: '/images/product-frame.png' },
-  { id: '5', title: 'Защита раздатки', sub: 'Nissan Patrol Y60/Y61', price: 7900, image: '/images/product-transfer.png' },
-];
+interface Product {
+  id: string | number;
+  name: string;
+  description: string;
+  price: number;
+  oldPrice?: number;
+  category: string;
+  inStock: boolean;
+  stock?: number;
+  images: string[];
+  sku: string;
+  characteristics?: Record<string, string | string[]>;
+  // Поля для популярности
+  views?: number;
+  ordersCount?: number;
+  popularity?: number;
+}
+
+const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
 const GUARANTEES = [
   { icon: Truck, title: 'Быстрая доставка', text: 'по всей России' },
@@ -25,26 +37,126 @@ export function Products() {
   const trackRef = useRef<HTMLDivElement>(null);
   const { addToCart, refetch, isInCart, getQuantity } = useCart();
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Загрузка популярных товаров
+  useEffect(() => {
+    const fetchPopularProducts = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Запрашиваем товары с сортировкой по популярности
+        // В реальности нужно добавить параметр sort=popular на бэкенде
+        const response = await fetch('/api/products?limit=20&sort=popular', {
+          credentials: 'include',
+        });
+        
+        if (!response.ok) {
+          throw new Error('Ошибка загрузки товаров');
+        }
+        
+        const data = await response.json();
+        const items = data.items || data || [];
+        
+        // Сортируем по популярности (если есть поле popularity или ordersCount)
+        // Или просто берём первые 5 товаров
+        const sorted = [...items]
+          .sort((a, b) => {
+            // Если есть поле popularity
+            if (a.popularity !== undefined && b.popularity !== undefined) {
+              return b.popularity - a.popularity;
+            }
+            // Если есть ordersCount
+            if (a.ordersCount !== undefined && b.ordersCount !== undefined) {
+              return b.ordersCount - a.ordersCount;
+            }
+            // Если есть views
+            if (a.views !== undefined && b.views !== undefined) {
+              return b.views - a.views;
+            }
+            return 0;
+          })
+          .slice(0, 5); // Берём топ-5
+        
+        setProducts(sorted);
+      } catch (err) {
+        console.error('❌ Ошибка загрузки популярных товаров:', err);
+        setError('Не удалось загрузить товары');
+        // Если ошибка — показываем заглушки
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPopularProducts();
+  }, []);
 
   const scrollBy = (dir: number) => {
     trackRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
   };
 
-  const handleAddToCart = async (productId: string) => {
-    setAddingIds((prev) => new Set(prev).add(productId));
+  const handleAddToCart = async (productId: string | number) => {
+    const id = String(productId);
+    setAddingIds((prev) => new Set(prev).add(id));
     try {
-      await addToCart(productId, 1);
+      await addToCart(id, 1);
       await refetch();
     } catch (error) {
-      console.error('Ошибка добавления в корзину:', error);
+      console.error('❌ Ошибка добавления в корзину:', error);
     } finally {
       setAddingIds((prev) => {
         const newSet = new Set(prev);
-        newSet.delete(productId);
+        newSet.delete(id);
         return newSet;
       });
     }
   };
+
+  // Показываем заглушки во время загрузки
+  if (loading) {
+    return (
+      <section id="products" className="bg-surface py-24 text-surface-foreground">
+        <div className="container-custom">
+          <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-[0.3em] text-surface-muted">
+                Популярные товары
+              </span>
+              <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)]">
+                Хиты продаж
+              </h2>
+            </div>
+            <Link
+              href="/catalog"
+              className="inline-flex items-center rounded-sm bg-surface-foreground px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-surface transition-opacity hover:opacity-90"
+            >
+              Весь каталог
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex flex-col overflow-hidden rounded-md border border-surface-border bg-surface-card">
+                <div className="h-52 bg-surface-muted/20 animate-pulse" />
+                <div className="p-5 space-y-3">
+                  <div className="h-4 bg-surface-muted/20 rounded animate-pulse w-3/4" />
+                  <div className="h-3 bg-surface-muted/20 rounded animate-pulse w-1/2" />
+                  <div className="h-6 bg-surface-muted/20 rounded animate-pulse w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Если ошибка или нет товаров — показываем заглушки
+  const displayProducts = products.length > 0 ? products : FEATURED_PRODUCTS;
 
   return (
     <section id="products" className="bg-surface py-24 text-surface-foreground">
@@ -57,6 +169,9 @@ export function Products() {
             <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)]">
               Хиты продаж
             </h2>
+            {error && (
+              <p className="text-xs text-red-500 mt-2">{error}</p>
+            )}
           </div>
           <Link
             href="/catalog"
@@ -88,39 +203,58 @@ export function Products() {
             ref={trackRef}
             className="flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {FEATURED_PRODUCTS.map((p) => {
-              const inCart = isInCart(p.id);
-              const quantity = getQuantity(p.id);
-              const isAdding = addingIds.has(p.id);
+            {displayProducts.map((p) => {
+              const productId = String(p.id);
+              const inCart = isInCart(productId);
+              const quantity = getQuantity(productId);
+              const isAdding = addingIds.has(productId);
+              const imageUrl = p.images?.[0] || PLACEHOLDER_IMAGE;
 
               return (
                 <article
-                  key={p.id}
+                  key={productId}
                   className="flex w-[260px] shrink-0 snap-start flex-col overflow-hidden rounded-md border border-surface-border bg-surface-card"
                 >
-                  <Link href={`/catalog/${p.id}`} className="relative h-52 bg-white">
-                    <Image src={p.image} alt={p.title} fill className="object-contain p-6" unoptimized />
+                  <Link href={`/catalog/${productId}`} className="relative h-52 bg-white">
+                    <Image 
+                      src={imageUrl} 
+                      alt={p.name} 
+                      fill 
+                      className="object-contain p-6" 
+                      unoptimized
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = PLACEHOLDER_IMAGE;
+                      }}
+                    />
+                    {!p.inStock && (
+                      <div className="absolute top-2 left-2 bg-red-500 text-white text-[10px] font-medium px-2 py-1 rounded-full">
+                        Нет в наличии
+                      </div>
+                    )}
                   </Link>
                   <div className="flex flex-1 flex-col gap-1 border-t border-surface-border p-5">
-                    <Link href={`/catalog/${p.id}`}>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.04em] leading-snug hover:text-muted-foreground transition">
-                        {p.title}
+                    <Link href={`/catalog/${productId}`}>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.04em] leading-snug hover:text-muted-foreground transition line-clamp-2">
+                        {p.name}
                       </h3>
                     </Link>
-                    <span className="text-xs uppercase tracking-[0.08em] text-surface-muted">
-                      {p.sub}
+                    <span className="text-xs uppercase tracking-[0.08em] text-surface-muted line-clamp-1">
+                      {p.category || p.description?.slice(0, 30) || ''}
                     </span>
                     <div className="mt-4 flex items-center justify-between">
                       <span className="heading-display text-2xl">
                         {p.price.toLocaleString()} ₽
                       </span>
                       <button
-                        onClick={() => handleAddToCart(p.id)}
-                        disabled={isAdding}
+                        onClick={() => handleAddToCart(productId)}
+                        disabled={isAdding || !p.inStock}
                         className={`p-2 rounded-lg transition ${
-                          inCart
-                            ? 'bg-green-600 text-white hover:bg-green-700'
-                            : 'bg-surface-foreground text-surface hover:opacity-90'
+                          !p.inStock
+                            ? 'bg-surface-muted/20 text-surface-muted/50 cursor-not-allowed'
+                            : inCart
+                              ? 'bg-green-600 text-white hover:bg-green-700'
+                              : 'bg-surface-foreground text-surface hover:opacity-90'
                         } disabled:opacity-50`}
                       >
                         {isAdding ? (
@@ -134,6 +268,9 @@ export function Products() {
                     </div>
                     {inCart && (
                       <span className="text-xs text-green-600 mt-1">В корзине ({quantity} шт.)</span>
+                    )}
+                    {!p.inStock && (
+                      <span className="text-xs text-red-500 mt-1">Нет в наличии</span>
                     )}
                   </div>
                 </article>
@@ -157,3 +294,12 @@ export function Products() {
     </section>
   );
 }
+
+// Заглушки на случай ошибки
+const FEATURED_PRODUCTS: Product[] = [
+  { id: '1', name: 'Комплект для боди-лифта', price: 18900, inStock: true, images: ['/images/product-liftkit.png'], category: 'Боди-лифт', description: 'Nissan Patrol Y60/Y61' },
+  { id: '2', name: 'Крепление канистры', price: 6500, inStock: true, images: ['/images/product-canister.png'], category: 'Крепления', description: 'Универсальное' },
+  { id: '3', name: 'Бак в крыло Y60', price: 24900, inStock: true, images: ['/images/product-tank.png'], category: 'Баки', description: '90 литров' },
+  { id: '4', name: 'Усилитель рамы', price: 9900, inStock: true, images: ['/images/product-frame.png'], category: 'Усиление', description: 'Nissan Patrol Y60/Y61' },
+  { id: '5', name: 'Защита раздатки', price: 7900, inStock: true, images: ['/images/product-transfer.png'], category: 'Защита', description: 'Nissan Patrol Y60/Y61' },
+];

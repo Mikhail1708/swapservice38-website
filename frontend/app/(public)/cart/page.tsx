@@ -1,4 +1,3 @@
-// frontend/app/(public)/cart/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -19,11 +18,14 @@ import {
   X,
   CheckCircle2,
   MapPin,
-  Search,
   Phone,
   AlertCircle,
-  Building,
-  Home
+  Home,
+  ChevronRight,
+  User,
+  Mail,
+  MessageSquare,
+  Package
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -38,7 +40,7 @@ interface CartItem {
 }
 
 // ============================================================
-// ЖЁСТКАЯ ВАЛИДАЦИЯ ТЕЛЕФОНА
+// ВАЛИДАЦИЯ ТЕЛЕФОНА
 // ============================================================
 const validatePhoneStrict = (phone: string): { valid: boolean; error: string; formatted: string } => {
   const digits = phone.replace(/\D/g, '');
@@ -136,7 +138,7 @@ const formatPhoneInput = (value: string): string => {
 };
 
 // ============================================================
-// ПОИСК АДРЕСОВ ЧЕРЕЗ DADATA
+// ПОИСК АДРЕСОВ
 // ============================================================
 interface Suggestion {
   value: string;
@@ -144,7 +146,6 @@ interface Suggestion {
   street: string;
   house: string;
   postal_code?: string;
-  coordinates?: { lat: number; lon: number };
 }
 
 const searchAddresses = async (query: string): Promise<Suggestion[]> => {
@@ -161,7 +162,7 @@ const searchAddresses = async (query: string): Promise<Suggestion[]> => {
       },
       body: JSON.stringify({
         query: query,
-        count: 10,
+        count: 5,
         from_bound: { value: 'street' },
         to_bound: { value: 'house' },
       }),
@@ -177,20 +178,17 @@ const searchAddresses = async (query: string): Promise<Suggestion[]> => {
       street: s.data?.street || '',
       house: s.data?.house || '',
       postal_code: s.data?.postal_code,
-      coordinates: s.data?.geo_lat && s.data?.geo_lon 
-        ? { lat: parseFloat(s.data.geo_lat), lon: parseFloat(s.data.geo_lon) }
-        : undefined,
     }));
   } catch (error) {
-    console.warn('DaData API error (addresses):', error);
+    console.warn('DaData API error:', error);
     return [];
   }
 };
 
 // ============================================================
-// КОМПОНЕНТ АВТОДОПОЛНЕНИЯ АДРЕСА
+// КОМПОНЕНТ АДРЕСА
 // ============================================================
-function AddressAutocomplete({ 
+function AddressInput({ 
   value, 
   onChange, 
   onBlur,
@@ -199,7 +197,7 @@ function AddressAutocomplete({
   placeholder = 'Начните вводить адрес...',
 }: { 
   value: string; 
-  onChange: (val: string, suggestion?: Suggestion) => void; 
+  onChange: (val: string) => void; 
   onBlur: () => void;
   error?: string;
   touched?: boolean;
@@ -254,40 +252,25 @@ function AddressAutocomplete({
     };
   }, [value]);
 
-  const handleInputChange = (val: string) => {
-    onChange(val);
-    if (val.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
-  };
-
   const handleSelectSuggestion = (suggestion: Suggestion) => {
-    onChange(suggestion.value, suggestion);
+    onChange(suggestion.value);
     setShowSuggestions(false);
     if (inputRef.current) {
       inputRef.current.blur();
     }
   };
 
-  const getFieldStatus = () => {
-    if (!touched) return 'idle';
-    if (error) return 'error';
-    if (value && value.length > 1) return 'success';
-    return 'idle';
-  };
-
-  const status = getFieldStatus();
+  const status = touched ? (error ? 'error' : value ? 'success' : 'idle') : 'idle';
 
   return (
     <div ref={wrapperRef} className="relative">
       <div className="relative">
-        <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
         <input
           ref={inputRef}
           type="text"
           value={value}
-          onChange={(e) => handleInputChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value)}
           onFocus={() => {
             if (value.length > 1 && suggestions.length > 0) {
               setShowSuggestions(true);
@@ -297,33 +280,33 @@ function AddressAutocomplete({
             onBlur();
             setTimeout(() => setShowSuggestions(false), 300);
           }}
-          className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+          className={`w-full pl-10 pr-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
             status === 'error' 
-              ? 'border-red-400 ring-red-100' 
+              ? 'border-red-500/50 focus:ring-red-500/20' 
               : status === 'success'
-              ? 'border-green-400 ring-green-100'
-              : 'border-gray-200 focus:ring-black/10'
+              ? 'border-green-500/50 focus:ring-green-500/20'
+              : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
           }`}
           placeholder={placeholder}
           autoComplete="off"
         />
         {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50 animate-spin" />
         )}
         {!isLoading && value && status === 'success' && (
           <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
         )}
       </div>
       {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+        <div className="absolute z-20 w-full mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
           {suggestions.map((suggestion, index) => (
             <button
               key={index}
               onClick={() => handleSelectSuggestion(suggestion)}
-              className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition flex flex-col border-b border-gray-50 last:border-0"
+              className="w-full px-4 py-2.5 text-left text-sm hover:bg-muted transition flex flex-col border-b border-border last:border-0"
             >
-              <span className="text-black font-medium">{suggestion.value}</span>
-              <span className="text-xs text-gray-400 mt-0.5">
+              <span className="text-foreground font-medium">{suggestion.value}</span>
+              <span className="text-xs text-muted-foreground/60 mt-0.5">
                 {suggestion.city && <span>🏙️ {suggestion.city}</span>}
                 {suggestion.street && <span>📍 {suggestion.street}</span>}
                 {suggestion.house && <span>🏠 д. {suggestion.house}</span>}
@@ -343,7 +326,7 @@ function AddressAutocomplete({
 }
 
 // ============================================================
-// ОСНОВНАЯ СТРАНИЦА
+// ОСНОВНАЯ СТРАНИЦА КОРЗИНЫ
 // ============================================================
 export default function CartPage() {
   const { cart, isLoading, updateQuantity, clearCart } = useCart();
@@ -366,6 +349,7 @@ export default function CartPage() {
   const items = cart?.items || [];
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
 
+  // Заполняем данными пользователя
   useEffect(() => {
     if (user) {
       setFormData(prev => ({
@@ -420,7 +404,7 @@ export default function CartPage() {
     }
   };
 
-  const handleFieldChange = (field: string, value: string, suggestion?: Suggestion) => {
+  const handleFieldChange = (field: string, value: string) => {
     let formattedValue = value;
     
     if (field === 'phone') {
@@ -463,86 +447,82 @@ export default function CartPage() {
     }
   };
 
-  // ✅ ОФОРМЛЕНИЕ ЗАКАЗА С CSRF
- // frontend/app/(public)/cart/page.tsx
-
-const handleCheckout = async (e: React.FormEvent) => {
-  e.preventDefault();
-  
-  if (!user) {
-    setOrderError('Для оформления заказа необходимо авторизоваться');
-    router.push('/login?redirect=/cart');
-    return;
-  }
-  
-  if (!validateForm()) return;
-  if (items.length === 0) {
-    setOrderError('Корзина пуста');
-    return;
-  }
-
-  setIsCheckingOut(true);
-  setOrderError(null);
-
-  try {
-    const cleanedPhone = cleanPhone(formData.phone);
+  const handleCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    const orderData = {
-      client: {
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        phone: cleanedPhone,
-        email: formData.email.trim(),
-        address: formData.address.trim(),
-      },
-      items: items.map((item: CartItem) => ({
-        productId: parseInt(item.productId),
-        quantity: item.quantity,
-        price: item.price,
-      })),
-      deliveryMethod: 'courier',
-      deliveryAddress: formData.address.trim(),
-      comment: formData.comment.trim(),
-      source: 'website',
-    };
+    if (!user) {
+      setOrderError('Для оформления заказа необходимо авторизоваться');
+      router.push('/login?redirect=/cart');
+      return;
+    }
+    
+    if (!validateForm()) return;
+    if (items.length === 0) {
+      setOrderError('Корзина пуста');
+      return;
+    }
 
-    // ✅ Используем fetchWithCsrf
-    const response = await fetchWithCsrf('/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(orderData),
-    });
+    setIsCheckingOut(true);
+    setOrderError(null);
 
-    let data;
-    const text = await response.text();
     try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error('Ошибка сервера: ' + text.substring(0, 100));
+      const cleanedPhone = cleanPhone(formData.phone);
+      
+      const orderData = {
+        client: {
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
+          phone: cleanedPhone,
+          email: formData.email.trim(),
+          address: formData.address.trim(),
+        },
+        items: items.map((item: CartItem) => ({
+          productId: parseInt(item.productId),
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        deliveryMethod: 'courier',
+        deliveryAddress: formData.address.trim(),
+        comment: formData.comment.trim(),
+        source: 'website',
+      };
+
+      const response = await fetchWithCsrf('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(orderData),
+      });
+
+      let data;
+      const text = await response.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Ошибка сервера: ' + text.substring(0, 100));
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Ошибка создания заказа');
+      }
+
+      await clearCart();
+
+      if (data.paymentUrl) {
+        router.push(data.paymentUrl);
+      } else if (data.order?.id) {
+        router.push(`/payment/${data.order.id}`);
+      } else if (data.orderId) {
+        router.push(`/payment/${data.orderId}`);
+      } else {
+        router.push('/payment/success');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Ошибка оформления заказа:', error);
+      setOrderError(error.message || 'Ошибка оформления заказа');
+    } finally {
+      setIsCheckingOut(false);
     }
-
-    if (!response.ok) {
-      throw new Error(data.error || data.message || 'Ошибка создания заказа');
-    }
-
-    await clearCart();
-
-    if (data.paymentUrl) {
-      router.push(data.paymentUrl);
-    } else if (data.order?.id) {
-      router.push(`/payment/${data.order.id}`);
-    } else if (data.orderId) {
-      router.push(`/payment/${data.orderId}`);
-    } else {
-      router.push('/payment/success');
-    }
-
-  } catch (error: any) {
-    console.error('❌ Ошибка оформления заказа:', error);
-    setOrderError(error.message || 'Ошибка оформления заказа');
-  } finally {
-    setIsCheckingOut(false);
-  }
-};
+  };
 
   const getFieldStatus = (field: string) => {
     if (!touched[field]) return 'idle';
@@ -550,27 +530,29 @@ const handleCheckout = async (e: React.FormEvent) => {
     return 'success';
   };
 
+  // LOADING
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white pt-32">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      <div className="min-h-screen bg-background flex items-center justify-center pt-32">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
+  // EMPTY CART
   if (items.length === 0) {
     return (
-      <div className="min-h-screen bg-white pt-32 pb-20">
-        <div className="container-custom max-w-4xl mx-auto px-4">
-          <div className="text-center py-16">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <ShoppingBag className="w-10 h-10 text-gray-300" />
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom max-w-4xl">
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
+            <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+              <ShoppingBag className="w-10 h-10 text-muted-foreground/30" />
             </div>
-            <h2 className="text-2xl font-bold text-black">Корзина пуста</h2>
-            <p className="text-gray-400 mt-2">Добавьте товары в корзину</p>
+            <h2 className="text-2xl font-bold text-foreground">Корзина пуста</h2>
+            <p className="text-muted-foreground mt-2">Добавьте товары в корзину</p>
             <Link 
               href="/catalog" 
-              className="inline-block mt-6 px-8 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
+              className="inline-block mt-6 px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
             >
               Перейти в каталог
             </Link>
@@ -581,36 +563,44 @@ const handleCheckout = async (e: React.FormEvent) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-32 pb-20">
-      <div className="container-custom max-w-7xl mx-auto px-4">
+    <div className="min-h-screen bg-background pt-32 pb-20">
+      <div className="container-custom max-w-7xl">
+        {/* Хлебные крошки */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
+          <Link href="/" className="hover:text-foreground transition">Главная</Link>
+          <ChevronRight className="w-4 h-4" />
+          <Link href="/catalog" className="hover:text-foreground transition">Каталог</Link>
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-foreground font-medium">Корзина</span>
+        </div>
+
         <div className="flex items-center gap-4 mb-8">
-          <Link href="/catalog" className="text-gray-400 hover:text-black transition p-2 hover:bg-gray-100 rounded-xl">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-3xl font-bold text-black">Корзина</h1>
-          <span className="text-sm text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+          <h1 className="text-3xl font-bold text-foreground">Корзина</h1>
+          <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full">
             {items.length} {items.length === 1 ? 'товар' : 'товара'}
           </span>
         </div>
 
         {orderError && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
-            <X className="w-4 h-4" />
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
+            <X className="w-4 h-4 flex-shrink-0" />
             {orderError}
           </div>
         )}
 
         <div className="grid lg:grid-cols-3 gap-8">
+          {/* ЛЕВАЯ КОЛОНКА — ТОВАРЫ */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
               {items.map((item: CartItem, index: number) => (
                 <div 
                   key={item.productId}
-                  className={`p-5 flex gap-5 hover:bg-gray-50/50 transition ${
-                    index !== items.length - 1 ? 'border-b border-gray-100' : ''
+                  className={`p-5 flex gap-5 hover:bg-muted/30 transition ${
+                    index !== items.length - 1 ? 'border-b border-border' : ''
                   }`}
                 >
-                  <div className="w-24 h-24 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0">
+                  {/* Изображение */}
+                  <div className="w-24 h-24 bg-muted rounded-lg overflow-hidden flex-shrink-0">
                     <Image
                       src={item.image || '/images/logo/logo.png'}
                       alt={item.name || 'Товар'}
@@ -621,46 +611,48 @@ const handleCheckout = async (e: React.FormEvent) => {
                     />
                   </div>
                   
+                  {/* Информация */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-black hover:text-gray-600 transition line-clamp-2">
+                    <h3 className="font-medium text-foreground hover:text-muted-foreground transition line-clamp-2">
                       {item.name || 'Товар'}
                     </h3>
                     
-                    <div className="text-sm text-gray-400 mt-1">
+                    <div className="text-sm text-muted-foreground mt-1">
                       {item.price ? `${item.price.toLocaleString()} ₽` : 'Цена не указана'}
                     </div>
                     
                     <div className="flex items-center gap-3 mt-3">
-                      <div className="flex items-center gap-1 border border-gray-200 rounded-xl bg-white">
+                      <div className="flex items-center border border-border rounded-lg bg-muted/50">
                         <button
                           onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
-                          className="p-2 hover:bg-gray-100 rounded-xl transition disabled:opacity-50"
+                          className="p-2 hover:bg-muted rounded-l-lg transition disabled:opacity-50"
                           disabled={item.quantity <= 1}
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="w-4 h-4 text-foreground" />
                         </button>
-                        <span className="w-8 text-center text-sm font-medium">
+                        <span className="w-8 text-center text-sm font-medium text-foreground">
                           {item.quantity}
                         </span>
                         <button
                           onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-                          className="p-2 hover:bg-gray-100 rounded-xl transition"
+                          className="p-2 hover:bg-muted rounded-r-lg transition"
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-4 h-4 text-foreground" />
                         </button>
                       </div>
                       
                       <button
                         onClick={() => handleRemoveItem(item.productId)}
-                        className="text-gray-300 hover:text-red-500 transition p-2 hover:bg-red-50 rounded-xl"
+                        className="text-muted-foreground/50 hover:text-red-500 transition p-2 hover:bg-red-500/10 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                   
+                  {/* Сумма */}
                   <div className="text-right flex-shrink-0">
-                    <span className="text-lg font-bold text-black">
+                    <span className="text-lg font-bold text-foreground">
                       {(item.price * item.quantity).toLocaleString()} ₽
                     </span>
                   </div>
@@ -668,52 +660,63 @@ const handleCheckout = async (e: React.FormEvent) => {
               ))}
             </div>
 
-            <button
-              onClick={handleClearCart}
-              className="text-sm text-gray-400 hover:text-red-500 transition flex items-center gap-1"
-            >
-              <Trash2 className="w-3 h-3" />
-              Очистить корзину
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                onClick={handleClearCart}
+                className="text-sm text-muted-foreground hover:text-red-500 transition flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" />
+                Очистить корзину
+              </button>
+              <Link
+                href="/catalog"
+                className="text-sm text-muted-foreground hover:text-foreground transition flex items-center gap-1"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Продолжить покупки
+              </Link>
+            </div>
 
-            <div className="grid grid-cols-3 gap-4 mt-6">
-              <div className="bg-white rounded-xl p-4 text-center border border-gray-100">
-                <ShieldCheck className="w-6 h-6 text-black mx-auto mb-2" />
-                <p className="text-xs text-gray-500">Безопасная оплата</p>
+            {/* Преимущества */}
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <div className="bg-card border border-border rounded-lg p-4 text-center">
+                <ShieldCheck className="w-6 h-6 mx-auto text-muted-foreground mb-2" />
+                <p className="text-xs text-muted-foreground">Безопасная оплата</p>
               </div>
-              <div className="bg-white rounded-xl p-4 text-center border border-gray-100">
-                <Truck className="w-6 h-6 text-black mx-auto mb-2" />
-                <p className="text-xs text-gray-500">Быстрая доставка</p>
+              <div className="bg-card border border-border rounded-lg p-4 text-center">
+                <Truck className="w-6 h-6 mx-auto text-muted-foreground mb-2" />
+                <p className="text-xs text-muted-foreground">Быстрая доставка</p>
               </div>
-              <div className="bg-white rounded-xl p-4 text-center border border-gray-100">
-                <Clock className="w-6 h-6 text-black mx-auto mb-2" />
-                <p className="text-xs text-gray-500">Поддержка 24/7</p>
+              <div className="bg-card border border-border rounded-lg p-4 text-center">
+                <Clock className="w-6 h-6 mx-auto text-muted-foreground mb-2" />
+                <p className="text-xs text-muted-foreground">Поддержка 24/7</p>
               </div>
             </div>
           </div>
 
+          {/* ПРАВАЯ КОЛОНКА — ОФОРМЛЕНИЕ */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-32">
-              <h2 className="text-xl font-bold text-black mb-6 flex items-center gap-2">
-                <CreditCard className="w-5 h-5" />
+            <div className="bg-card border border-border rounded-2xl p-6 sticky top-32">
+              <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-muted-foreground" />
                 Оформление заказа
               </h2>
 
               {!user ? (
                 <div className="text-center py-8">
-                  <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium mb-2">Для оформления заказа</p>
-                  <p className="text-sm text-gray-400 mb-4">Войдите в аккаунт или зарегистрируйтесь</p>
+                  <AlertCircle className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-foreground font-medium mb-2">Для оформления заказа</p>
+                  <p className="text-sm text-muted-foreground mb-4">Войдите в аккаунт или зарегистрируйтесь</p>
                   <div className="flex flex-col gap-3">
                     <Link 
                       href={`/login?redirect=/cart`} 
-                      className="w-full py-3 bg-black text-white rounded-xl font-medium hover:bg-gray-800 transition"
+                      className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition"
                     >
                       Войти
                     </Link>
                     <Link 
                       href={`/register?redirect=/cart`} 
-                      className="w-full py-3 border border-gray-300 text-gray-600 rounded-xl font-medium hover:bg-gray-100 transition"
+                      className="w-full py-3 border border-border text-foreground rounded-lg font-medium hover:bg-muted transition"
                     >
                       Зарегистрироваться
                     </Link>
@@ -721,9 +724,10 @@ const handleCheckout = async (e: React.FormEvent) => {
                 </div>
               ) : (
                 <form onSubmit={handleCheckout} className="space-y-4">
+                  {/* Имя и фамилия */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                      <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                         Имя <span className="text-red-400">*</span>
                       </label>
                       <input
@@ -731,12 +735,12 @@ const handleCheckout = async (e: React.FormEvent) => {
                         value={formData.firstName}
                         onChange={(e) => handleFieldChange('firstName', e.target.value)}
                         onBlur={() => handleFieldBlur('firstName')}
-                        className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                        className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
                           getFieldStatus('firstName') === 'error' 
-                            ? 'border-red-400 ring-red-100' 
+                            ? 'border-red-500/50 focus:ring-red-500/20' 
                             : getFieldStatus('firstName') === 'success'
-                            ? 'border-green-400 ring-green-100'
-                            : 'border-gray-200 focus:ring-black/10'
+                            ? 'border-green-500/50 focus:ring-green-500/20'
+                            : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
                         }`}
                         placeholder="Иван"
                       />
@@ -748,7 +752,7 @@ const handleCheckout = async (e: React.FormEvent) => {
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                      <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                         Фамилия <span className="text-red-400">*</span>
                       </label>
                       <input
@@ -756,12 +760,12 @@ const handleCheckout = async (e: React.FormEvent) => {
                         value={formData.lastName}
                         onChange={(e) => handleFieldChange('lastName', e.target.value)}
                         onBlur={() => handleFieldBlur('lastName')}
-                        className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                        className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
                           getFieldStatus('lastName') === 'error' 
-                            ? 'border-red-400 ring-red-100' 
+                            ? 'border-red-500/50 focus:ring-red-500/20' 
                             : getFieldStatus('lastName') === 'success'
-                            ? 'border-green-400 ring-green-100'
-                            : 'border-gray-200 focus:ring-black/10'
+                            ? 'border-green-500/50 focus:ring-green-500/20'
+                            : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
                         }`}
                         placeholder="Петров"
                       />
@@ -774,23 +778,24 @@ const handleCheckout = async (e: React.FormEvent) => {
                     </div>
                   </div>
 
+                  {/* Телефон */}
                   <div>
-                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <Phone className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
                       Телефон <span className="text-red-400">*</span>
                     </label>
                     <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="tel"
                         value={formData.phone}
                         onChange={(e) => handleFieldChange('phone', e.target.value)}
                         onBlur={() => handleFieldBlur('phone')}
-                        className={`w-full pl-10 pr-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                        className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
                           getFieldStatus('phone') === 'error' 
-                            ? 'border-red-400 ring-red-100' 
+                            ? 'border-red-500/50 focus:ring-red-500/20' 
                             : getFieldStatus('phone') === 'success'
-                            ? 'border-green-400 ring-green-100'
-                            : 'border-gray-200 focus:ring-black/10'
+                            ? 'border-green-500/50 focus:ring-green-500/20'
+                            : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
                         }`}
                         placeholder="+7 (999) 999-99-99"
                         maxLength={18}
@@ -805,13 +810,12 @@ const handleCheckout = async (e: React.FormEvent) => {
                         {formErrors.phone}
                       </p>
                     )}
-                    {!formErrors.phone && formData.phone && getFieldStatus('phone') === 'success' && (
-                      <p className="text-xs text-green-500 mt-1">✅ Номер корректен</p>
-                    )}
                   </div>
 
+                  {/* Email */}
                   <div>
-                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <Mail className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
                       Email <span className="text-red-400">*</span>
                     </label>
                     <input
@@ -819,12 +823,12 @@ const handleCheckout = async (e: React.FormEvent) => {
                       value={formData.email}
                       onChange={(e) => handleFieldChange('email', e.target.value)}
                       onBlur={() => handleFieldBlur('email')}
-                      className={`w-full px-4 py-2.5 bg-gray-50 border rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 transition ${
+                      className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
                         getFieldStatus('email') === 'error' 
-                          ? 'border-red-400 ring-red-100' 
+                          ? 'border-red-500/50 focus:ring-red-500/20' 
                           : getFieldStatus('email') === 'success'
-                          ? 'border-green-400 ring-green-100'
-                          : 'border-gray-200 focus:ring-black/10'
+                          ? 'border-green-500/50 focus:ring-green-500/20'
+                          : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
                       }`}
                       placeholder="ivan@mail.ru"
                     />
@@ -836,11 +840,13 @@ const handleCheckout = async (e: React.FormEvent) => {
                     )}
                   </div>
 
+                  {/* Адрес */}
                   <div>
-                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <Home className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
                       Адрес доставки <span className="text-red-400">*</span>
                     </label>
-                    <AddressAutocomplete
+                    <AddressInput
                       value={formData.address}
                       onChange={(val) => handleFieldChange('address', val)}
                       onBlur={() => handleFieldBlur('address')}
@@ -850,38 +856,41 @@ const handleCheckout = async (e: React.FormEvent) => {
                     />
                   </div>
 
+                  {/* Комментарий */}
                   <div>
-                    <label className="block text-sm text-gray-600 font-medium mb-1.5">
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <MessageSquare className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
                       Как удобнее с вами связаться?
                     </label>
                     <textarea
                       value={formData.comment}
                       onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10 transition resize-none"
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground/10 transition resize-none"
                       rows={2}
                       placeholder="Telegram, WhatsApp, Viber, звонок..."
                     />
                   </div>
 
-                  <div className="border-t border-gray-200 pt-4 mt-4 space-y-2">
+                  {/* Итог */}
+                  <div className="border-t border-border pt-4 mt-4 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Товары ({items.length} шт):</span>
-                      <span className="font-medium">{total.toLocaleString()} ₽</span>
+                      <span className="text-muted-foreground">Товары ({items.length} шт.):</span>
+                      <span className="font-medium text-foreground">{total.toLocaleString()} ₽</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Доставка:</span>
-                      <span className="font-medium text-gray-400">Рассчитывается</span>
+                      <span className="text-muted-foreground">Доставка:</span>
+                      <span className="font-medium text-muted-foreground/60">Рассчитывается</span>
                     </div>
-                    <div className="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-gray-200">
-                      <span>Итого:</span>
-                      <span className="text-black">{total.toLocaleString()} ₽</span>
+                    <div className="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-border">
+                      <span className="text-foreground">Итого:</span>
+                      <span className="text-foreground">{total.toLocaleString()} ₽</span>
                     </div>
                   </div>
 
                   <button
                     type="submit"
                     disabled={isCheckingOut}
-                    className="w-full py-4 bg-black text-white rounded-2xl font-medium hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
+                    className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
                   >
                     {isCheckingOut ? (
                       <>
@@ -896,7 +905,7 @@ const handleCheckout = async (e: React.FormEvent) => {
                     )}
                   </button>
 
-                  <p className="text-xs text-gray-400 text-center mt-3">
+                  <p className="text-xs text-muted-foreground/50 text-center mt-3">
                     Нажимая кнопку, вы соглашаетесь с условиями оферты
                   </p>
                 </form>

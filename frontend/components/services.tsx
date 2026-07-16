@@ -3,9 +3,9 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 
 const SERVICES = [
-  { title: 'Свапы двигателей', image: '/images/service-swap.png', href: '/swaps' },
-  { title: 'Усиление кузова', image: '/images/service-frame.png', href: '/services' },
-  { title: 'Боди-лифт', image: '/images/service-lift.png', href: '/services' },
+  { title: 'Свапы двигателей', image: '/images/engines/3uz.png', href: '/swaps' },
+  { title: 'Усиление кузова', image: '/images/engines/5vz.jpg', href: '/services' },
+  { title: 'Боди-лифт', image: '/images/engines/vq35.jpg', href: '/services' },
   { title: 'Установка защиты', image: '/images/service-protection.png', href: '/services' },
   { title: 'Багажники и фаркопы', image: '/images/service-rack.png', href: '/services' },
 ];

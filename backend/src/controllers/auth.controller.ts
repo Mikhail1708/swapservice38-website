@@ -1,4 +1,4 @@
-// frontend/backend/src/controllers/auth.controller.ts
+// backend/src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
@@ -15,6 +15,8 @@ import {
   verifyResetCode,
   confirmResetPassword
 } from '../services/auth.service';
+import { sendVerificationEmail } from '../services/email.service';
+import redis from '../config/redis';
 
 const prisma = new PrismaClient();
 
@@ -30,7 +32,6 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
   try {
     console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
 
-    // Находим корзину гостя
     const guestCart = await prisma.cart.findUnique({
       where: { guestId: guestId },
     });
@@ -43,13 +44,11 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
     const guestItems = guestCart.items as any[];
     console.log(`📦 Товаров в гостевой корзине: ${guestItems.length}`);
 
-    // Находим корзину пользователя
     let userCart = await prisma.cart.findUnique({
       where: { userId: userId },
     });
 
     if (userCart) {
-      // Объединяем корзины
       const userItems = userCart.items as any[];
       const mergedItems = [...userItems];
       
@@ -73,7 +72,6 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
       });
       console.log(`✅ Корзина пользователя обновлена, ${mergedItems.length} товаров`);
     } else {
-      // Создаём корзину пользователя с товарами гостя
       await prisma.cart.create({
         data: {
           userId: userId,
@@ -83,7 +81,6 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
       console.log(`✅ Создана корзина пользователя, ${guestItems.length} товаров`);
     }
 
-    // Удаляем корзину гостя
     await prisma.cart.delete({
       where: { guestId: guestId },
     });
@@ -102,15 +99,12 @@ export const loginController = async (req: Request, res: Response) => {
     const { email, password } = req.body;
     const { token, user } = await login(email, password);
 
-    // ✅ Получаем guestId из cookies
     const guestId = req.cookies?.guestId;
 
-    // ✅ ПЕРЕНОСИМ КОРЗИНУ (ЕСЛИ ЕСТЬ)
     if (guestId) {
       console.log(`🔄 Перенос корзины при логине: guestId=${guestId} -> userId=${user.id}`);
       await mergeCart(user.id, guestId);
       
-      // Удаляем guestId cookie
       res.clearCookie('guestId', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -119,7 +113,6 @@ export const loginController = async (req: Request, res: Response) => {
       });
     }
 
-    // Устанавливаем JWT cookie
     const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('token', token, {
       httpOnly: true,
@@ -158,6 +151,42 @@ export const verifyController = async (req: Request, res: Response) => {
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+// ============================================================
+// ✅ НОВЫЙ КОНТРОЛЛЕР: ПОВТОРНАЯ ОТПРАВКА КОДА
+// ============================================================
+export const resendVerificationController = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email обязателен' });
+    }
+
+    // Находим пользователя
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ error: 'Email уже подтверждён' });
+    }
+
+    // Генерируем новый код
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await redis.setex(`verify:${email}`, 600, code);
+
+    // Отправляем письмо
+    await sendVerificationEmail(email, code);
+
+    console.log(`📧 Код подтверждения отправлен повторно на ${email}`);
+    res.json({ message: 'Код отправлен повторно' });
+  } catch (error: any) {
+    console.error('❌ Ошибка повторной отправки кода:', error);
+    res.status(400).json({ error: error.message || 'Ошибка отправки кода' });
   }
 };
 
