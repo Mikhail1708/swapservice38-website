@@ -1,5 +1,6 @@
 'use client';
 
+import { fetchWithCsrf } from '@/lib/csrf';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -92,14 +93,13 @@ export default function ChangePasswordPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/change-password', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           currentPassword: formData.currentPassword,
           newPassword: formData.newPassword,
         }),
-        credentials: 'include',
       });
 
       const data = await response.json();

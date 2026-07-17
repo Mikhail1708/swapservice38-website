@@ -1,3 +1,4 @@
+// frontend/app/(public)/catalog/page.tsx
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -7,7 +8,6 @@ import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Search, 
-  Filter, 
   ShoppingCart, 
   ChevronDown,
   ChevronLeft,
@@ -15,12 +15,10 @@ import {
   Loader2,
   X,
   Check,
-  Grid3X3,
-  List,
-  SlidersHorizontal,
-  ChevronUp
+  SlidersHorizontal
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Product {
   id: string | number;
@@ -41,11 +39,12 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 const ITEMS_PER_PAGE = 16;
 
 // ============================================================
-// API ФУНКЦИИ
+// API ФУНКЦИИ (С CSRF)
 // ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
-  const response = await fetch('/api/products?limit=999', {
-    credentials: 'include',
+  // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+  const response = await fetchWithCsrf('/api/products?limit=999', {
+    method: 'GET',
   });
   if (!response.ok) {
     throw new Error('Ошибка загрузки товаров');
@@ -55,8 +54,9 @@ const fetchProducts = async (): Promise<Product[]> => {
 };
 
 const fetchCategories = async (): Promise<string[]> => {
-  const response = await fetch('/api/products/categories', {
-    credentials: 'include',
+  // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+  const response = await fetchWithCsrf('/api/products/categories', {
+    method: 'GET',
   });
   if (!response.ok) {
     return [];
@@ -324,7 +324,11 @@ export default function CatalogPage() {
 
     try {
       const result = await addToCart(id, 1);
-      if (result) await refetchCart();
+      if (result) {
+        await refetchCart();
+        // ✅ Инвалидируем кэш товаров (если нужно обновить остатки)
+        // refetchProducts();
+      }
     } catch (error) {
       console.error('❌ Ошибка добавления в корзину:', error);
     } finally {

@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { PhoneInput } from '@/components/PhoneInput';
+import { AddressInput } from '@/components/AddressInput';
+import { validatePhone } from '@/lib/validation/phone';
+import { fetchWithCsrf } from '@/lib/csrf';
 import Link from 'next/link';
 import { 
   User, 
@@ -30,9 +34,11 @@ export default function ProfilePage() {
     phone: '',
     address: '',
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (user) {
@@ -45,6 +51,10 @@ export default function ProfilePage() {
     }
   }, [user]);
 
+  const handleFieldBlur = (field: string) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -52,11 +62,10 @@ export default function ProfilePage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/profile', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf ВМЕСТО ОБЫЧНОГО fetch
+      const response = await fetchWithCsrf('/api/auth/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
-        credentials: 'include',
       });
 
       const data = await response.json();
@@ -199,6 +208,7 @@ export default function ProfilePage() {
                       type="text"
                       value={formData.firstName}
                       onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      onBlur={() => handleFieldBlur('firstName')}
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
                       placeholder="Имя"
                     />
@@ -211,36 +221,50 @@ export default function ProfilePage() {
                       type="text"
                       value={formData.lastName}
                       onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      onBlur={() => handleFieldBlur('lastName')}
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
                       placeholder="Фамилия"
                     />
                   </div>
                 </div>
 
+                {/* Телефон — PhoneInput */}
                 <div>
                   <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                     <Phone className="w-4 h-4 inline mr-1 text-muted-foreground" />
                     Телефон
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneInput
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
-                    placeholder="+7 (999) 999-99-99"
+                    onChange={(val) => setFormData({ ...formData, phone: val })}
+                    onBlur={() => {
+                      handleFieldBlur('phone');
+                      if (formData.phone) {
+                        const result = validatePhone(formData.phone);
+                        if (!result.valid) {
+                          setFormErrors(prev => ({ ...prev, phone: result.error }));
+                        } else {
+                          setFormErrors(prev => ({ ...prev, phone: '' }));
+                        }
+                      }
+                    }}
+                    error={formErrors.phone}
+                    className="w-full"
                   />
                 </div>
 
+                {/* Адрес — AddressInput */}
                 <div>
                   <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                     <MapPin className="w-4 h-4 inline mr-1 text-muted-foreground" />
                     Адрес
                   </label>
-                  <input
-                    type="text"
+                  <AddressInput
                     value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                    onChange={(val) => setFormData({ ...formData, address: val })}
+                    onBlur={() => handleFieldBlur('address')}
+                    error={formErrors.address}
+                    touched={touched.address}
                     placeholder="г. Иркутск, ул. Новаторов 36"
                   />
                 </div>

@@ -1,3 +1,4 @@
+// frontend/app/(auth)/profile/orders/details/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -26,6 +27,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface OrderItem {
   productId: string;
@@ -131,8 +133,9 @@ export default function OrderDetailPage() {
       try {
         setLoading(true);
         
-        const response = await fetch(`/api/orders/details?id=${orderId}`, {
-          credentials: 'include',
+        // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+        const response = await fetchWithCsrf(`/api/orders/details?id=${orderId}`, {
+          method: 'GET',
         });
         
         if (response.status === 401) {
@@ -182,9 +185,9 @@ export default function OrderDetailPage() {
     if (!order) return;
     setIsDeleting(true);
     try {
-      const response = await fetch(`/api/orders/delete?id=${order.id}`, {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf(`/api/orders/delete?id=${order.id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       const data = await response.json();
@@ -206,11 +209,10 @@ export default function OrderDetailPage() {
     if (!order) return;
     setIsPaying(true);
     try {
-      const response = await fetch('/api/payment/create', {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
+      const response = await fetchWithCsrf('/api/payment/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId: order.id }),
-        credentials: 'include',
       });
 
       const data = await response.json();

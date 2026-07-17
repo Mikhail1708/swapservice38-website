@@ -1,5 +1,16 @@
 // backend/src/routes/auth.routes.ts
 import { Router } from 'express';
+import { validate } from '../middleware/validate.middleware';
+import { 
+  registerSchema, 
+  loginSchema, 
+  verifySchema,
+  changePasswordSchema,
+  resetPasswordRequestSchema,
+  resetPasswordVerifySchema,
+  resetPasswordConfirmSchema,
+  updateProfileSchema
+} from '../schemas/auth.schema';
 import {
   registerController,
   verifyController,
@@ -13,7 +24,7 @@ import {
   requestPasswordResetController,
   verifyResetCodeController,
   confirmResetPasswordController,
-  resendVerificationController, // 👈 НОВЫЙ ИМПОРТ
+  resendVerificationController,
 } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import * as oauthService from '../services/oauth.service';
@@ -22,40 +33,40 @@ import { log } from '../config/logger';
 const router = Router();
 
 // ============================================================
-// СТАНДАРТНАЯ АУТЕНТИФИКАЦИЯ
+// СТАНДАРТНАЯ АУТЕНТИФИКАЦИЯ (С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/register', registerController);
-router.post('/verify', verifyController);
-router.post('/resend-verification', resendVerificationController); // 👈 НОВЫЙ РОУТ
-router.post('/login', loginController);
+router.post('/register', validate(registerSchema), registerController);
+router.post('/verify', validate(verifySchema), verifyController);
+router.post('/resend-verification', validate(resetPasswordRequestSchema), resendVerificationController);
+router.post('/login', validate(loginSchema), loginController);
 router.post('/logout', logoutController);
 router.get('/me', authMiddleware, meController);
 
 // ============================================================
-// ПРОФИЛЬ
+// ПРОФИЛЬ (С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.put('/profile', authMiddleware, updateProfileController);
+router.put('/profile', authMiddleware, validate(updateProfileSchema), updateProfileController);
 
 // ============================================================
-// СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ)
+// СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ, С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/change-password', authMiddleware, changePasswordController);
+router.post('/change-password', authMiddleware, validate(changePasswordSchema), changePasswordController);
 router.post('/request-password-change', authMiddleware, requestPasswordChangeController);
 router.post('/confirm-password-change', authMiddleware, confirmPasswordChangeController);
 
 // ============================================================
-// ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ)
+// ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ, С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/reset-password/request', requestPasswordResetController);
-router.post('/reset-password/verify', verifyResetCodeController);
-router.post('/reset-password/confirm', confirmResetPasswordController);
+router.post('/reset-password/request', validate(resetPasswordRequestSchema), requestPasswordResetController);
+router.post('/reset-password/verify', validate(resetPasswordVerifySchema), verifyResetCodeController);
+router.post('/reset-password/confirm', validate(resetPasswordConfirmSchema), confirmResetPasswordController);
 
 // ============================================================
-// OAuth: ЯНДЕКС
+// OAuth: ЯНДЕКС (БЕЗ ВАЛИДАЦИИ — ПЕРЕНАПРАВЛЕНИЕ)
 // ============================================================
 
 router.get('/yandex', (req, res) => {
@@ -112,7 +123,7 @@ router.get('/yandex/callback', async (req, res) => {
 });
 
 // ============================================================
-// OAuth: MAX
+// OAuth: MAX (БЕЗ ВАЛИДАЦИИ — ПЕРЕНАПРАВЛЕНИЕ)
 // ============================================================
 
 router.get('/max', (req, res) => {

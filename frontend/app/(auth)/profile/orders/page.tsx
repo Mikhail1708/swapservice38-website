@@ -1,9 +1,11 @@
+// frontend/app/(auth)/profile/orders/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Loader2, Package, ChevronRight, ShoppingBag, AlertCircle, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '⏳ Ожидает оплаты', color: 'bg-yellow-500/10 text-yellow-500' },
@@ -39,8 +41,9 @@ export default function OrdersPage() {
         setLoading(true);
         console.log('🔄 Загрузка заказов для пользователя:', user.id);
         
-        const response = await fetch('/api/orders', {
-          credentials: 'include',
+        // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf ДЛЯ GET (нужен CSRF токен)
+        const response = await fetchWithCsrf('/api/orders', {
+          method: 'GET',
         });
 
         console.log('📦 Статус ответа:', response.status);

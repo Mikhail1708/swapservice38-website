@@ -1,6 +1,7 @@
+// frontend/app/(public)/cart/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -16,13 +17,9 @@ import {
   Truck,
   Clock,
   X,
-  CheckCircle2,
-  MapPin,
-  Phone,
   AlertCircle,
   Home,
   ChevronRight,
-  User,
   Mail,
   MessageSquare,
   Package
@@ -30,6 +27,14 @@ import {
 import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { fetchWithCsrf } from '@/lib/csrf';
+import { PhoneInput } from '@/components/PhoneInput';
+import { AddressInput } from '@/components/AddressInput';
+import { 
+  validatePhone, 
+  cleanPhone, 
+  formatPhoneInput,
+  normalizePhoneForServer
+} from '@/lib/validation/phone';
 
 interface CartItem {
   productId: string;
@@ -37,292 +42,6 @@ interface CartItem {
   price: number;
   quantity: number;
   image?: string;
-}
-
-// ============================================================
-// ВАЛИДАЦИЯ ТЕЛЕФОНА
-// ============================================================
-const validatePhoneStrict = (phone: string): { valid: boolean; error: string; formatted: string } => {
-  const digits = phone.replace(/\D/g, '');
-  
-  if (!digits) {
-    return { valid: false, error: 'Введите номер телефона', formatted: '' };
-  }
-  
-  if (digits.length < 10) {
-    return { valid: false, error: `Нужно ещё ${10 - digits.length} цифр`, formatted: '' };
-  }
-  
-  if (digits.length > 11) {
-    return { valid: false, error: 'Номер слишком длинный (максимум 11 цифр)', formatted: '' };
-  }
-  
-  let formatted = '';
-  let normalized = digits;
-  
-  if (digits.length === 10 && !['7', '8', '9'].includes(digits[0])) {
-    normalized = '7' + digits;
-  }
-  
-  if (digits.length === 11 && digits[0] === '8') {
-    normalized = '7' + digits.slice(1);
-  }
-  
-  if (digits.length === 11 && digits[0] === '9') {
-    normalized = '7' + digits;
-  }
-  
-  if (digits.length === 10 && (digits[0] === '7' || digits[0] === '9')) {
-    normalized = '7' + digits;
-  }
-  
-  if (normalized.length !== 11 || normalized[0] !== '7') {
-    if (normalized.length === 10) {
-      normalized = '7' + normalized;
-    } else if (normalized.length === 12) {
-      normalized = normalized.slice(0, 11);
-    } else {
-      return { valid: false, error: 'Неверный формат номера', formatted: '' };
-    }
-  }
-  
-  formatted = `+7 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)}-${normalized.slice(7, 9)}-${normalized.slice(9, 11)}`;
-  
-  return { valid: true, error: '', formatted };
-};
-
-const cleanPhone = (phone: string): string => {
-  if (!phone) return '';
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length === 11 && digits[0] === '7') return '+' + digits;
-  if (digits.length === 10) return '+7' + digits;
-  if (digits.length === 11 && digits[0] === '8') return '+7' + digits.slice(1);
-  return phone;
-};
-
-const formatPhoneInput = (value: string): string => {
-  const digits = value.replace(/\D/g, '');
-  if (digits.length === 0) return '';
-  
-  let formatted = '';
-  let rest = digits;
-  
-  if (digits.startsWith('7') || digits.startsWith('8') || digits.startsWith('9')) {
-    formatted = '+7';
-    if (digits.startsWith('8')) {
-      rest = digits.slice(1);
-    } else if (digits.startsWith('7')) {
-      rest = digits.slice(1);
-    } else {
-      formatted = '+7';
-      rest = digits;
-    }
-    
-    if (rest.length > 0) {
-      formatted += ' (' + rest.slice(0, 3);
-    }
-    if (rest.length > 3) {
-      formatted += ') ' + rest.slice(3, 6);
-    }
-    if (rest.length > 6) {
-      formatted += '-' + rest.slice(6, 8);
-    }
-    if (rest.length > 8) {
-      formatted += '-' + rest.slice(8, 10);
-    }
-  } else {
-    formatted = digits;
-  }
-  
-  return formatted;
-};
-
-// ============================================================
-// ПОИСК АДРЕСОВ
-// ============================================================
-interface Suggestion {
-  value: string;
-  city: string;
-  street: string;
-  house: string;
-  postal_code?: string;
-}
-
-const searchAddresses = async (query: string): Promise<Suggestion[]> => {
-  if (!query || query.length < 2) return [];
-  
-  try {
-    const apiKey = process.env.NEXT_PUBLIC_DADATA_API_KEY || '';
-    const response = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Token ${apiKey}`,
-      },
-      body: JSON.stringify({
-        query: query,
-        count: 5,
-        from_bound: { value: 'street' },
-        to_bound: { value: 'house' },
-      }),
-    });
-
-    if (!response.ok) throw new Error('DaData API error');
-    
-    const data = await response.json();
-    
-    return data.suggestions.map((s: any) => ({
-      value: s.value,
-      city: s.data?.city || s.data?.settlement || '',
-      street: s.data?.street || '',
-      house: s.data?.house || '',
-      postal_code: s.data?.postal_code,
-    }));
-  } catch (error) {
-    console.warn('DaData API error:', error);
-    return [];
-  }
-};
-
-// ============================================================
-// КОМПОНЕНТ АДРЕСА
-// ============================================================
-function AddressInput({ 
-  value, 
-  onChange, 
-  onBlur,
-  error,
-  touched,
-  placeholder = 'Начните вводить адрес...',
-}: { 
-  value: string; 
-  onChange: (val: string) => void; 
-  onBlur: () => void;
-  error?: string;
-  touched?: boolean;
-  placeholder?: string;
-}) {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    if (value.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const results = await searchAddresses(value);
-        setSuggestions(results);
-        setShowSuggestions(results.length > 0);
-      } catch (error) {
-        console.error('Error searching addresses:', error);
-        setSuggestions([]);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-    };
-  }, [value]);
-
-  const handleSelectSuggestion = (suggestion: Suggestion) => {
-    onChange(suggestion.value);
-    setShowSuggestions(false);
-    if (inputRef.current) {
-      inputRef.current.blur();
-    }
-  };
-
-  const status = touched ? (error ? 'error' : value ? 'success' : 'idle') : 'idle';
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => {
-            if (value.length > 1 && suggestions.length > 0) {
-              setShowSuggestions(true);
-            }
-          }}
-          onBlur={() => {
-            onBlur();
-            setTimeout(() => setShowSuggestions(false), 300);
-          }}
-          className={`w-full pl-10 pr-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
-            status === 'error' 
-              ? 'border-red-500/50 focus:ring-red-500/20' 
-              : status === 'success'
-              ? 'border-green-500/50 focus:ring-green-500/20'
-              : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
-          }`}
-          placeholder={placeholder}
-          autoComplete="off"
-        />
-        {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50 animate-spin" />
-        )}
-        {!isLoading && value && status === 'success' && (
-          <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
-        )}
-      </div>
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-20 w-full mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              onClick={() => handleSelectSuggestion(suggestion)}
-              className="w-full px-4 py-2.5 text-left text-sm hover:bg-muted transition flex flex-col border-b border-border last:border-0"
-            >
-              <span className="text-foreground font-medium">{suggestion.value}</span>
-              <span className="text-xs text-muted-foreground/60 mt-0.5">
-                {suggestion.city && <span>🏙️ {suggestion.city}</span>}
-                {suggestion.street && <span>📍 {suggestion.street}</span>}
-                {suggestion.house && <span>🏠 д. {suggestion.house}</span>}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      {error && touched && (
-        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />
-          {error}
-        </p>
-      )}
-    </div>
-  );
 }
 
 // ============================================================
@@ -386,7 +105,7 @@ export default function CartPage() {
         return '';
       case 'phone':
         if (!value.trim()) return 'Укажите телефон';
-        const result = validatePhoneStrict(value);
+        const result = validatePhone(value);
         if (!result.valid) return result.error;
         return '';
       case 'email':
@@ -408,7 +127,8 @@ export default function CartPage() {
     let formattedValue = value;
     
     if (field === 'phone') {
-      formattedValue = formatPhoneInput(value);
+      const formatted = formatPhoneInput(value);
+      formattedValue = normalizePhoneForServer(formatted);
     }
     
     setFormData(prev => ({ ...prev, [field]: formattedValue }));
@@ -778,38 +498,17 @@ export default function CartPage() {
                     </div>
                   </div>
 
-                  {/* Телефон */}
+                  {/* Телефон — ИСПОЛЬЗУЕМ PhoneInput */}
                   <div>
-                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
-                      <Phone className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
-                      Телефон <span className="text-red-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="tel"
-                        value={formData.phone}
-                        onChange={(e) => handleFieldChange('phone', e.target.value)}
-                        onBlur={() => handleFieldBlur('phone')}
-                        className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
-                          getFieldStatus('phone') === 'error' 
-                            ? 'border-red-500/50 focus:ring-red-500/20' 
-                            : getFieldStatus('phone') === 'success'
-                            ? 'border-green-500/50 focus:ring-green-500/20'
-                            : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
-                        }`}
-                        placeholder="+7 (999) 999-99-99"
-                        maxLength={18}
-                      />
-                      {formData.phone && getFieldStatus('phone') === 'success' && (
-                        <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
-                      )}
-                    </div>
-                    {formErrors.phone && (
-                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                        <X className="w-3 h-3" />
-                        {formErrors.phone}
-                      </p>
-                    )}
+                    <PhoneInput
+                      label="Телефон"
+                      value={formData.phone}
+                      onChange={(val) => handleFieldChange('phone', val)}
+                      onBlur={() => handleFieldBlur('phone')}
+                      error={formErrors.phone}
+                      required
+                      className="w-full"
+                    />
                   </div>
 
                   {/* Email */}
@@ -840,7 +539,7 @@ export default function CartPage() {
                     )}
                   </div>
 
-                  {/* Адрес */}
+                  {/* Адрес — ИСПОЛЬЗУЕМ AddressInput */}
                   <div>
                     <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                       <Home className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
