@@ -1,21 +1,58 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Plus, X } from 'lucide-react';
 import { fetchWithCsrf } from '@/lib/csrf';
 
-export default function CreateNewsPage() {
+export default function EditServicePage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const params = useParams();
+  const id = params.id as string;
+  
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    title: '',
-    content: '',
-    imageUrl: '',
-    isPublished: false,
+    name: '',
+    description: '',
+    price: '',
+    isActive: true,
   });
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const fetchService = async () => {
+      try {
+        const response = await fetch(`/api/admin/services/${id}`, {
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Ошибка загрузки услуги');
+        }
+
+        const data = await response.json();
+        const service = data.service;
+        setForm({
+          name: service.name || '',
+          description: service.description || '',
+          price: service.price ? String(service.price) : '',
+          isActive: service.isActive ?? true,
+        });
+        if (service.imageUrl) {
+          setImageUrls([service.imageUrl]);
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки:', error);
+        alert('Ошибка загрузки услуги');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchService();
+  }, [id]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -56,31 +93,42 @@ export default function CreateNewsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSaving(true);
 
     try {
       const payload = {
-        ...form,
-        imageUrl: imageUrls.length > 0 ? imageUrls[0] : '',
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        price: form.price ? parseFloat(form.price) : null,
+        imageUrl: imageUrls.length > 0 ? imageUrls[0] : null,
+        isActive: form.isActive,
       };
 
-      const response = await fetchWithCsrf('/api/admin/news', {
-        method: 'POST',
+      const response = await fetchWithCsrf(`/api/admin/services/${id}`, {
+        method: 'PUT',
         body: JSON.stringify(payload),
       });
 
       if (response.ok) {
-        router.push('/admin/content/news');
+        router.push('/admin/content/services');
       } else {
         const data = await response.json();
-        alert(data.error || 'Ошибка создания новости');
+        alert(data.error || 'Ошибка обновления');
       }
     } catch (error) {
       console.error(error);
-      alert('Ошибка создания новости');
+      alert('Ошибка обновления');
     }
-    setLoading(false);
+    setSaving(false);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -89,41 +137,53 @@ export default function CreateNewsPage() {
           <ArrowLeft className="w-5 h-5 text-foreground" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Создание новости</h1>
-          <p className="text-sm text-muted-foreground">Добавьте новую новость</p>
+          <h1 className="text-2xl font-bold text-foreground">Редактирование услуги</h1>
+          <p className="text-sm text-muted-foreground">{form.name}</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-card border border-border rounded-2xl p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
-            Заголовок <span className="text-red-500">*</span>
+            Название <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
             required
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
-            Содержание <span className="text-red-500">*</span>
+            Описание
           </label>
           <textarea
-            required
-            rows={8}
-            value={form.content}
-            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            rows={4}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
           />
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Цена (₽)
+          </label>
+          <input
+            type="number"
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+            className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+            min={0}
+          />
+        </div>
+
+        <div>
           <label className="block text-sm font-medium text-foreground mb-2">
-            Изображения
+            Изображение
           </label>
           <div className="flex flex-wrap gap-3 mb-3">
             {imageUrls.map((url, index) => (
@@ -142,7 +202,6 @@ export default function CreateNewsPage() {
               <input
                 type="file"
                 accept="image/*"
-                multiple
                 onChange={handleImageUpload}
                 className="hidden"
                 disabled={uploading}
@@ -157,30 +216,29 @@ export default function CreateNewsPage() {
               )}
             </label>
           </div>
-          <p className="text-xs text-muted-foreground/60">Первое изображение будет использовано как обложка</p>
         </div>
 
         <div className="flex items-center gap-3">
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={form.isPublished}
-              onChange={(e) => setForm({ ...form, isPublished: e.target.checked })}
+              checked={form.isActive}
+              onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-foreground"></div>
           </label>
-          <span className="text-sm text-foreground">Опубликовать сразу</span>
+          <span className="text-sm text-foreground">Активна</span>
         </div>
 
         <div className="flex gap-3 pt-4 border-t border-border">
           <button
             type="submit"
-            disabled={loading}
+            disabled={saving}
             className="px-6 py-2.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition disabled:opacity-50 flex items-center gap-2"
           >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Сохранение...' : 'Сохранить'}
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
           <button
             type="button"

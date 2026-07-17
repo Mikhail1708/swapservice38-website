@@ -119,9 +119,6 @@ export function Hero() {
             <span className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">
               SWAP SERVICE 38
             </span>
-            <span className="text-xs text-muted-foreground/50">
-              {String(currentIndex + 1).padStart(2, '0')} / {String(HERO_IMAGES.length).padStart(2, '0')}
-            </span>
           </div>
 
           {/* Заголовок с анимацией */}

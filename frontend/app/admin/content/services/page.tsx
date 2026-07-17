@@ -2,94 +2,172 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Loader2,
+  AlertCircle,
+  DollarSign,
+  Wrench
+} from 'lucide-react';
 
-export default function ServicesPage() {
+interface Service {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  imageUrl: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export default function AdminServicesPage() {
   const router = useRouter();
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/admin/services')
-      .then((res) => res.json())
-      .then((data) => {
-        setServices(data.services || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    fetchServices();
   }, []);
+
+  const fetchServices = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/admin/services', {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка загрузки услуг');
+      }
+
+      const data = await response.json();
+      setServices(data.services || []);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка загрузки услуг');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Удалить услугу?')) return;
-    await fetch(`/api/admin/services/${id}`, { method: 'DELETE' });
-    setServices(services.filter((s: any) => s.id !== id));
+
+    try {
+      const response = await fetch(`/api/admin/services/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        fetchServices();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка удаления');
+      }
+    } catch (error) {
+      alert('Ошибка удаления');
+    }
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Загрузка...</div>
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto mb-4" />
+        <p className="text-muted-foreground">Загрузка услуг...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Заголовок */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Услуги</h1>
-          <p className="text-sm text-gray-500">Управление услугами</p>
+          <h1 className="text-2xl font-bold text-foreground">Услуги</h1>
+          <p className="text-sm text-muted-foreground">Управление услугами</p>
         </div>
-        <button
-          onClick={() => router.push('/admin/content/services/create')}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+        <Link
+          href="/admin/content/services/create"
+          className="flex items-center gap-2 px-4 py-2 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition"
         >
-          <Plus size={16} />
-          Создать
-        </button>
+          <Plus className="w-4 h-4" />
+          Создать услугу
+        </Link>
       </div>
 
+      {/* Ошибка */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Список услуг */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {services.map((item: any) => (
-          <div key={item.id} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="font-medium text-gray-900">{item.name}</h3>
-                {item.price && (
-                  <p className="text-sm text-gray-600">{item.price.toLocaleString()} ₽</p>
-                )}
-                {item.description && (
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</p>
-                )}
-                <div className="mt-2">
-                  {item.isActive ? (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                      Активна
-                    </span>
-                  ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                      Неактивна
-                    </span>
+        {services.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-muted-foreground bg-card border border-border rounded-2xl">
+            <Wrench className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+            <p>Услуг не найдено</p>
+            <Link
+              href="/admin/content/services/create"
+              className="inline-block mt-4 text-sm text-foreground hover:underline"
+            >
+              Создать первую услугу
+            </Link>
+          </div>
+        ) : (
+          services.map((service) => (
+            <div key={service.id} className="bg-card border border-border rounded-2xl p-5 hover:border-foreground/30 transition">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h3 className="font-medium text-foreground">{service.name}</h3>
+                  {service.price !== null && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                      <DollarSign className="w-3 h-3" />
+                      {service.price.toLocaleString()} ₽
+                    </p>
                   )}
+                  {service.description && (
+                    <p className="text-xs text-muted-foreground/60 mt-1 line-clamp-2">
+                      {service.description}
+                    </p>
+                  )}
+                  <div className="mt-2">
+                    {service.isActive ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-500">
+                        Активна
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                        Неактивна
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => router.push(`/admin/content/services/${service.id}`)}
+                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(service.id)}
+                    className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => router.push(`/admin/content/services/${item.id}`)}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <Edit size={16} />
-                </button>
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );

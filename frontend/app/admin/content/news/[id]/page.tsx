@@ -1,13 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Plus, X } from 'lucide-react';
 import { fetchWithCsrf } from '@/lib/csrf';
 
-export default function CreateNewsPage() {
+export default function EditNewsPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const params = useParams();
+  const id = params.id as string;
+  
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     title: '',
     content: '',
@@ -16,6 +20,39 @@ export default function CreateNewsPage() {
   });
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const fetchNews = async () => {
+      try {
+        const response = await fetch(`/api/admin/news/${id}`, {
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Ошибка загрузки новости');
+        }
+
+        const data = await response.json();
+        const news = data.news;
+        setForm({
+          title: news.title || '',
+          content: news.content || '',
+          imageUrl: news.imageUrl || '',
+          isPublished: news.isPublished || false,
+        });
+        if (news.imageUrl) {
+          setImageUrls([news.imageUrl]);
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки:', error);
+        alert('Ошибка загрузки новости');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchNews();
+  }, [id]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -56,7 +93,7 @@ export default function CreateNewsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSaving(true);
 
     try {
       const payload = {
@@ -64,8 +101,8 @@ export default function CreateNewsPage() {
         imageUrl: imageUrls.length > 0 ? imageUrls[0] : '',
       };
 
-      const response = await fetchWithCsrf('/api/admin/news', {
-        method: 'POST',
+      const response = await fetchWithCsrf(`/api/admin/news/${id}`, {
+        method: 'PUT',
         body: JSON.stringify(payload),
       });
 
@@ -73,14 +110,22 @@ export default function CreateNewsPage() {
         router.push('/admin/content/news');
       } else {
         const data = await response.json();
-        alert(data.error || 'Ошибка создания новости');
+        alert(data.error || 'Ошибка обновления');
       }
     } catch (error) {
       console.error(error);
-      alert('Ошибка создания новости');
+      alert('Ошибка обновления');
     }
-    setLoading(false);
+    setSaving(false);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -89,8 +134,8 @@ export default function CreateNewsPage() {
           <ArrowLeft className="w-5 h-5 text-foreground" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Создание новости</h1>
-          <p className="text-sm text-muted-foreground">Добавьте новую новость</p>
+          <h1 className="text-2xl font-bold text-foreground">Редактирование новости</h1>
+          <p className="text-sm text-muted-foreground">{form.title}</p>
         </div>
       </div>
 
@@ -170,17 +215,17 @@ export default function CreateNewsPage() {
             />
             <div className="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-foreground"></div>
           </label>
-          <span className="text-sm text-foreground">Опубликовать сразу</span>
+          <span className="text-sm text-foreground">Опубликовано</span>
         </div>
 
         <div className="flex gap-3 pt-4 border-t border-border">
           <button
             type="submit"
-            disabled={loading}
+            disabled={saving}
             className="px-6 py-2.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition disabled:opacity-50 flex items-center gap-2"
           >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Сохранение...' : 'Сохранить'}
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
           <button
             type="button"

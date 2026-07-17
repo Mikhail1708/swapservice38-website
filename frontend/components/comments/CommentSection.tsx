@@ -1,10 +1,9 @@
-// frontend/components/comments/CommentSection.tsx
 'use client';
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { Send, User, Reply, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Send, User, Reply, Loader2, X, ChevronDown, ChevronRight, MessageCircle } from 'lucide-react';
 import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Comment {
@@ -51,19 +50,19 @@ const ReplyForm = ({
 }) => {
   return (
     <form onSubmit={onSubmit} className="mt-2">
-      <div className="flex items-start gap-2 bg-white rounded-xl p-3 border border-gray-200">
-        <div className="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-xs flex-shrink-0">
+      <div className="flex items-start gap-2 bg-card border border-border rounded-xl p-3">
+        <div className="w-7 h-7 bg-muted rounded-full flex items-center justify-center text-muted-foreground font-medium text-xs flex-shrink-0">
           <User className="w-3.5 h-3.5" />
         </div>
         <div className="flex-1">
-          <div className="text-xs text-gray-500 mb-1 flex items-center gap-2">
+          <div className="text-xs text-muted-foreground mb-1 flex items-center gap-2">
             <span>
-              Ответ <span className="font-medium text-blue-600">@{comment.author}</span>
+              Ответ <span className="font-medium text-foreground">@{comment.author}</span>
             </span>
             <button
               type="button"
               onClick={onCancel}
-              className="text-gray-400 hover:text-red-500 transition"
+              className="text-muted-foreground/50 hover:text-red-500 transition"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -72,7 +71,7 @@ const ReplyForm = ({
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}
             placeholder={`Ответить ${comment.author}...`}
-            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-400 transition resize-none"
+            className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition resize-none"
             rows={2}
             autoFocus
             onKeyDown={(e) => {
@@ -84,7 +83,7 @@ const ReplyForm = ({
           <button
             type="submit"
             disabled={isSubmitting || !replyContent.trim()}
-            className="mt-1.5 px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="mt-1.5 px-4 py-1.5 bg-foreground text-background rounded-lg text-xs font-medium hover:bg-foreground/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
             Отправить
@@ -135,11 +134,14 @@ const CommentItem = ({
 
   if (isCollapsed) {
     return (
-      <div className="relative py-1 px-3 hover:bg-gray-50 rounded-lg cursor-pointer" onClick={() => toggleCollapse(comment.id)}>
+      <div 
+        className="relative py-1 px-3 hover:bg-muted/50 rounded-lg cursor-pointer transition" 
+        onClick={() => toggleCollapse(comment.id)}
+      >
         <div className="flex items-center gap-2">
-          <ChevronRight className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-600">{comment.author}</span>
-          <span className="text-xs text-gray-400">
+          <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
+          <span className="text-sm text-foreground">{comment.author}</span>
+          <span className="text-xs text-muted-foreground/50">
             {new Date(comment.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
           </span>
         </div>
@@ -150,28 +152,28 @@ const CommentItem = ({
   return (
     <div className="relative">
       {depth > 0 && depth <= MAX_DEPTH && (
-        <div className="absolute left-0 top-0 bottom-0 border-l-2 border-gray-200" style={{ left: `${(depth - 1) * 20 + 4}px` }} />
+        <div className="absolute left-0 top-0 bottom-0 border-l-2 border-border" style={{ left: `${(depth - 1) * 20 + 4}px` }} />
       )}
       <div className="relative" style={{ paddingLeft: depth > 0 && depth <= MAX_DEPTH ? `${Math.min(depth, MAX_DEPTH) * 20 + 8}px` : 0 }}>
-        <div className={`py-2 px-3 rounded-lg hover:bg-gray-50 transition ${isReplyActive ? 'bg-gray-50' : ''}`}>
+        <div className={`py-2 px-3 rounded-lg hover:bg-muted/30 transition ${isReplyActive ? 'bg-muted/50' : ''}`}>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-medium text-xs flex-shrink-0">
+            <div className="w-6 h-6 bg-muted rounded-full flex items-center justify-center text-muted-foreground font-medium text-xs flex-shrink-0">
               {comment.author?.charAt(0).toUpperCase() || 'А'}
             </div>
-            <span className="font-medium text-sm text-gray-800">{comment.author || 'Аноним'}</span>
-            {isMaxDepth && comment.parentId && <span className="text-xs text-blue-500">@{comment.author}</span>}
-            <span className="text-xs text-gray-400">
+            <span className="font-medium text-sm text-foreground">{comment.author || 'Аноним'}</span>
+            {isMaxDepth && comment.parentId && <span className="text-xs text-foreground/60">@{comment.author}</span>}
+            <span className="text-xs text-muted-foreground/50">
               {new Date(comment.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
 
-          <p className="text-sm text-gray-800 mt-1 leading-relaxed pl-7 break-words">{comment.content}</p>
+          <p className="text-sm text-foreground/90 mt-1 leading-relaxed pl-7 break-words">{comment.content}</p>
 
           <div className="flex items-center gap-4 mt-1.5 pl-7">
             {user && (
               <button
                 onClick={() => setReplyToId(comment.id)}
-                className="text-xs text-gray-400 hover:text-blue-600 transition flex items-center gap-1 font-medium"
+                className="text-xs text-muted-foreground/60 hover:text-foreground transition flex items-center gap-1 font-medium"
               >
                 <Reply className="w-3.5 h-3.5" />
                 Ответить
@@ -194,7 +196,7 @@ const CommentItem = ({
             <div className="mt-1.5 pl-7">
               <button
                 onClick={() => toggleRepliesCollapse(comment.id)}
-                className="text-xs text-gray-400 hover:text-blue-600 transition flex items-center gap-1 font-medium"
+                className="text-xs text-muted-foreground/60 hover:text-foreground transition flex items-center gap-1 font-medium"
               >
                 {areRepliesCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 <span>{totalRepliesCount} {totalRepliesCount === 1 ? 'ответ' : 'ответов'}</span>
@@ -279,7 +281,6 @@ export function CommentSection({ articleId, initialComments }: CommentSectionPro
     setIsSubmitting(true);
 
     try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
       const response = await fetchWithCsrf('/api/comments', {
         method: 'POST',
         body: JSON.stringify({ articleId, content, parentId: parentId || null }),
@@ -329,46 +330,67 @@ export function CommentSection({ articleId, initialComments }: CommentSectionPro
     }
   }, [articleId, replyContent, newComment]);
 
+  // Считаем общее количество комментариев для отображения
+  const totalComments = countAllComments(comments);
+
   return (
     <div className="pt-4">
-      <div className="space-y-0.5 mb-6">
-        {comments.map((comment) => (
-          <CommentItem
-            key={comment.id}
-            comment={comment}
-            depth={0}
-            replyToId={replyToId}
-            setReplyToId={setReplyToId}
-            replyContent={replyContent}
-            setReplyContent={setReplyContent}
-            isSubmitting={isSubmitting}
-            handleSubmit={handleSubmit}
-            collapsed={collapsed}
-            toggleCollapse={toggleCollapse}
-            isRepliesCollapsed={repliesCollapsed}
-            toggleRepliesCollapse={toggleRepliesCollapse}
-          />
-        ))}
+      {/* Заголовок секции комментариев */}
+      <div className="flex items-center gap-2 mb-6 pb-4 border-b border-border">
+        <MessageCircle className="w-5 h-5 text-muted-foreground" />
+        <h3 className="text-lg font-semibold text-foreground">
+          Комментарии <span className="text-sm font-normal text-muted-foreground">({totalComments})</span>
+        </h3>
       </div>
 
+      {/* Список комментариев */}
+      <div className="space-y-0.5 mb-6">
+        {comments.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground/60 text-sm">
+            <MessageCircle className="w-8 h-8 mx-auto text-muted-foreground/30 mb-2" />
+            <p>Пока нет комментариев</p>
+            <p className="text-xs mt-1">Будьте первым, кто оставит комментарий</p>
+          </div>
+        ) : (
+          comments.map((comment) => (
+            <CommentItem
+              key={comment.id}
+              comment={comment}
+              depth={0}
+              replyToId={replyToId}
+              setReplyToId={setReplyToId}
+              replyContent={replyContent}
+              setReplyContent={setReplyContent}
+              isSubmitting={isSubmitting}
+              handleSubmit={handleSubmit}
+              collapsed={collapsed}
+              toggleCollapse={toggleCollapse}
+              isRepliesCollapsed={repliesCollapsed}
+              toggleRepliesCollapse={toggleRepliesCollapse}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Форма добавления комментария */}
       {user ? (
-        <form onSubmit={(e) => handleSubmit(e)} className="bg-gray-50 rounded-xl p-4 border border-gray-200 mt-4">
+        <form onSubmit={(e) => handleSubmit(e)} className="bg-card border border-border rounded-xl p-4 mt-4">
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-gray-700 to-gray-900 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
-              {user.firstName?.[0]?.toUpperCase() || 'А'}
+            <div className="w-9 h-9 bg-foreground rounded-full flex items-center justify-center text-background font-medium text-sm flex-shrink-0">
+              {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'А'}
             </div>
             <div className="flex-1">
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 placeholder="Что думаете?"
-                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-400 transition resize-none"
+                className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition resize-none"
                 rows={2}
               />
               <button
                 type="submit"
                 disabled={isSubmitting || !newComment.trim()}
-                className="mt-2 px-5 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="mt-2 px-5 py-1.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Send className="w-3.5 h-3.5" />
                 {isSubmitting ? 'Отправка...' : 'Отправить'}
@@ -377,9 +399,9 @@ export function CommentSection({ articleId, initialComments }: CommentSectionPro
           </div>
         </form>
       ) : (
-        <div className="bg-gray-50 rounded-xl p-5 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm">
-            <Link href="/login" className="text-blue-600 font-medium hover:underline">
+        <div className="bg-card border border-border rounded-xl p-5 text-center">
+          <p className="text-muted-foreground text-sm">
+            <Link href="/login" className="text-foreground font-medium hover:underline">
               Войдите
             </Link>
             , чтобы оставить комментарий
