@@ -1,3 +1,4 @@
+// frontend/components/why-us.tsx
 import { Award, BadgeDollarSign, Users, Target, Cpu } from 'lucide-react';
 
 const REASONS = [

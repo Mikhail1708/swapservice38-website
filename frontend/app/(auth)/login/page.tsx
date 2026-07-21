@@ -1,6 +1,7 @@
+// frontend/app/(auth)/login/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, ArrowRight, ArrowLeft } from 'lucide-react';
@@ -12,9 +13,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  // Загружаем сохранённый email при загрузке страницы
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +42,13 @@ export default function LoginPage() {
 
       if (!response.ok) {
         throw new Error(data.error || 'Ошибка входа');
+      }
+
+      // ✅ Сохраняем email если выбран чекбокс
+      if (rememberMe) {
+        localStorage.setItem('rememberedEmail', email);
+      } else {
+        localStorage.removeItem('rememberedEmail');
       }
 
       router.push('/');
@@ -117,7 +135,12 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-sm text-muted-foreground font-light cursor-pointer">
-              <input type="checkbox" className="w-4 h-4 border-border rounded accent-primary bg-muted" />
+              <input 
+                type="checkbox" 
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 border-border rounded accent-primary bg-muted"
+              />
               Запомнить меня
             </label>
             <Link href="/reset-password" className="text-sm text-muted-foreground hover:text-foreground transition font-light">

@@ -1,3 +1,4 @@
+// frontend/app/(public)/contacts/page.tsx
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { 
@@ -20,6 +21,17 @@ import {
 export const metadata: Metadata = {
   title: 'Контакты — SWAP SERVICE 38',
   description: 'Свяжитесь с нами: телефон, email, адрес, режим работы. SWAP SERVICE 38 — тюнинг и обслуживание внедорожников в Иркутске.',
+  openGraph: {
+    title: 'Контакты — SWAP SERVICE 38',
+    description: 'Свяжитесь с нами: телефон, email, адрес, режим работы.',
+    url: 'https://swapservice38.ru/contacts',
+    siteName: 'SWAP SERVICE 38',
+    locale: 'ru_RU',
+    type: 'website',
+  },
+  alternates: {
+    canonical: 'https://swapservice38.ru/contacts',
+  },
 };
 
 export default function ContactsPage() {
@@ -198,7 +210,6 @@ export default function ContactsPage() {
               <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
                 <div className="text-2xl mb-2">🔧</div>
                 <p className="text-sm font-medium text-foreground">Осмотр на месте</p>
-                
               </div>
               <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
                 <div className="text-2xl mb-2">📋</div>

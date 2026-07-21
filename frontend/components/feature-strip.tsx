@@ -1,3 +1,4 @@
+// frontend/components/feature-strip.tsx
 import { Factory, ShieldCheck, Wrench, Headphones } from 'lucide-react';
 
 const FEATURES = [

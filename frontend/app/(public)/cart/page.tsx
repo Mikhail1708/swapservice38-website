@@ -22,7 +22,8 @@ import {
   ChevronRight,
   Mail,
   MessageSquare,
-  Package
+  Package,
+  Phone
 } from 'lucide-react';
 import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -498,7 +499,7 @@ export default function CartPage() {
                     </div>
                   </div>
 
-                  {/* Телефон — ИСПОЛЬЗУЕМ PhoneInput */}
+                  {/* Телефон */}
                   <div>
                     <PhoneInput
                       label="Телефон"
@@ -539,7 +540,7 @@ export default function CartPage() {
                     )}
                   </div>
 
-                  {/* Адрес — ИСПОЛЬЗУЕМ AddressInput */}
+                  {/* Адрес */}
                   <div>
                     <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                       <Home className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
@@ -605,7 +606,10 @@ export default function CartPage() {
                   </button>
 
                   <p className="text-xs text-muted-foreground/50 text-center mt-3">
-                    Нажимая кнопку, вы соглашаетесь с условиями оферты
+                    Нажимая кнопку, вы соглашаетесь с{' '}
+                    <Link href="/offer" className="text-muted-foreground hover:text-foreground underline transition">
+                      условиями оферты
+                    </Link>
                   </p>
                 </form>
               )}

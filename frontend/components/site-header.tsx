@@ -1,3 +1,4 @@
+// frontend/components/site-header.tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -40,7 +41,14 @@ export function SiteHeader() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, isLoading, logout } = useAuth();
-  const { itemsCount } = useCart();
+  
+  // ✅ ИСПОЛЬЗУЕМ itemsCount ИЗ useCart — ОН БУДЕТ ОБНОВЛЯТЬСЯ МГНОВЕННО
+  const { itemsCount, refetch: refetchCart } = useCart();
+
+  // ✅ ПРИ КАЖДОМ ИЗМЕНЕНИИ PATHNAME — ОБНОВЛЯЕМ КОРЗИНУ
+  useEffect(() => {
+    refetchCart();
+  }, [pathname, refetchCart]);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -101,6 +109,17 @@ export function SiteHeader() {
     }
   };
 
+  // ✅ АНИМАЦИЯ ДЛЯ КОРЗИНЫ
+  const [cartBounce, setCartBounce] = useState(false);
+
+  useEffect(() => {
+    if (itemsCount > 0) {
+      setCartBounce(true);
+      const timer = setTimeout(() => setCartBounce(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [itemsCount]);
+
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
       <div className="container-custom flex h-20 items-center justify-between gap-4">
@@ -121,7 +140,6 @@ export function SiteHeader() {
         {/* ===== ДЕСКТОПНАЯ НАВИГАЦИЯ ===== */}
         <nav className="hidden items-center gap-8 lg:flex">
           {NAV.map((item) => {
-            // Для "Каталог" показываем с выпадашкой
             if (item.label === 'Каталог') {
               return (
                 <div
@@ -177,7 +195,6 @@ export function SiteHeader() {
               );
             }
 
-            // Остальные пункты — обычные ссылки
             return (
               <Link
                 key={item.href}
@@ -209,14 +226,22 @@ export function SiteHeader() {
             </span>
           </div>
 
-          {/* Корзина */}
+          {/* ✅ КОРЗИНА С АНИМАЦИЕЙ */}
           <Link
             href="/cart"
-            className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+            className="relative p-2 rounded-lg hover:bg-muted transition-colors group"
           >
-            <ShoppingCart className="h-5 w-5 text-muted-foreground hover:text-foreground transition" />
+            <ShoppingCart className={`h-5 w-5 text-muted-foreground hover:text-foreground transition ${
+              cartBounce ? 'scale-110' : 'scale-100'
+            }`} />
+            
             {itemsCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+              <span className={`
+                absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full 
+                bg-primary text-[10px] font-medium text-primary-foreground
+                transition-all duration-300
+                ${cartBounce ? 'scale-125' : 'scale-100'}
+              `}>
                 {itemsCount > 99 ? '99+' : itemsCount}
               </span>
             )}

@@ -1,3 +1,4 @@
+// frontend/app/(public)/privacy/page.tsx
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { 
@@ -26,6 +27,17 @@ import {
 export const metadata: Metadata = {
   title: 'Политика конфиденциальности — SWAP SERVICE 38',
   description: 'Политика конфиденциальности и обработки персональных данных SWAP SERVICE 38. Честно и прозрачно о том, какие данные мы собираем и зачем.',
+  openGraph: {
+    title: 'Политика конфиденциальности — SWAP SERVICE 38',
+    description: 'Политика конфиденциальности и обработки персональных данных',
+    url: 'https://swapservice38.ru/privacy',
+    siteName: 'SWAP SERVICE 38',
+    locale: 'ru_RU',
+    type: 'website',
+  },
+  alternates: {
+    canonical: 'https://swapservice38.ru/privacy',
+  },
 };
 
 export default function PrivacyPage() {

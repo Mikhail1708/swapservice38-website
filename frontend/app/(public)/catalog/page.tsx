@@ -318,23 +318,22 @@ export default function CatalogPage() {
     updateUrl(selectedCategory, 1, value);
   }, [selectedCategory, updateUrl]);
 
-  const handleAddToCart = async (productId: string | number) => {
-    const id = String(productId);
-    setAddingToCart(id);
+ const handleAddToCart = async (productId: string | number) => {
+  const id = String(productId);
+  setAddingToCart(id);
 
-    try {
-      const result = await addToCart(id, 1);
-      if (result) {
-        await refetchCart();
-        // ✅ Инвалидируем кэш товаров (если нужно обновить остатки)
-        // refetchProducts();
-      }
-    } catch (error) {
-      console.error('❌ Ошибка добавления в корзину:', error);
-    } finally {
-      setAddingToCart(null);
+  try {
+    const result = await addToCart(id, 1);
+    if (result) {
+      // ✅ Принудительно обновляем корзину
+      await refetchCart();
     }
-  };
+  } catch (error) {
+    console.error('❌ Ошибка добавления в корзину:', error);
+  } finally {
+    setAddingToCart(null);
+  }
+};
 
   const clearFilters = () => {
     setSearch('');

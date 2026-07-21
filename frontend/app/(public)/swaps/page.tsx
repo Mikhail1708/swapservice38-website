@@ -1,6 +1,5 @@
-'use client';
-
-import { useState, useEffect } from 'react';
+// frontend/app/(public)/swaps/page.tsx
+import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import { 
@@ -18,18 +17,43 @@ import {
   Loader2
 } from 'lucide-react';
 
-interface Article {
-  id: string;
-  slug: string;
-  title: string;
-  description: string;
-  imageUrl: string;
-  date: string;
-  readTime: number;
-  tags: string[];
-  views: number;
-  likesCount: number;
-  type: string;
+export const metadata: Metadata = {
+  title: 'Свапы двигателей — SWAP SERVICE 38',
+  description: 'Профессиональная замена двигателей на внедорожники и коммерческий транспорт. Установка моторов 3UZ, 5VZ, VQ35 и других.',
+  openGraph: {
+    title: 'Свапы двигателей — SWAP SERVICE 38',
+    description: 'Профессиональная замена двигателей на внедорожники и коммерческий транспорт.',
+    url: 'https://swapservice38.ru/swaps',
+    siteName: 'SWAP SERVICE 38',
+    locale: 'ru_RU',
+    type: 'website',
+  },
+  alternates: {
+    canonical: 'https://swapservice38.ru/swaps',
+  },
+};
+
+// Это будет работать как Server Component
+// Данные загружаются на сервере
+async function getArticles() {
+  const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
+  
+  try {
+    const response = await fetch(`${baseUrl}/api/articles?published=true&type=swap`, {
+      cache: 'force-cache', // Кэшируем на сервере
+      next: { revalidate: 3600 }, // Пересобираем каждый час
+    });
+    
+    if (!response.ok) {
+      return { items: [] };
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('❌ Ошибка загрузки статей:', error);
+    return { items: [] };
+  }
 }
 
 const SWAP_ICONS: Record<string, any> = {
@@ -43,39 +67,11 @@ const SWAP_ICONS: Record<string, any> = {
   'Diesel': Truck,
 };
 
-export default function SwapsPage() {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<string>('all');
+export default async function SwapsPage() {
+  const data = await getArticles();
+  const articles = data.items || [];
 
-  useEffect(() => {
-    const fetchArticles = async () => {
-      try {
-        const response = await fetch('/api/articles?published=true&type=swap');
-        if (!response.ok) throw new Error('Ошибка загрузки');
-        const data = await response.json();
-        setArticles(data.items || []);
-      } catch (err) {
-        console.error('❌ Ошибка:', err);
-        setError('Не удалось загрузить статьи');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchArticles();
-  }, []);
-
-  // Получаем уникальные теги
-  const allTags = Array.from(
-    new Set(articles.flatMap((a) => a.tags || []))
-  );
-
-  const filteredArticles = activeFilter === 'all'
-    ? articles
-    : articles.filter((a) => (a.tags || []).includes(activeFilter));
-
-  const getIconForArticle = (article: Article) => {
+  const getIconForArticle = (article: any) => {
     const tags = article.tags || [];
     for (const tag of tags) {
       for (const [key, Icon] of Object.entries(SWAP_ICONS)) {
@@ -84,17 +80,6 @@ export default function SwapsPage() {
     }
     return Wrench;
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background pt-32 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">Загрузка проектов...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
@@ -176,50 +161,14 @@ export default function SwapsPage() {
           </div>
         </div>
 
-        {/* Фильтр по тегам */}
-        {allTags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-8">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition ${
-                activeFilter === 'all'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Все
-            </button>
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => setActiveFilter(tag)}
-                className={`px-4 py-1.5 rounded-full text-xs font-medium transition ${
-                  activeFilter === tag
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Список проектов */}
-        {error ? (
-          <div className="text-center py-16">
-            <p className="text-muted-foreground">{error}</p>
-          </div>
-        ) : filteredArticles.length === 0 ? (
+        {articles.length === 0 ? (
           <div className="text-center py-16 bg-card border border-border rounded-lg">
             <p className="text-muted-foreground">Проектов не найдено</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              {activeFilter !== 'all' ? `Нет проектов с тегом "${activeFilter}"` : 'Нет опубликованных проектов'}
-            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredArticles.map((article) => {
+            {articles.map((article: any) => {
               const Icon = getIconForArticle(article);
               return (
                 <Link
@@ -251,7 +200,7 @@ export default function SwapsPage() {
                     
                     {/* Теги */}
                     <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
-                      {(article.tags || []).slice(0, 3).map((tag) => (
+                      {(article.tags || []).slice(0, 3).map((tag: string) => (
                         <span key={tag} className="text-[10px] bg-background/80 backdrop-blur-sm text-foreground px-2 py-0.5 rounded-full border border-border/50">
                           {tag}
                         </span>
@@ -295,10 +244,9 @@ export default function SwapsPage() {
         )}
 
         {/* Статистика */}
-        {!loading && !error && articles.length > 0 && (
+        {articles.length > 0 && (
           <div className="mt-8 text-center text-xs text-muted-foreground/70">
             Всего проектов: {articles.length}
-            {activeFilter !== 'all' && ` • Показано: ${filteredArticles.length}`}
           </div>
         )}
 
@@ -312,12 +260,12 @@ export default function SwapsPage() {
             и разработаем индивидуальный план работ.
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-6">
-            <a
+            <Link
               href="#footer"
               className="inline-flex items-center gap-2 rounded-sm bg-primary px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Записаться на консультацию
-            </a>
+            </Link>
             <Link
               href="/catalog"
               className="inline-flex items-center gap-2 rounded-sm border border-border px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-foreground transition-colors hover:bg-card"

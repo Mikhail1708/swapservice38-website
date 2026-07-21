@@ -1,3 +1,4 @@
+// frontend/app/(public)/services/page.tsx
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -21,6 +22,17 @@ import {
 export const metadata: Metadata = {
   title: 'Услуги — SWAP SERVICE 38',
   description: 'Профессиональные услуги по тюнингу и обслуживанию внедорожников: свапы двигателей, боди-лифт, усиление кузова, установка защиты и многое другое.',
+  openGraph: {
+    title: 'Услуги — SWAP SERVICE 38',
+    description: 'Профессиональные услуги по тюнингу и обслуживанию внедорожников',
+    url: 'https://swapservice38.ru/services',
+    siteName: 'SWAP SERVICE 38',
+    locale: 'ru_RU',
+    type: 'website',
+  },
+  alternates: {
+    canonical: 'https://swapservice38.ru/services',
+  },
 };
 
 const SERVICES = [
@@ -245,12 +257,12 @@ export default function ServicesPage() {
             Расскажем, что можно сделать с вашим автомобилем и подберём оптимальное решение.
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-6">
-            <a
+            <Link
               href="#footer"
               className="inline-flex items-center gap-2 rounded-sm bg-primary px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Записаться на консультацию
-            </a>
+            </Link>
             <Link
               href="/contacts"
               className="inline-flex items-center gap-2 rounded-sm border border-border px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-foreground transition-colors hover:bg-card"
