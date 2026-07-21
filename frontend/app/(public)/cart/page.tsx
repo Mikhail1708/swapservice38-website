@@ -25,8 +25,8 @@ import {
   Package,
   Phone
 } from 'lucide-react';
-import { useCart } from '@/lib/hooks/useCart';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
@@ -49,7 +49,7 @@ interface CartItem {
 // ОСНОВНАЯ СТРАНИЦА КОРЗИНЫ
 // ============================================================
 export default function CartPage() {
-  const { cart, isLoading, updateQuantity, clearCart } = useCart();
+  const { cart, isLoading, updateQuantity, clearCart, refetch: refetchCart } = useCart();
   const { user } = useAuth();
   const router = useRouter();
   
@@ -86,11 +86,13 @@ export default function CartPage() {
   const handleUpdateQuantity = async (productId: string, newQuantity: number) => {
     if (newQuantity < 0) return;
     await updateQuantity(productId, newQuantity);
+    await refetchCart();
   };
 
   const handleRemoveItem = async (productId: string) => {
     if (confirm('Удалить товар из корзины?')) {
       await updateQuantity(productId, 0);
+      await refetchCart();
     }
   };
 
@@ -163,6 +165,7 @@ export default function CartPage() {
     if (!confirm('Вы уверены, что хотите очистить корзину?')) return;
     try {
       await clearCart();
+      await refetchCart();
     } catch (error) {
       console.error('Ошибка очистки:', error);
     }
@@ -226,6 +229,7 @@ export default function CartPage() {
       }
 
       await clearCart();
+      await refetchCart();
 
       if (data.paymentUrl) {
         router.push(data.paymentUrl);

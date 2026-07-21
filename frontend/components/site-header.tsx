@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Menu, Phone, X, ShoppingCart, User, ChevronDown, LogOut, Settings, Package } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { useCart } from '@/lib/hooks/useCart';
+import { useCart } from '@/lib/context/CartContext';
 
 // Категории для выпадающего меню
 const CATEGORIES = [
@@ -33,6 +33,7 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [cartBounce, setCartBounce] = useState(false);
   
   const catalogRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -41,14 +42,21 @@ export function SiteHeader() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, isLoading, logout } = useAuth();
-  
-  // ✅ ИСПОЛЬЗУЕМ itemsCount ИЗ useCart — ОН БУДЕТ ОБНОВЛЯТЬСЯ МГНОВЕННО
   const { itemsCount, refetch: refetchCart } = useCart();
 
-  // ✅ ПРИ КАЖДОМ ИЗМЕНЕНИИ PATHNAME — ОБНОВЛЯЕМ КОРЗИНУ
+  // Обновляем корзину при монтировании и при изменении пути
   useEffect(() => {
     refetchCart();
   }, [pathname, refetchCart]);
+
+  // Анимация при изменении количества
+  useEffect(() => {
+    if (itemsCount > 0) {
+      setCartBounce(true);
+      const timer = setTimeout(() => setCartBounce(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [itemsCount]);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -109,17 +117,6 @@ export function SiteHeader() {
     }
   };
 
-  // ✅ АНИМАЦИЯ ДЛЯ КОРЗИНЫ
-  const [cartBounce, setCartBounce] = useState(false);
-
-  useEffect(() => {
-    if (itemsCount > 0) {
-      setCartBounce(true);
-      const timer = setTimeout(() => setCartBounce(false), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [itemsCount]);
-
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
       <div className="container-custom flex h-20 items-center justify-between gap-4">
@@ -140,6 +137,7 @@ export function SiteHeader() {
         {/* ===== ДЕСКТОПНАЯ НАВИГАЦИЯ ===== */}
         <nav className="hidden items-center gap-8 lg:flex">
           {NAV.map((item) => {
+            // Для "Каталог" показываем с выпадашкой
             if (item.label === 'Каталог') {
               return (
                 <div
@@ -195,6 +193,7 @@ export function SiteHeader() {
               );
             }
 
+            // Остальные пункты — обычные ссылки
             return (
               <Link
                 key={item.href}
@@ -226,7 +225,7 @@ export function SiteHeader() {
             </span>
           </div>
 
-          {/* ✅ КОРЗИНА С АНИМАЦИЕЙ */}
+          {/* Корзина */}
           <Link
             href="/cart"
             className="relative p-2 rounded-lg hover:bg-muted transition-colors group"

@@ -1,10 +1,12 @@
+// frontend/components/products.tsx
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, Check, Loader2 } from 'lucide-react';
-import { useCart } from '@/lib/hooks/useCart';
+import { useCart } from '@/lib/context/CartContext';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Product {
   id: string | number;
@@ -18,7 +20,6 @@ interface Product {
   images: string[];
   sku: string;
   characteristics?: Record<string, string | string[]>;
-  // Поля для популярности
   views?: number;
   ordersCount?: number;
   popularity?: number;
@@ -35,7 +36,7 @@ const GUARANTEES = [
 
 export function Products() {
   const trackRef = useRef<HTMLDivElement>(null);
-  const { addToCart, refetch, isInCart, getQuantity } = useCart();
+  const { addToCart, refetch: refetchCart, isInCart, getQuantity } = useCart();
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,10 +49,8 @@ export function Products() {
         setLoading(true);
         setError(null);
         
-        // Запрашиваем товары с сортировкой по популярности
-        // В реальности нужно добавить параметр sort=popular на бэкенде
-        const response = await fetch('/api/products?limit=20&sort=popular', {
-          credentials: 'include',
+        const response = await fetchWithCsrf('/api/products?limit=20&sort=popular', {
+          method: 'GET',
         });
         
         if (!response.ok) {
@@ -61,31 +60,25 @@ export function Products() {
         const data = await response.json();
         const items = data.items || data || [];
         
-        // Сортируем по популярности (если есть поле popularity или ordersCount)
-        // Или просто берём первые 5 товаров
         const sorted = [...items]
           .sort((a, b) => {
-            // Если есть поле popularity
             if (a.popularity !== undefined && b.popularity !== undefined) {
               return b.popularity - a.popularity;
             }
-            // Если есть ordersCount
             if (a.ordersCount !== undefined && b.ordersCount !== undefined) {
               return b.ordersCount - a.ordersCount;
             }
-            // Если есть views
             if (a.views !== undefined && b.views !== undefined) {
               return b.views - a.views;
             }
             return 0;
           })
-          .slice(0, 5); // Берём топ-5
+          .slice(0, 5);
         
         setProducts(sorted);
       } catch (err) {
         console.error('❌ Ошибка загрузки популярных товаров:', err);
         setError('Не удалось загрузить товары');
-        // Если ошибка — показываем заглушки
         setProducts([]);
       } finally {
         setLoading(false);
@@ -103,8 +96,10 @@ export function Products() {
     const id = String(productId);
     setAddingIds((prev) => new Set(prev).add(id));
     try {
-      await addToCart(id, 1);
-      await refetch();
+      const result = await addToCart(id, 1);
+      if (result) {
+        await refetchCart();
+      }
     } catch (error) {
       console.error('❌ Ошибка добавления в корзину:', error);
     } finally {
@@ -116,7 +111,6 @@ export function Products() {
     }
   };
 
-  // Показываем заглушки во время загрузки
   if (loading) {
     return (
       <section id="products" className="bg-surface py-24 text-surface-foreground">
@@ -155,7 +149,6 @@ export function Products() {
     );
   }
 
-  // Если ошибка или нет товаров — показываем заглушки
   const displayProducts = products.length > 0 ? products : FEATURED_PRODUCTS;
 
   return (
@@ -295,7 +288,6 @@ export function Products() {
   );
 }
 
-// Заглушки на случай ошибки
 const FEATURED_PRODUCTS: Product[] = [
   { id: '1', name: 'Комплект для боди-лифта', price: 18900, inStock: true, images: ['/images/product-liftkit.png'], category: 'Боди-лифт', description: 'Nissan Patrol Y60/Y61' },
   { id: '2', name: 'Крепление канистры', price: 6500, inStock: true, images: ['/images/product-canister.png'], category: 'Крепления', description: 'Универсальное' },

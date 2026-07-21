@@ -48,6 +48,7 @@ export function useCart() {
           const data = await response.json();
           const cartData = data.cart || data;
           setCart(cartData);
+          
           const items = cartData?.items || [];
           const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
           setItemsCount(count);
@@ -68,12 +69,6 @@ export function useCart() {
     return fetchPromise.current;
   }, []);
 
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    fetchCart();
-  }, [fetchCart]);
-
   const addToCart = useCallback(async (productId: string, quantity: number = 1) => {
     try {
       const response = await fetchWithCsrf('/api/cart/add', {
@@ -81,27 +76,27 @@ export function useCart() {
         body: JSON.stringify({ productId, quantity }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const cartData = data.cart || data;
-        if (cartData) {
-          setCart(cartData);
-          const items = cartData.items || [];
-          const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
-          setItemsCount(count);
-        }
-        return true;
-      } else {
-        const errorData = await response.json();
-        console.error('❌ Ошибка добавления:', errorData);
+      if (!response.ok) {
         return false;
       }
+
+      const data = await response.json();
+      const cartData = data.cart || data;
+      
+      if (cartData) {
+        setCart(cartData);
+        const items = cartData.items || [];
+        const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
+        setItemsCount(count);
+      }
+      return true;
     } catch (error) {
       console.error('❌ Add to cart error:', error);
       return false;
     }
   }, []);
 
+  // ✅ ОБНОВЛЕНИЕ КОЛИЧЕСТВА
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
     try {
       const response = await fetchWithCsrf('/api/cart/update', {
@@ -109,20 +104,22 @@ export function useCart() {
         body: JSON.stringify({ productId, quantity }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const cartData = data.cart || data;
-        if (cartData) {
-          setCart(cartData);
-          const items = cartData.items || [];
-          const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
-          setItemsCount(count);
-        }
-        return true;
+      if (!response.ok) {
+        return false;
       }
-      return false;
+
+      const data = await response.json();
+      const cartData = data.cart || data;
+      
+      if (cartData) {
+        setCart(cartData);
+        const items = cartData.items || [];
+        const count = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
+        setItemsCount(count);
+      }
+      return true;
     } catch (error) {
-      console.error('Update cart error:', error);
+      console.error('❌ Update cart error:', error);
       return false;
     }
   }, []);
@@ -144,6 +141,13 @@ export function useCart() {
       return false;
     }
   }, []);
+
+  // Первоначальная загрузка
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetchCart();
+  }, [fetchCart]);
 
   const isInCart = useCallback((productId: string): boolean => {
     if (!cart) return false;

@@ -17,7 +17,8 @@ import {
   Check,
   SlidersHorizontal
 } from 'lucide-react';
-import { useCart } from '@/lib/hooks/useCart';
+import { useCart } from '@/lib/context/CartContext';
+import { AddToCartButton } from '@/components/AddToCartButton';
 import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Product {
@@ -42,7 +43,6 @@ const ITEMS_PER_PAGE = 16;
 // API ФУНКЦИИ (С CSRF)
 // ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
-  // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
   const response = await fetchWithCsrf('/api/products?limit=999', {
     method: 'GET',
   });
@@ -54,7 +54,6 @@ const fetchProducts = async (): Promise<Product[]> => {
 };
 
 const fetchCategories = async (): Promise<string[]> => {
-  // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
   const response = await fetchWithCsrf('/api/products/categories', {
     method: 'GET',
   });
@@ -70,25 +69,20 @@ const fetchCategories = async (): Promise<string[]> => {
 // ============================================================
 function ProductCard({
   product,
-  onAddToCart,
-  addingToCart,
   onImageError,
   hasImageError,
-  inCart,
-  quantityInCart,
 }: {
   product: Product;
-  onAddToCart: (id: string | number) => void;
-  addingToCart: boolean;
   onImageError: (id: string | number) => void;
   hasImageError?: boolean;
-  inCart: boolean;
-  quantityInCart: number;
 }) {
   const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
   const [imgError, setImgError] = useState(false);
   const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
   const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
+  const { isInCart, getQuantity } = useCart();
+  const inCart = isInCart(String(product.id));
+  const quantityInCart = getQuantity(String(product.id));
 
   return (
     <div className="group bg-card border border-border rounded-2xl overflow-hidden hover:border-foreground/30 transition hover:shadow-lg hover:shadow-black/5 flex flex-col">
@@ -172,29 +166,12 @@ function ProductCard({
               </span>
             )}
           </div>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAddToCart(product.id);
-            }}
-            disabled={isOutOfStock || addingToCart}
-            className={`p-2.5 rounded-xl transition ${
-              isOutOfStock
-                ? 'bg-muted text-muted-foreground/30 cursor-not-allowed'
-                : inCart
-                  ? 'bg-green-500 hover:bg-green-600 text-white'
-                  : 'bg-foreground hover:bg-foreground/80 text-background'
-            }`}
-          >
-            {addingToCart ? (
-              <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-            ) : inCart ? (
-              <Check className="w-4 h-4" />
-            ) : (
-              <ShoppingCart className="w-4 h-4" />
-            )}
-          </button>
+          
+          <AddToCartButton 
+            productId={String(product.id)} 
+            showQuantity={false}
+            className="px-3 py-2 text-sm"
+          />
         </div>
       </div>
     </div>
@@ -217,11 +194,10 @@ export default function CatalogPage() {
   const [search, setSearch] = useState(searchFromUrl);
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
-  const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
 
-  const { addToCart, refetch: refetchCart, isInCart, getQuantity } = useCart();
+  const { refetch: refetchCart } = useCart();
 
   // ===== REACT QUERY: ТОВАРЫ =====
   const {
@@ -317,23 +293,6 @@ export default function CatalogPage() {
     setCurrentPage(1);
     updateUrl(selectedCategory, 1, value);
   }, [selectedCategory, updateUrl]);
-
- const handleAddToCart = async (productId: string | number) => {
-  const id = String(productId);
-  setAddingToCart(id);
-
-  try {
-    const result = await addToCart(id, 1);
-    if (result) {
-      // ✅ Принудительно обновляем корзину
-      await refetchCart();
-    }
-  } catch (error) {
-    console.error('❌ Ошибка добавления в корзину:', error);
-  } finally {
-    setAddingToCart(null);
-  }
-};
 
   const clearFilters = () => {
     setSearch('');
@@ -548,19 +507,13 @@ export default function CatalogPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {paginatedProducts.map((product) => {
                 const productId = String(product.id);
-                const inCart = isInCart(productId);
-                const quantityInCart = getQuantity(productId);
 
                 return (
                   <ProductCard
                     key={productId}
                     product={product}
-                    onAddToCart={handleAddToCart}
-                    addingToCart={addingToCart === productId}
                     onImageError={(id) => setImageErrors(prev => ({ ...prev, [String(id)]: true }))}
                     hasImageError={imageErrors[productId]}
-                    inCart={inCart}
-                    quantityInCart={quantityInCart}
                   />
                 );
               })}

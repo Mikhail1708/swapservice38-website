@@ -1,3 +1,4 @@
+// frontend/components/site-footer.tsx
 import Image from 'next/image';
 import Link from 'next/link';
 import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle } from 'lucide-react';
@@ -134,12 +135,19 @@ export function SiteFooter() {
         </div>
       </div>
 
+      {/* Нижняя часть с документами */}
       <div className="border-t border-border py-6">
         <div className="container-custom flex flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">
           <span>© {new Date().getFullYear()} SWAP SERVICE 38</span>
-          <Link href="/privacy" className="hover:text-foreground">
-            Политика конфиденциальности
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-foreground transition">
+              Политика конфиденциальности
+            </Link>
+            <span className="text-muted-foreground/30">|</span>
+            <Link href="/offer" className="hover:text-foreground transition">
+              Договор оферты
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

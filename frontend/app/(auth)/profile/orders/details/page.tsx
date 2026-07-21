@@ -1,4 +1,3 @@
-// frontend/app/(auth)/profile/orders/details/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -133,7 +132,6 @@ export default function OrderDetailPage() {
       try {
         setLoading(true);
         
-        // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
         const response = await fetchWithCsrf(`/api/orders/details?id=${orderId}`, {
           method: 'GET',
         });
@@ -181,35 +179,37 @@ export default function OrderDetailPage() {
     return order.status === 'pending';
   };
 
-  const handleDeleteOrder = async () => {
-    if (!order) return;
-    setIsDeleting(true);
-    try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
-      const response = await fetchWithCsrf(`/api/orders/delete?id=${order.id}`, {
-        method: 'DELETE',
-      });
+  // frontend/app/(auth)/profile/orders/details/page.tsx
+// В handleDeleteOrder меняем URL
 
-      const data = await response.json();
+const handleDeleteOrder = async () => {
+  if (!order) return;
+  setIsDeleting(true);
+  try {
+    // ✅ МЕНЯЕМ URL: /api/orders/delete?id=xxx → /api/orders/xxx
+    const response = await fetchWithCsrf(`/api/orders/${order.id}`, {
+      method: 'DELETE',
+    });
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Ошибка удаления заказа');
-      }
+    const data = await response.json();
 
-      router.push('/profile/orders?deleted=true');
-    } catch (error: any) {
-      setError(error.message || 'Не удалось удалить заказ');
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteConfirm(false);
+    if (!response.ok) {
+      throw new Error(data.error || 'Ошибка удаления заказа');
     }
-  };
+
+    router.push('/profile/orders?deleted=true');
+  } catch (error: any) {
+    setError(error.message || 'Не удалось удалить заказ');
+  } finally {
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+  }
+};
 
   const handlePayOrder = async () => {
     if (!order) return;
     setIsPaying(true);
     try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf
       const response = await fetchWithCsrf('/api/payment/create', {
         method: 'POST',
         body: JSON.stringify({ orderId: order.id }),

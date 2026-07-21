@@ -1,3 +1,4 @@
+// frontend/app/(public)/catalog/[id]/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -29,7 +30,9 @@ import {
   Minus,
   Plus
 } from 'lucide-react';
-import { useCart } from '@/lib/hooks/useCart';
+import { useCart } from '@/lib/context/CartContext';
+import { AddToCartButton } from '@/components/AddToCartButton';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Category {
   id: number;
@@ -92,14 +95,13 @@ export default function ProductPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [addingToCart, setAddingToCart] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   
-  const { addToCart, refetch, isInCart, getQuantity } = useCart();
+  const { isInCart, getQuantity } = useCart();
 
   // Все изображения (уникальные)
   const allImages = useMemo(() => {
@@ -134,7 +136,9 @@ export default function ProductPage() {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(`/api/products/${productId}`);
+        const response = await fetchWithCsrf(`/api/products/${productId}`, {
+          method: 'GET',
+        });
         
         if (!response.ok) {
           if (response.status === 404) {
@@ -192,22 +196,6 @@ export default function ProductPage() {
       fetchProduct();
     }
   }, [productId]);
-
-  const handleAddToCart = async () => {
-    if (!product) return;
-    
-    setAddingToCart(true);
-    try {
-      const result = await addToCart(String(product.id), quantity);
-      if (result) {
-        await refetch();
-      }
-    } catch (error) {
-      console.error('❌ Ошибка добавления в корзину:', error);
-    } finally {
-      setAddingToCart(false);
-    }
-  };
 
   const getImageUrl = (url: string | null | undefined): string => {
     if (!url) return PLACEHOLDER_IMAGE;
@@ -453,58 +441,20 @@ export default function ProductPage() {
             {/* Добавление в корзину */}
             <div className="border-t border-border pt-5 space-y-4">
               <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center border border-border rounded-xl overflow-hidden bg-muted/50">
-                  <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    disabled={isOutOfStock}
-                    className="px-4 py-2 hover:bg-muted transition disabled:opacity-50 text-lg font-medium text-foreground"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="w-12 text-center font-medium text-foreground">{quantity}</span>
-                  <button
-                    onClick={() => setQuantity(Math.min(product.stock || 999, quantity + 1))}
-                    disabled={isOutOfStock || quantity >= (product.stock || 999)}
-                    className="px-4 py-2 hover:bg-muted transition disabled:opacity-50 text-lg font-medium text-foreground"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
+                <AddToCartButton 
+                  productId={String(product.id)} 
+                  showQuantity={true}
+                  className="px-6 py-3 text-base"
+                />
                 
-                <button
-                  onClick={handleAddToCart}
-                  disabled={isOutOfStock || addingToCart}
-                  className={`flex-1 min-w-[140px] py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition ${
-                    isOutOfStock
-                      ? 'bg-muted text-muted-foreground/30 cursor-not-allowed'
-                      : inCart
-                        ? 'bg-green-500 hover:bg-green-600 text-white'
-                        : 'bg-foreground hover:bg-foreground/80 text-background'
-                  }`}
-                >
-                  {addingToCart ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : inCart ? (
-                    <>
-                      <Check size={18} />
-                      В корзине
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart size={18} />
-                      В корзину
-                    </>
-                  )}
-                </button>
+                <p className="text-xs text-muted-foreground/50">
+                  {isOutOfStock 
+                    ? 'Товар временно отсутствует на складе' 
+                    : inCart
+                      ? `Уже в корзине (${quantityInCart} шт.)`
+                      : `Доступно ${product.stock || 0} шт.`}
+                </p>
               </div>
-              
-              <p className="text-xs text-muted-foreground/50 text-center">
-                {isOutOfStock 
-                  ? 'Товар временно отсутствует на складе' 
-                  : inCart
-                    ? `Уже в корзине (${quantityInCart} шт.)`
-                    : `Доступно ${product.stock || 0} шт.`}
-              </p>
             </div>
 
             {/* Преимущества */}
