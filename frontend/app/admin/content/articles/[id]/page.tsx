@@ -17,7 +17,6 @@ export default function EditArticlePage() {
     description: '',
     content: '',
     tags: '',
-    type: 'swap',
     isPublished: false,
     readTime: 5,
   });
@@ -33,7 +32,6 @@ export default function EditArticlePage() {
           description: data.description || '',
           content: data.content || '',
           tags: data.tags?.join(', ') || '',
-          type: data.type || 'swap',
           isPublished: data.isPublished || false,
           readTime: data.readTime || 5,
         });
@@ -100,7 +98,7 @@ export default function EditArticlePage() {
           filename: url.split('/').pop() || 'image.jpg',
           isMain: false,
         })),
-        type: form.type,
+        type: 'swap', // ✅ ТОЛЬКО СВАПЫ
         isPublished: form.isPublished,
         readTime: form.readTime || 5,
       };
@@ -160,36 +158,7 @@ export default function EditArticlePage() {
           />
         </div>
 
-        {/* Тип контента */}
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
-            Тип контента
-          </label>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, type: 'swap' })}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                form.type === 'swap'
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Свапы
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, type: 'service' })}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                form.type === 'service'
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Услуги / Автосервис
-            </button>
-          </div>
-        </div>
+        {/* ✅ УБРАН ВЫБОР ТИПА — только свапы */}
 
         {/* Описание */}
         <div>

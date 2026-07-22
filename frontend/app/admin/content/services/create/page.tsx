@@ -67,19 +67,20 @@ export default function CreateServicePage() {
         isActive: form.isActive,
       };
 
-      const response = await fetchWithCsrf('/api/admin/services', {
+      const response = await fetchWithCsrf('/api/admin/content/services', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
+      const result = await response.json();
+
       if (response.ok) {
         router.push('/admin/content/services');
       } else {
-        const data = await response.json();
-        alert(data.error || 'Ошибка создания услуги');
+        alert(result.error || 'Ошибка создания услуги');
       }
     } catch (error) {
-      console.error(error);
+      console.error('❌ Ошибка:', error);
       alert('Ошибка создания услуги');
     }
     setLoading(false);

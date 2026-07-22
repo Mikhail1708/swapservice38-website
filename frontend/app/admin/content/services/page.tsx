@@ -37,7 +37,7 @@ export default function AdminServicesPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/admin/services', {
+      const response = await fetch('/api/admin/content/services', {
         credentials: 'include',
       });
 
@@ -58,7 +58,7 @@ export default function AdminServicesPage() {
     if (!confirm('Удалить услугу?')) return;
 
     try {
-      const response = await fetch(`/api/admin/services/${id}`, {
+      const response = await fetch(`/api/admin/content/services/${id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -85,7 +85,6 @@ export default function AdminServicesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Услуги</h1>
@@ -100,7 +99,6 @@ export default function AdminServicesPage() {
         </Link>
       </div>
 
-      {/* Ошибка */}
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -108,7 +106,6 @@ export default function AdminServicesPage() {
         </div>
       )}
 
-      {/* Список услуг */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {services.length === 0 ? (
           <div className="col-span-full text-center py-12 text-muted-foreground bg-card border border-border rounded-2xl">

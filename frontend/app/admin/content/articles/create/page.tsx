@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, Plus, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, X } from 'lucide-react';
 import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function CreateArticlePage() {
@@ -13,11 +13,9 @@ export default function CreateArticlePage() {
     description: '',
     content: '',
     tags: '',
-    type: 'swap',
     isPublished: false,
     readTime: 5,
   });
-  const [images, setImages] = useState<string[]>([]);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
 
@@ -89,7 +87,7 @@ export default function CreateArticlePage() {
           filename: url.split('/').pop() || 'image.jpg',
           isMain: false,
         })),
-        type: form.type,
+        type: 'swap', // ✅ ТОЛЬКО СВАПЫ
         isPublished: form.isPublished,
         readTime: form.readTime || 5,
       };
@@ -124,7 +122,7 @@ export default function CreateArticlePage() {
         </button>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Новая статья</h1>
-          <p className="text-sm text-muted-foreground">Создание статьи для свапов или услуг</p>
+          <p className="text-sm text-muted-foreground">Создание статьи для свапов</p>
         </div>
       </div>
 
@@ -145,39 +143,7 @@ export default function CreateArticlePage() {
           />
         </div>
 
-        {/* Тип контента */}
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
-            Тип контента <span className="text-red-500">*</span>
-          </label>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, type: 'swap' })}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                form.type === 'swap'
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Свапы
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, type: 'service' })}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                form.type === 'service'
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Услуги / Автосервис
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            {form.type === 'swap' ? 'Будет отображаться на странице "Свапы"' : 'Будет отображаться на странице "Услуги"'}
-          </p>
-        </div>
+        {/* ✅ УБРАН ВЫБОР ТИПА — только свапы */}
 
         {/* Описание */}
         <div>

@@ -4,7 +4,7 @@
 import { useRef, useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShoppingCart, Check, Loader2 } from 'lucide-react';
 import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
 
@@ -34,6 +34,9 @@ const GUARANTEES = [
   { icon: MessageCircle, title: 'Консультация', text: 'по подбору деталей' },
 ];
 
+// Импортируем иконки (они уже есть в твоём проекте)
+import { Truck, ShieldCheck, RotateCcw, MessageCircle } from 'lucide-react';
+
 export function Products() {
   const trackRef = useRef<HTMLDivElement>(null);
   const { addToCart, refetch: refetchCart, isInCart, getQuantity } = useCart();
@@ -42,13 +45,14 @@ export function Products() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Загрузка популярных товаров
+  // Загрузка популярных товаров из CRM
   useEffect(() => {
     const fetchPopularProducts = async () => {
       try {
         setLoading(true);
         setError(null);
         
+        // Загружаем товары из CRM
         const response = await fetchWithCsrf('/api/products?limit=20&sort=popular', {
           method: 'GET',
         });
@@ -60,20 +64,24 @@ export function Products() {
         const data = await response.json();
         const items = data.items || data || [];
         
+        // Сортируем по популярности (если есть поле popularity)
         const sorted = [...items]
           .sort((a, b) => {
+            // Если есть popularity — сортируем по нему
             if (a.popularity !== undefined && b.popularity !== undefined) {
               return b.popularity - a.popularity;
             }
+            // Если есть ordersCount — по нему
             if (a.ordersCount !== undefined && b.ordersCount !== undefined) {
               return b.ordersCount - a.ordersCount;
             }
+            // Если есть views — по нему
             if (a.views !== undefined && b.views !== undefined) {
               return b.views - a.views;
             }
             return 0;
           })
-          .slice(0, 5);
+          .slice(0, 5); // Берём топ-5
         
         setProducts(sorted);
       } catch (err) {
@@ -111,6 +119,7 @@ export function Products() {
     }
   };
 
+  // Если загрузка — показываем скелетон
   if (loading) {
     return (
       <section id="products" className="bg-surface py-24 text-surface-foreground">
@@ -149,7 +158,36 @@ export function Products() {
     );
   }
 
-  const displayProducts = products.length > 0 ? products : FEATURED_PRODUCTS;
+  // Если товаров нет — показываем заглушку
+  if (products.length === 0) {
+    return (
+      <section id="products" className="bg-surface py-24 text-surface-foreground">
+        <div className="container-custom">
+          <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-[0.3em] text-surface-muted">
+                Популярные товары
+              </span>
+              <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)]">
+                Хиты продаж
+              </h2>
+            </div>
+            <Link
+              href="/catalog"
+              className="inline-flex items-center rounded-sm bg-surface-foreground px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-surface transition-opacity hover:opacity-90"
+            >
+              Весь каталог
+            </Link>
+          </div>
+
+          <div className="text-center py-12 text-surface-muted">
+            <p>Нет популярных товаров</p>
+            {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="products" className="bg-surface py-24 text-surface-foreground">
@@ -196,7 +234,7 @@ export function Products() {
             ref={trackRef}
             className="flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {displayProducts.map((p) => {
+            {products.map((p) => {
               const productId = String(p.id);
               const inCart = isInCart(productId);
               const quantity = getQuantity(productId);
@@ -287,11 +325,3 @@ export function Products() {
     </section>
   );
 }
-
-const FEATURED_PRODUCTS: Product[] = [
-  { id: '1', name: 'Комплект для боди-лифта', price: 18900, inStock: true, images: ['/images/product-liftkit.png'], category: 'Боди-лифт', description: 'Nissan Patrol Y60/Y61' },
-  { id: '2', name: 'Крепление канистры', price: 6500, inStock: true, images: ['/images/product-canister.png'], category: 'Крепления', description: 'Универсальное' },
-  { id: '3', name: 'Бак в крыло Y60', price: 24900, inStock: true, images: ['/images/product-tank.png'], category: 'Баки', description: '90 литров' },
-  { id: '4', name: 'Усилитель рамы', price: 9900, inStock: true, images: ['/images/product-frame.png'], category: 'Усиление', description: 'Nissan Patrol Y60/Y61' },
-  { id: '5', name: 'Защита раздатки', price: 7900, inStock: true, images: ['/images/product-transfer.png'], category: 'Защита', description: 'Nissan Patrol Y60/Y61' },
-];

@@ -5,7 +5,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { useQuery } from '@tanstack/react-query';
 import { 
   Search, 
   ShoppingCart, 
@@ -15,7 +14,8 @@ import {
   Loader2,
   X,
   Check,
-  SlidersHorizontal
+  SlidersHorizontal,
+  RefreshCw
 } from 'lucide-react';
 import { useCart } from '@/lib/context/CartContext';
 import { AddToCartButton } from '@/components/AddToCartButton';
@@ -32,6 +32,7 @@ interface Product {
   inStock: boolean;
   stock?: number;
   images: string[];
+  image_url?: string;
   sku: string;
   characteristics?: Record<string, string | string[]>;
 }
@@ -40,47 +41,122 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 const ITEMS_PER_PAGE = 16;
 
 // ============================================================
-// API ФУНКЦИИ (С CSRF)
+// API ФУНКЦИИ — БЕЗ КЕША!
 // ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
-  const response = await fetchWithCsrf('/api/products?limit=999', {
+  console.log('🔄 Загрузка товаров из CRM (без кеша)...');
+  
+  // ✅ ДОБАВЛЯЕМ TIMESTAMP ДЛЯ ОБХОДА ЛЮБОГО КЕША
+  const timestamp = Date.now();
+  const response = await fetchWithCsrf(`/api/products?limit=999&_t=${timestamp}`, {
     method: 'GET',
+    cache: 'no-store', // ✅ ЗАПРЕЩАЕМ КЕШИРОВАНИЕ НА УРОВНЕ FETCH
   });
+  
   if (!response.ok) {
     throw new Error('Ошибка загрузки товаров');
   }
+  
   const data = await response.json();
-  return data.items || data || [];
+  const items = data.items || data || [];
+  
+  console.log(`✅ Загружено ${items.length} товаров`);
+  
+  if (items.length > 0) {
+    console.log('📸 Первый товар из CRM:', {
+      id: items[0].id,
+      name: items[0].name,
+      hasImages: !!items[0].images,
+      imagesLength: items[0].images?.length || 0,
+      image: items[0].images?.[0],
+    });
+  }
+  
+  return items;
 };
 
 const fetchCategories = async (): Promise<string[]> => {
-  const response = await fetchWithCsrf('/api/products/categories', {
+  console.log('🔄 Загрузка категорий из CRM...');
+  
+  const timestamp = Date.now();
+  const response = await fetchWithCsrf(`/api/products/categories?_t=${timestamp}`, {
     method: 'GET',
+    cache: 'no-store',
   });
+  
   if (!response.ok) {
     return [];
   }
+  
   const data = await response.json();
-  return data.categories || [];
+  const categories = data.categories || [];
+  
+  console.log(`✅ Загружено ${categories.length} категорий`);
+  return categories;
+};
+
+// ============================================================
+// НОРМАЛИЗАЦИЯ ТОВАРА
+// ============================================================
+const normalizeProduct = (item: any): Product => {
+  let images: string[] = [];
+  
+  if (item.images && Array.isArray(item.images)) {
+    images = item.images.filter(Boolean);
+  }
+  
+  if (images.length === 0 && item.image_url) {
+    images = [item.image_url];
+  }
+  
+  if (images.length === 0 && item.image) {
+    images = [item.image];
+  }
+  
+  if (images.length === 0 && item.ProductImage && Array.isArray(item.ProductImage)) {
+    images = item.ProductImage
+      .filter((img: any) => img.url)
+      .map((img: any) => img.url);
+  }
+  
+  if (images.length === 0 && item.productImages && Array.isArray(item.productImages)) {
+    images = item.productImages
+      .filter((img: any) => img.url || img)
+      .map((img: any) => img.url || img);
+  }
+  
+  if (images.length === 0) {
+    images = [PLACEHOLDER_IMAGE];
+  }
+  
+  return {
+    id: item.id || item.productId,
+    name: item.name || 'Товар',
+    description: item.description || '',
+    price: item.price || item.retail_price || 0,
+    oldPrice: item.oldPrice || item.old_price || null,
+    category: item.category || item.categories?.[0]?.name || '',
+    categories: item.categories || [],
+    inStock: item.inStock !== undefined ? item.inStock : (item.stock || 0) > 0,
+    stock: item.stock || 0,
+    sku: item.sku || item.article || '',
+    images: images,
+    image_url: images[0] || '',
+    characteristics: item.characteristics || {},
+  };
 };
 
 // ============================================================
 // КОМПОНЕНТ КАРТОЧКИ ТОВАРА
 // ============================================================
-function ProductCard({
-  product,
-  onImageError,
-  hasImageError,
-}: {
-  product: Product;
-  onImageError: (id: string | number) => void;
-  hasImageError?: boolean;
-}) {
-  const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
+function ProductCard({ product }: { product: Product }) {
   const [imgError, setImgError] = useState(false);
-  const finalImageUrl = (hasImageError || imgError) ? PLACEHOLDER_IMAGE : imageUrl;
-  const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
   const { isInCart, getQuantity } = useCart();
+  
+  const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
+  const finalImageUrl = imgError ? PLACEHOLDER_IMAGE : imageUrl;
+  
+  const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
   const inCart = isInCart(String(product.id));
   const quantityInCart = getQuantity(String(product.id));
 
@@ -93,15 +169,11 @@ function ProductCard({
             alt={product.name}
             fill
             className="object-contain p-4 group-hover:scale-105 transition duration-500"
-            onError={() => {
-              setImgError(true);
-              onImageError(product.id);
-            }}
+            onError={() => setImgError(true)}
             unoptimized
           />
         </div>
         
-        {/* Бейджи */}
         <div className="absolute top-3 left-3 flex flex-col gap-1.5">
           {isOutOfStock && (
             <span className="bg-red-500/90 backdrop-blur-sm text-white text-[10px] font-medium px-3 py-1 rounded-full">
@@ -179,66 +251,73 @@ function ProductCard({
 }
 
 // ============================================================
-// ОСНОВНАЯ СТРАНИЦА КАТАЛОГА
+// ОСНОВНАЯ СТРАНИЦА КАТАЛОГА — БЕЗ КЕША!
 // ============================================================
 export default function CatalogPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // Читаем из URL
   const categoryFromUrl = searchParams.get('category') || '';
   const searchFromUrl = searchParams.get('search') || '';
   const pageFromUrl = parseInt(searchParams.get('page') || '1');
 
-  // Состояния
   const [search, setSearch] = useState(searchFromUrl);
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
   const [showFilters, setShowFilters] = useState(false);
-  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [currentPage, setCurrentPage] = useState(pageFromUrl || 1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const { refetch: refetchCart } = useCart();
-
-  // ===== REACT QUERY: ТОВАРЫ =====
-  const {
-    data: allProducts = [],
-    isLoading: productsLoading,
-    error: productsError,
-    refetch: refetchProducts,
-  } = useQuery({
-    queryKey: ['products'],
-    queryFn: fetchProducts,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // ===== REACT QUERY: КАТЕГОРИИ =====
-  const {
-    data: categories = [],
-    isLoading: categoriesLoading,
-  } = useQuery({
-    queryKey: ['categories'],
-    queryFn: fetchCategories,
-    staleTime: 10 * 60 * 1000,
-  });
-
-  // Синхронизация с URL
-  useEffect(() => {
-    if (categoryFromUrl && categoryFromUrl !== selectedCategory) {
-      setSelectedCategory(categoryFromUrl);
+  // ===== ЗАГРУЗКА ДАННЫХ (БЕЗ КЕША) =====
+  const loadData = async (showLoading: boolean = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    
+    try {
+      // Загружаем товары
+      const products = await fetchProducts();
+      const normalized = products.map(normalizeProduct);
+      setAllProducts(normalized);
+      
+      // Загружаем категории
+      const cats = await fetchCategories();
+      setCategories(cats);
+      
+    } catch (err: any) {
+      console.error('❌ Ошибка загрузки:', err);
+      setError(err.message || 'Ошибка загрузки товаров');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  // Загрузка при монтировании
+  useEffect(() => {
+    loadData(true);
+  }, []);
+
+  // ===== СИНХРОНИЗАЦИЯ С URL =====
+  useEffect(() => {
+    if (categoryFromUrl) setSelectedCategory(categoryFromUrl);
   }, [categoryFromUrl]);
 
   useEffect(() => {
-    if (searchFromUrl && searchFromUrl !== search) {
-      setSearch(searchFromUrl);
-    }
+    if (searchFromUrl) setSearch(searchFromUrl);
   }, [searchFromUrl]);
 
   useEffect(() => {
-    if (pageFromUrl !== currentPage) {
-      setCurrentPage(pageFromUrl);
-    }
+    if (pageFromUrl) setCurrentPage(pageFromUrl);
   }, [pageFromUrl]);
+
+  // ===== РУЧНОЕ ОБНОВЛЕНИЕ =====
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadData(false);
+  };
 
   // ===== ФИЛЬТРАЦИЯ =====
   const filteredProducts = useMemo(() => {
@@ -277,7 +356,6 @@ export default function CatalogPage() {
 
     const queryString = params.toString();
     const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
-
     router.push(newUrl, { scroll: false });
   }, [router]);
 
@@ -338,40 +416,74 @@ export default function CatalogPage() {
     return pages;
   };
 
-  const isLoading = productsLoading || categoriesLoading;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="bg-card border border-border rounded-2xl h-[320px] animate-pulse">
+                <div className="h-48 bg-muted rounded-t-2xl" />
+                <div className="p-4 space-y-3">
+                  <div className="h-4 bg-muted rounded w-3/4" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
+                  <div className="h-6 bg-muted rounded w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom">
         {/* Заголовок */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-4xl font-bold text-foreground">Каталог</h1>
-            {selectedCategory && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
-                {selectedCategory}
-                <button onClick={() => selectCategory('')} className="hover:text-muted-foreground transition">
-                  <X size={14} />
-                </button>
-              </span>
-            )}
-            {search && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
-                Поиск: {search}
-                <button onClick={() => handleSearch('')} className="hover:text-muted-foreground transition">
-                  <X size={14} />
-                </button>
-              </span>
-            )}
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-4xl font-bold text-foreground">Каталог</h1>
+              {selectedCategory && (
+                <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
+                  {selectedCategory}
+                  <button onClick={() => selectCategory('')} className="hover:text-muted-foreground transition">
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
+              {search && (
+                <span className="inline-flex items-center gap-2 px-4 py-2 bg-muted rounded-full text-sm text-foreground">
+                  Поиск: {search}
+                  <button onClick={() => handleSearch('')} className="hover:text-muted-foreground transition">
+                    <X size={14} />
+                  </button>
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground font-light mt-2">
+              Тюнинг-комплекты и запчасти для внедорожников
+              {allProducts.length > 0 && (
+                <span className="ml-2 text-sm text-muted-foreground/50">
+                  (всего {allProducts.length} товаров)
+                </span>
+              )}
+            </p>
           </div>
-          <p className="text-muted-foreground font-light mt-2">
-            Тюнинг-комплекты и запчасти для внедорожников
-            {!isLoading && allProducts.length > 0 && (
-              <span className="ml-2 text-sm text-muted-foreground/50">
-                (всего {allProducts.length} товаров)
-              </span>
+
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-muted border border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted/80 transition disabled:opacity-50 flex-shrink-0"
+          >
+            {refreshing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
             )}
-          </p>
+            {refreshing ? 'Обновление...' : 'Обновить'}
+          </button>
         </div>
 
         {/* Поиск и фильтры */}
@@ -400,7 +512,6 @@ export default function CatalogPage() {
             <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* Сброс фильтров */}
           {(selectedCategory || search) && (
             <button
               onClick={clearFilters}
@@ -416,7 +527,6 @@ export default function CatalogPage() {
         {showFilters && (
           <div className="bg-card border border-border rounded-2xl p-6 mb-8 animate-in slide-in-from-top-2 duration-200">
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Категории */}
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-2">
                   Категория
@@ -467,24 +577,11 @@ export default function CatalogPage() {
         )}
 
         {/* Результаты */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="bg-card border border-border rounded-2xl h-[320px] animate-pulse">
-                <div className="h-48 bg-muted rounded-t-2xl" />
-                <div className="p-4 space-y-3">
-                  <div className="h-4 bg-muted rounded w-3/4" />
-                  <div className="h-3 bg-muted rounded w-1/2" />
-                  <div className="h-6 bg-muted rounded w-1/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : productsError ? (
+        {error ? (
           <div className="text-center py-16 bg-card border border-border rounded-2xl">
-            <p className="text-red-500">Ошибка загрузки товаров</p>
+            <p className="text-red-500">{error}</p>
             <button
-              onClick={() => refetchProducts()}
+              onClick={() => loadData(true)}
               className="mt-4 px-6 py-2 bg-foreground text-background rounded-lg text-sm hover:bg-foreground/90 transition"
             >
               Попробовать снова
@@ -505,21 +602,11 @@ export default function CatalogPage() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {paginatedProducts.map((product) => {
-                const productId = String(product.id);
-
-                return (
-                  <ProductCard
-                    key={productId}
-                    product={product}
-                    onImageError={(id) => setImageErrors(prev => ({ ...prev, [String(id)]: true }))}
-                    hasImageError={imageErrors[productId]}
-                  />
-                );
-              })}
+              {paginatedProducts.map((product) => (
+                <ProductCard key={String(product.id)} product={product} />
+              ))}
             </div>
 
-            {/* Информация о количестве */}
             <div className="text-center mt-6 text-sm text-muted-foreground/60">
               Показано {paginatedProducts.length} товаров
               {filteredProducts.length > ITEMS_PER_PAGE && ` из ${filteredProducts.length}`}
@@ -531,7 +618,6 @@ export default function CatalogPage() {
               )}
             </div>
 
-            {/* Пагинация */}
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 mt-8">
                 <button

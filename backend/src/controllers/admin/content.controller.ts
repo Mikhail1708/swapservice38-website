@@ -6,7 +6,7 @@ import redis from '../config/redis';
 const prisma = new PrismaClient();
 
 // ============================================================
-// ===== ARTICLES (СВАПЫ И УСЛУГИ) =====
+// ===== ARTICLES (СТАТЬИ/СВАПЫ) =====
 // ============================================================
 
 // GET /api/articles — список статей с фильтром по типу
@@ -113,7 +113,6 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // ✅ Просто увеличиваем просмотры (без Redis)
     await prisma.article.update({
       where: { id: article.id },
       data: { views: { increment: 1 } },
@@ -190,7 +189,6 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
 
     console.log(`📝 Создание статьи (${type}):`, { title, tagsCount: tags.length, imagesCount: images.length });
 
-    // Генерируем уникальный slug
     let slug = title
       .toLowerCase()
       .replace(/[^a-zа-яё0-9\s]/g, '')
@@ -342,7 +340,6 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
       data,
     });
 
-    // Обновляем теги
     if (tags !== undefined) {
       await prisma.articleTagRelation.deleteMany({ where: { articleId: id } });
       if (tags.length > 0) {
@@ -365,7 +362,6 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    // Обновляем изображения
     if (images !== undefined) {
       await prisma.articleImage.deleteMany({ where: { articleId: id } });
       if (images.length > 0) {
@@ -443,5 +439,133 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
   } catch (error: any) {
     console.error('❌ Delete article error:', error);
     res.status(500).json({ error: error.message || 'Ошибка удаления статьи' });
+  }
+};
+
+// ============================================================
+// ===== SERVICES (УСЛУГИ) — НОВЫЙ БЛОК! =====
+// ============================================================
+
+// GET /api/admin/services — список услуг
+export const getServices = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const services = await prisma.service.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    
+    console.log(`✅ Найдено ${services.length} услуг`);
+    res.json({ services });
+  } catch (error: any) {
+    console.error('❌ Get services error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка получения услуг' });
+  }
+};
+
+// GET /api/admin/services/:id — одна услуга
+export const getServiceById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    const service = await prisma.service.findUnique({
+      where: { id },
+    });
+    
+    if (!service) {
+      res.status(404).json({ error: 'Услуга не найдена' });
+      return;
+    }
+    
+    res.json({ service });
+  } catch (error: any) {
+    console.error('❌ Get service error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка получения услуги' });
+  }
+};
+
+// POST /api/admin/services — создать услугу
+export const createService = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, description, price, imageUrl, isActive } = req.body;
+    
+    if (!name) {
+      res.status(400).json({ error: 'Название обязательно' });
+      return;
+    }
+    
+    const service = await prisma.service.create({
+      data: {
+        name: name.trim(),
+        description: description?.trim() || null,
+        price: price ? parseFloat(price) : null,
+        imageUrl: imageUrl || null,
+        isActive: isActive ?? true,
+      },
+    });
+    
+    console.log(`✅ Создана услуга: ${service.name} (${service.id})`);
+    res.status(201).json({ service });
+  } catch (error: any) {
+    console.error('❌ Create service error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка создания услуги' });
+  }
+};
+
+// PUT /api/admin/services/:id — обновить услугу
+export const updateService = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, description, price, imageUrl, isActive } = req.body;
+    
+    const existing = await prisma.service.findUnique({
+      where: { id },
+    });
+    
+    if (!existing) {
+      res.status(404).json({ error: 'Услуга не найдена' });
+      return;
+    }
+    
+    const service = await prisma.service.update({
+      where: { id },
+      data: {
+        name: name?.trim() || existing.name,
+        description: description !== undefined ? description?.trim() || null : existing.description,
+        price: price !== undefined ? (price ? parseFloat(price) : null) : existing.price,
+        imageUrl: imageUrl !== undefined ? imageUrl : existing.imageUrl,
+        isActive: isActive !== undefined ? isActive : existing.isActive,
+      },
+    });
+    
+    console.log(`✅ Обновлена услуга: ${service.name} (${service.id})`);
+    res.json({ service });
+  } catch (error: any) {
+    console.error('❌ Update service error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка обновления услуги' });
+  }
+};
+
+// DELETE /api/admin/services/:id — удалить услугу
+export const deleteService = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    const existing = await prisma.service.findUnique({
+      where: { id },
+    });
+    
+    if (!existing) {
+      res.status(404).json({ error: 'Услуга не найдена' });
+      return;
+    }
+    
+    await prisma.service.delete({
+      where: { id },
+    });
+    
+    console.log(`🗑️ Удалена услуга: ${existing.name} (${id})`);
+    res.json({ success: true, message: 'Услуга удалена' });
+  } catch (error: any) {
+    console.error('❌ Delete service error:', error);
+    res.status(500).json({ error: error.message || 'Ошибка удаления услуги' });
   }
 };

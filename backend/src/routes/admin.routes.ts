@@ -39,7 +39,13 @@ import {
   updateArticle,
   deleteArticle,
 } from '../controllers/admin/content.controller';
-
+import {
+  getServices,
+  getServiceById,
+  createService,
+  updateService,
+  deleteService,
+} from '../controllers/admin/content.controller';
 // QUEUE
 import { getCRMQueueStats, retryFailedOrders } from '../queues/crm.queue';
 
@@ -78,6 +84,12 @@ router.get('/articles/:id', getArticleById);
 router.post('/articles', createArticle);
 router.put('/articles/:id', updateArticle);
 router.delete('/articles/:id', deleteArticle);
+// ===== SERVICES (УСЛУГИ) =====
+router.get('/services', getServices);
+router.get('/services/:id', getServiceById);
+router.post('/services', createService);
+router.put('/services/:id', updateService);
+router.delete('/services/:id', deleteService);
 
 // ===== QUEUE (CRM) =====
 router.get('/queue/stats', async (req, res) => {

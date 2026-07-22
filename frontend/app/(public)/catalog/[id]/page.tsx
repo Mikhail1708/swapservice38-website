@@ -21,7 +21,6 @@ import {
   Check,
   Package,
   Ruler,
-  Weight,
   Gauge,
   Calendar,
   Star,
@@ -64,10 +63,10 @@ interface Product {
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
 // ============================================================
-// ИКОНКИ ДЛЯ ХАРАКТЕРИСТИК
+// ИКОНКИ ДЛЯ ХАРАКТЕРИСТИК (БЕЗ Weight)
 // ============================================================
 const characteristicIcons: Record<string, any> = {
-  'Вес': Weight,
+  'Вес': Package,      // ✅ ЗАМЕНИЛИ Weight НА Package
   'Размер': Ruler,
   'Длина': Ruler,
   'Ширина': Ruler,

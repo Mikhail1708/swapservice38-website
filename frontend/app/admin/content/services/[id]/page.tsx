@@ -24,7 +24,7 @@ export default function EditServicePage() {
   useEffect(() => {
     const fetchService = async () => {
       try {
-        const response = await fetch(`/api/admin/services/${id}`, {
+        const response = await fetch(`/api/admin/content/services/${id}`, {
           credentials: 'include',
         });
 
@@ -104,7 +104,7 @@ export default function EditServicePage() {
         isActive: form.isActive,
       };
 
-      const response = await fetchWithCsrf(`/api/admin/services/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
