@@ -1,0 +1,1772 @@
+openapi: 3.0.3
+info:
+  title: SWAP SERVICE 38 API
+  description: API для публичного сайта SWAP SERVICE 38 — тюнинг и обслуживание внедорожников
+  version: 1.0.0
+  contact:
+    name: SWAP SERVICE 38
+    email: swapservice38@yandex.ru
+    url: https://swapservice38.ru
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:5001
+    description: Локальный сервер разработки
+  - url: https://swapservice38.ru/api
+    description: Продакшн сервер
+
+tags:
+  - name: Auth
+    description: Аутентификация и управление пользователями
+  - name: Products
+    description: Каталог товаров (прокси к CRM)
+  - name: Cart
+    description: Корзина
+  - name: Orders
+    description: Заказы
+  - name: Payment
+    description: Оплата через ЮKassa
+  - name: Services
+    description: Услуги (только для админов)
+  - name: Admin
+    description: Админ-панель (требует прав admin)
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+      description: JWT токен, хранящийся в HttpOnly cookie
+
+  schemas:
+    # ===== ОБЩИЕ =====
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Сообщение об ошибке
+        code:
+          type: string
+          description: Код ошибки (опционально)
+        details:
+          type: object
+          description: Детали ошибки (опционально)
+
+    # ===== AUTH =====
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 8
+          example: Password123
+        firstName:
+          type: string
+          example: Иван
+        lastName:
+          type: string
+          example: Петров
+
+    RegisterResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Код отправлен на почту
+
+    VerifyRequest:
+      type: object
+      required:
+        - email
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          example: '123456'
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: Password123
+
+    LoginResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: cmrxxx...
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        firstName:
+          type: string
+          nullable: true
+          example: Иван
+        lastName:
+          type: string
+          nullable: true
+          example: Петров
+        phone:
+          type: string
+          nullable: true
+          example: +7 (999) 999-99-99
+        address:
+          type: string
+          nullable: true
+          example: г. Иркутск, ул. Новаторов 36
+        role:
+          type: string
+          enum: [user, manager, admin]
+          example: user
+        isVerified:
+          type: boolean
+          example: true
+        yandexId:
+          type: string
+          nullable: true
+        maxId:
+          type: string
+          nullable: true
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+
+    ChangePasswordRequest:
+      type: object
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          example: oldPassword123
+        newPassword:
+          type: string
+          minLength: 8
+          example: newPassword123
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+
+    ResetPasswordConfirmRequest:
+      type: object
+      required:
+        - email
+        - code
+        - newPassword
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        newPassword:
+          type: string
+          minLength: 8
+
+    # ===== PRODUCTS =====
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 113
+        name:
+          type: string
+          example: Дроп-бокс панары 4 дюйма (Перед 65 мм) NPY60\61
+        description:
+          type: string
+          example: ''
+        price:
+          type: integer
+          example: 10000
+        oldPrice:
+          type: integer
+          nullable: true
+        category:
+          type: string
+          example: Компоненты для подвески, лифт комплекты
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        carModel:
+          type: string
+          example: Универсальный
+        inStock:
+          type: boolean
+        stock:
+          type: integer
+        images:
+          type: array
+          items:
+            type: string
+          example: ['http://localhost:5000/uploads/products/05f2774c4c1043d92a6473d0c8ac228d.webp']
+        sku:
+          type: string
+          example: NPY61\60-03-005
+        characteristics:
+          type: object
+          additionalProperties: true
+        features:
+          type: array
+          items:
+            type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProductsListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+
+    # ===== CART =====
+    CartItem:
+      type: object
+      properties:
+        productId:
+          type: string
+        name:
+          type: string
+        price:
+          type: integer
+        quantity:
+          type: integer
+        image:
+          type: string
+          nullable: true
+
+    Cart:
+      type: object
+      properties:
+        id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        total:
+          type: integer
+        itemsCount:
+          type: integer
+
+    CartResponse:
+      type: object
+      properties:
+        cart:
+          $ref: '#/components/schemas/Cart'
+
+    AddToCartRequest:
+      type: object
+      required:
+        - productId
+      properties:
+        productId:
+          type: string
+          example: '113'
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+
+    UpdateCartRequest:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 0
+
+    # ===== ORDERS =====
+    OrderItem:
+      type: object
+      required:
+        - productId
+        - quantity
+      properties:
+        productId:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+        price:
+          type: integer
+          description: Цена товара (опционально, берётся из CRM)
+
+    Client:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - phone
+        - email
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        address:
+          type: string
+        city:
+          type: string
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - client
+        - items
+      properties:
+        client:
+          $ref: '#/components/schemas/Client'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+          minItems: 1
+        deliveryMethod:
+          type: string
+          enum: [pickup, courier, post]
+          default: courier
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+          maxLength: 1000
+        source:
+          type: string
+          default: website
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        guestEmail:
+          type: string
+          nullable: true
+        guestPhone:
+          type: string
+          nullable: true
+        guestName:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        total:
+          type: integer
+        status:
+          type: string
+          enum: [pending, paid, confirmed, assembling, shipped, delivered, cancelled, crm_failed]
+        deliveryMethod:
+          type: string
+          enum: [pickup, courier, post]
+        deliveryAddress:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        crmOrderId:
+          type: string
+          nullable: true
+        orderNumber:
+          type: string
+          nullable: true
+        paymentId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateOrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        order:
+          type: object
+          properties:
+            id:
+              type: string
+            total:
+              type: integer
+            status:
+              type: string
+        message:
+          type: string
+
+    # ===== PAYMENT =====
+    CreatePaymentRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+
+    CreatePaymentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        paymentId:
+          type: string
+        paymentUrl:
+          type: string
+        status:
+          type: string
+
+    ConfirmPaymentRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+        paymentId:
+          type: string
+          nullable: true
+
+    # ===== SERVICES (ADMIN) =====
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+          default: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateServiceRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+          default: true
+
+    # ===== ADMIN: ORDERS =====
+    AdminOrderListResponse:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+
+    UpdateOrderStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [pending, paid, confirmed, assembling, shipped, delivered, cancelled]
+
+    MassDeleteRequest:
+      type: object
+      required:
+        - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        password:
+          type: string
+          description: Требуется для удаления заказов не в статусе pending/crm_failed
+
+    # ===== ADMIN: USERS =====
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [user, manager, admin]
+          default: user
+        isVerified:
+          type: boolean
+          default: false
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [user, manager, admin]
+        isVerified:
+          type: boolean
+
+    ChangeUserPasswordRequest:
+      type: object
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          minLength: 6
+
+    # ===== SETTINGS =====
+    Settings:
+      type: object
+      properties:
+        siteName:
+          type: string
+          example: SWAP SERVICE 38
+        siteDescription:
+          type: string
+          example: Тюнинг и обслуживание внедорожников
+        contactPhone:
+          type: string
+          example: +7 (914) 895-58-88
+        contactEmail:
+          type: string
+          example: swapservice38@yandex.ru
+        contactAddress:
+          type: string
+          example: г. Иркутск, ул. Новаторов 36
+        workingHours:
+          type: string
+          example: Ежедневно с 10:00 до 20:00
+        maintenanceMode:
+          type: string
+          enum: ['true', 'false']
+          example: 'false'
+        maintenanceMessage:
+          type: string
+          example: Сайт на техническом обслуживании. Приносим извинения за неудобства.
+
+    MaintenanceStatus:
+      type: object
+      properties:
+        maintenanceMode:
+          type: boolean
+        message:
+          type: string
+
+security:
+  - cookieAuth: []
+
+paths:
+  # ============================================================
+  # AUTH
+  # ============================================================
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      description: Отправляет код подтверждения на email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Код отправлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/verify:
+    post:
+      tags: [Auth]
+      summary: Подтверждение email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+      responses:
+        '200':
+          description: Email подтверждён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Email подтверждён
+        '400':
+          description: Неверный код
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход в систему
+      description: Устанавливает JWT в HttpOnly cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Неверный email или пароль
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход из системы
+      description: Удаляет JWT cookie
+      responses:
+        '200':
+          description: Выход выполнен
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Получение текущего пользователя
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Не авторизован
+
+  /api/auth/profile:
+    put:
+      tags: [Auth]
+      summary: Обновление профиля
+      security:
+        - cookieAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Профиль обновлён
+
+  /api/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Смена пароля (только для авторизованных)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Пароль изменён
+
+  /api/auth/reset-password/request:
+    post:
+      tags: [Auth]
+      summary: Запрос восстановления пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Код отправлен
+
+  /api/auth/reset-password/verify:
+    post:
+      tags: [Auth]
+      summary: Проверка кода восстановления
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Код подтверждён
+
+  /api/auth/reset-password/confirm:
+    post:
+      tags: [Auth]
+      summary: Установка нового пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordConfirmRequest'
+      responses:
+        '200':
+          description: Пароль изменён
+
+  /api/auth/yandex:
+    get:
+      tags: [Auth]
+      summary: OAuth вход через Яндекс
+      description: Перенаправляет на страницу авторизации Яндекса
+      responses:
+        '302':
+          description: Редирект на Яндекс
+
+  /api/auth/yandex/callback:
+    get:
+      tags: [Auth]
+      summary: OAuth callback от Яндекса
+      responses:
+        '302':
+          description: Редирект на сайт с установкой cookie
+
+  # ============================================================
+  # PRODUCTS
+  # ============================================================
+  /api/products:
+    get:
+      tags: [Products]
+      summary: Получить список товаров
+      description: Товары загружаются из CRM через публичное API
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Фильтр по категории
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Поиск по названию/артикулу
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 16
+      responses:
+        '200':
+          description: Список товаров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsListResponse'
+        '500':
+          description: Ошибка сервера
+
+  /api/products/{id}:
+    get:
+      tags: [Products]
+      summary: Получить товар по ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Данные товара
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Товар не найден
+
+  /api/products/categories:
+    get:
+      tags: [Products]
+      summary: Получить список категорий
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      type: string
+
+  # ============================================================
+  # CART
+  # ============================================================
+  /api/cart:
+    get:
+      tags: [Cart]
+      summary: Получить корзину
+      description: Создаёт guestId если нет токена
+      responses:
+        '200':
+          description: Корзина
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+
+  /api/cart/add:
+    post:
+      tags: [Cart]
+      summary: Добавить товар в корзину
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddToCartRequest'
+      responses:
+        '200':
+          description: Товар добавлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '404':
+          description: Товар не найден
+
+  /api/cart/update:
+    put:
+      tags: [Cart]
+      summary: Обновить количество товара
+      description: Если quantity = 0, товар удаляется
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartRequest'
+      responses:
+        '200':
+          description: Корзина обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+
+  /api/cart/clear:
+    delete:
+      tags: [Cart]
+      summary: Очистить корзину
+      responses:
+        '200':
+          description: Корзина очищена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+
+  # ============================================================
+  # ORDERS
+  # ============================================================
+  /api/orders:
+    post:
+      tags: [Orders]
+      summary: Создать заказ
+      description: Создаёт локальный заказ, затем при оплате отправляет в CRM
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+        '400':
+          description: Ошибка валидации или корзина пуста
+        '401':
+          description: Не авторизован
+
+    get:
+      tags: [Orders]
+      summary: Получить все заказы пользователя
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        '401':
+          description: Не авторизован
+
+  /api/orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Получить заказ по ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Данные заказа
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    $ref: '#/components/schemas/Order'
+        '404':
+          description: Заказ не найден
+        '401':
+          description: Не авторизован
+
+    delete:
+      tags: [Orders]
+      summary: Удалить заказ (только pending, < 12 часов)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Заказ удалён
+        '400':
+          description: Нельзя удалить заказ в данном статусе
+        '401':
+          description: Не авторизован
+        '404':
+          description: Заказ не найден
+
+  # ============================================================
+  # PAYMENT
+  # ============================================================
+  /api/payment/create:
+    post:
+      tags: [Payment]
+      summary: Создать платёж
+      description: Создаёт платёж в ЮKassa, возвращает URL для редиректа
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '200':
+          description: Платёж создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePaymentResponse'
+        '400':
+          description: Ошибка создания платежа
+        '401':
+          description: Не авторизован
+
+  /api/payment/confirm:
+    post:
+      tags: [Payment]
+      summary: Подтвердить оплату
+      description: Вызывается со страницы успеха, отправляет заказ в CRM
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPaymentRequest'
+      responses:
+        '200':
+          description: Заказ подтверждён и отправлен в CRM
+        '400':
+          description: Ошибка подтверждения
+
+  /api/payment/webhook:
+    post:
+      tags: [Payment]
+      summary: Webhook от ЮKassa
+      description: Обрабатывает уведомления об оплате. Не требует авторизации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                object:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    status:
+                      type: string
+                    metadata:
+                      type: object
+                      properties:
+                        orderId:
+                          type: string
+      responses:
+        '200':
+          description: Webhook обработан
+
+  /api/payment/status/{paymentId}:
+    get:
+      tags: [Payment]
+      summary: Получить статус платежа
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Статус платежа
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  # ============================================================
+  # SERVICES (ADMIN ONLY)
+  # ============================================================
+  /api/admin/services:
+    get:
+      tags: [Services]
+      summary: Получить список услуг
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Список услуг
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+        '401':
+          description: Не авторизован
+        '403':
+          description: Доступ запрещён
+
+    post:
+      tags: [Services]
+      summary: Создать услугу
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          description: Услуга создана
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    $ref: '#/components/schemas/Service'
+        '400':
+          description: Ошибка валидации
+        '401':
+          description: Не авторизован
+        '403':
+          description: Доступ запрещён
+
+  /api/admin/services/{id}:
+    get:
+      tags: [Services]
+      summary: Получить услугу по ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Данные услуги
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    $ref: '#/components/schemas/Service'
+        '404':
+          description: Услуга не найдена
+
+    put:
+      tags: [Services]
+      summary: Обновить услугу
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '200':
+          description: Услуга обновлена
+
+    delete:
+      tags: [Services]
+      summary: Удалить услугу
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Услуга удалена
+        '404':
+          description: Услуга не найдена
+
+  # ============================================================
+  # ADMIN: ORDERS
+  # ============================================================
+  /api/admin/orders:
+    get:
+      tags: [Admin]
+      summary: Получить список заказов (админ)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Поиск по номеру или клиенту
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, paid, confirmed, assembling, shipped, delivered, cancelled]
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderListResponse'
+
+  /api/admin/orders/{id}:
+    get:
+      tags: [Admin]
+      summary: Получить заказ по ID (админ)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Данные заказа
+        '404':
+          description: Заказ не найден
+
+    patch:
+      tags: [Admin]
+      summary: Обновить статус заказа
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: Статус обновлён
+        '400':
+          description: Ошибка валидации
+
+    delete:
+      tags: [Admin]
+      summary: Удалить заказ (админ)
+      description: Админ может удалить любой заказ (с паролем для защищённых статусов)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: Требуется для заказов не в статусе pending/crm_failed
+      responses:
+        '200':
+          description: Заказ удалён
+        '400':
+          description: Нельзя удалить заказ в данном статусе без пароля
+
+  /api/admin/orders/mass-delete:
+    post:
+      tags: [Admin]
+      summary: Массовое удаление заказов
+      description: Удаляет заказы в статусе pending, crm_failed, paid
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MassDeleteRequest'
+      responses:
+        '200':
+          description: Заказы удалены
+
+  /api/admin/orders/mass-delete-with-password:
+    post:
+      tags: [Admin]
+      summary: Массовое удаление заказов с паролем
+      description: Админ может удалить любые заказы с подтверждением пароля
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MassDeleteRequest'
+      responses:
+        '200':
+          description: Заказы удалены
+        '401':
+          description: Неверный пароль
+
+  # ============================================================
+  # ADMIN: USERS
+  # ============================================================
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: Получить список пользователей
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+
+    post:
+      tags: [Admin]
+      summary: Создать пользователя (админ)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+
+  /api/admin/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Получить пользователя по ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Данные пользователя
+        '404':
+          description: Пользователь не найден
+
+    put:
+      tags: [Admin]
+      summary: Обновить пользователя (админ)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Пользователь обновлён
+
+    delete:
+      tags: [Admin]
+      summary: Удалить пользователя (админ)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Пользователь удалён
+        '400':
+          description: Нельзя удалить самого себя
+
+  /api/admin/users/{id}/block:
+    post:
+      tags: [Admin]
+      summary: Заблокировать пользователя
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Пользователь заблокирован
+        '400':
+          description: Нельзя заблокировать самого себя
+
+  /api/admin/users/{id}/unblock:
+    post:
+      tags: [Admin]
+      summary: Разблокировать пользователя
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Пользователь разблокирован
+
+  /api/admin/users/{id}/password:
+    put:
+      tags: [Admin]
+      summary: Сменить пароль пользователя (админ)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeUserPasswordRequest'
+      responses:
+        '200':
+          description: Пароль изменён
+
+  /api/admin/users/mass-delete:
+    post:
+      tags: [Admin]
+      summary: Массовое удаление пользователей
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Пользователи удалены
+
+  # ============================================================
+  # ADMIN: SETTINGS
+  # ============================================================
+  /api/admin/settings:
+    get:
+      tags: [Admin]
+      summary: Получить настройки сайта
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+
+    put:
+      tags: [Admin]
+      summary: Обновить настройки сайта
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200':
+          description: Настройки сохранены
+
+  /api/admin/settings/maintenance:
+    get:
+      tags: [Admin]
+      summary: Получить статус режима обслуживания
+      description: Публичный эндпоинт (не требует авторизации)
+      responses:
+        '200':
+          description: Статус режима обслуживания
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceStatus'
+
+  # ============================================================
+  # HEALTH
+  # ============================================================
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Проверка состояния сервера
+      responses:
+        '200':
+          description: Сервер работает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/csrf-token:
+    get:
+      tags: [Security]
+      summary: Получить CSRF-токен
+      description: Используется для защиты мутирующих запросов
+      responses:
+        '200':
+          description: CSRF-токен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  csrfToken:
+                    type: string

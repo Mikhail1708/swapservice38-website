@@ -5,6 +5,10 @@ import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import fs from 'fs';
+import path from 'path';
+import yaml from 'js-yaml';
+import swaggerUi from 'swagger-ui-express';
 import redis from './config/redis';
 import csrfMiddleware from './middleware/csrf.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
@@ -110,7 +114,24 @@ app.use((req, res, next) => {
 import { authMiddleware } from './middleware/auth.middleware';
 
 // ============================================================
-// 5. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
+// 5. SWAGGER / OPENAPI ДОКУМЕНТАЦИЯ
+// ============================================================
+try {
+  const openapiPath = path.join(__dirname, '../docs/openapi.yaml');
+  if (fs.existsSync(openapiPath)) {
+    const openapiFile = fs.readFileSync(openapiPath, 'utf8');
+    const swaggerDocument = yaml.load(openapiFile);
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+    log.info('📚 Swagger UI доступен: http://localhost:' + port + '/api-docs');
+  } else {
+    log.warn('⚠️ OpenAPI файл не найден: ' + openapiPath);
+  }
+} catch (error: any) {
+  log.error('❌ Ошибка загрузки Swagger:', error.message);
+}
+
+// ============================================================
+// 6. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
 // ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -123,11 +144,12 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV || 'development',
+    uptime: process.uptime(),
   });
 });
 
 // ============================================================
-// 6. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
+// 7. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
 // ============================================================
 app.use('/api/orders', authMiddleware);
 app.use('/api/orders', orderRoutes);
@@ -148,29 +170,37 @@ app.use('/api/likes', authMiddleware);
 app.use('/api/likes', likesRoutes);
 
 // ============================================================
-// 7. ОБРАБОТЧИК 404
+// 8. ОБРАБОТЧИК 404
 // ============================================================
 app.use(notFoundHandler);
 
 // ============================================================
-// 8. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
+// 9. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 // ============================================================
 app.use(errorHandler);
 
 // ============================================================
-// 9. ЗАПУСК
+// 10. ЗАПУСК
 // ============================================================
 app.listen(port, () => {
+  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   log.info(`🚀 Site Backend running on port ${port}`);
-  log.info(`📋 Health: http://localhost:${port}/api/health`);
-  log.info(`🔐 Auth: http://localhost:${port}/api/auth`);
-  log.info(`💰 Payment: http://localhost:${port}/api/payment`);
-  log.info(`🛡️ CSRF: http://localhost:${port}/api/csrf-token`);
-  log.info(`📦 Products: http://localhost:${port}/api/products`);
-  log.info(`🛒 Cart: http://localhost:${port}/api/cart`);
-  log.info(`📝 Orders: http://localhost:${port}/api/orders`);
-  log.info(`👑 Admin: http://localhost:${port}/api/admin`);
-  log.info(`📰 Articles: http://localhost:${port}/api/articles`);
-  log.info(`💬 Comments: http://localhost:${port}/api/comments`);
-  log.info(`❤️ Likes: http://localhost:${port}/api/likes`);
+  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log.info(`📋 Health:     http://localhost:${port}/api/health`);
+  log.info(`📚 Swagger:    http://localhost:${port}/api-docs`);
+  log.info(`🔐 Auth:       http://localhost:${port}/api/auth`);
+  log.info(`💰 Payment:    http://localhost:${port}/api/payment`);
+  log.info(`🛡️ CSRF:       http://localhost:${port}/api/csrf-token`);
+  log.info(`📦 Products:   http://localhost:${port}/api/products`);
+  log.info(`🛒 Cart:       http://localhost:${port}/api/cart`);
+  log.info(`📝 Orders:     http://localhost:${port}/api/orders`);
+  log.info(`👑 Admin:      http://localhost:${port}/api/admin`);
+  log.info(`📰 Articles:   http://localhost:${port}/api/articles`);
+  log.info(`💬 Comments:   http://localhost:${port}/api/comments`);
+  log.info(`❤️ Likes:      http://localhost:${port}/api/likes`);
+  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  log.info(`📦 Redis:      ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+  log.info(`🗄️  Database:   ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[0] || 'localhost'}`);
+  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
