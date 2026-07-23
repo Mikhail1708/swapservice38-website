@@ -414,3 +414,31 @@ export const changeUserPassword = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Ошибка смены пароля' });
   }
 };
+// ============================================================
+// POST /api/admin/users/mass-delete — МАССОВОЕ УДАЛЕНИЕ
+// ============================================================
+export const massDeleteUsers = async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Не указаны ID пользователей' });
+    }
+
+    const result = await prisma.user.deleteMany({
+      where: {
+        id: { in: ids },
+      },
+    });
+
+    console.log(`🗑️ Массовое удаление пользователей: ${result.count} шт.`);
+    res.json({
+      success: true,
+      deleted: result.count,
+      message: `Удалено ${result.count} пользователей`,
+    });
+  } catch (error) {
+    console.error('❌ Mass delete users error:', error);
+    res.status(500).json({ error: 'Ошибка массового удаления' });
+  }
+};

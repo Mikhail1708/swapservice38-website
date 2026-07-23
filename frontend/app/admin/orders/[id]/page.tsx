@@ -20,8 +20,10 @@ import {
   XCircle,
   Clock,
   AlertCircle,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
+import { fetchWithCsrf, deleteWithCsrf } from '@/lib/csrf';
 
 interface Order {
   id: string;
@@ -101,6 +103,9 @@ export default function AdminOrderDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
 
   useEffect(() => {
     fetchOrder();
@@ -127,11 +132,9 @@ export default function AdminOrderDetailsPage() {
     
     setUpdating(true);
     try {
-      const res = await fetch(`/api/admin/orders/${id}/status`, {
+      const res = await fetchWithCsrf(`/api/admin/orders/${id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
-        credentials: 'include',
       });
       
       if (!res.ok) {
@@ -146,6 +149,52 @@ export default function AdminOrderDetailsPage() {
       alert(err.message);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  // ✅ УДАЛЕНИЕ С ПАРОЛЕМ ДЛЯ ЛЮБЫХ СТАТУСОВ
+  const handleDeleteOrder = async () => {
+    if (!order) return;
+    
+    // Если заказ можно удалить без пароля (pending, crm_failed, paid)
+    const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
+    if (allowedWithoutPassword.includes(order.status)) {
+      if (!confirm('Вы уверены, что хотите удалить этот заказ? Это действие нельзя отменить.')) return;
+      await executeDelete(null);
+    } else {
+      // Требуем пароль
+      setShowDeletePasswordModal(true);
+      setDeletePassword('');
+    }
+  };
+
+  const executeDelete = async (password: string | null) => {
+    if (!order) return;
+    
+    setIsDeleting(true);
+    try {
+      const body: any = {};
+      if (password) {
+        body.password = password;
+      }
+      
+      const response = await fetchWithCsrf(`/api/admin/orders/${id}`, {
+        method: 'DELETE',
+        body: JSON.stringify(body),
+      });
+      
+      if (response.ok) {
+        setShowDeletePasswordModal(false);
+        setDeletePassword('');
+        router.push('/admin/orders?deleted=true');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка удаления заказа');
+      }
+    } catch (error) {
+      alert('Ошибка удаления заказа');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -200,6 +249,8 @@ export default function AdminOrderDetailsPage() {
   const status = getStatus(order.status);
   const displayNumber = order.orderNumber || order.documentNumber || order.id.slice(0, 8);
   const delivery = getDeliveryLabel(order.deliveryMethod);
+  const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
+  const requiresPassword = !allowedWithoutPassword.includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -351,8 +402,88 @@ export default function AdminOrderDetailsPage() {
               </button>
             </div>
           </div>
+
+          {/* ✅ ОПАСНАЯ ЗОНА — УДАЛЕНИЕ */}
+          <div className="bg-card border border-red-500/20 rounded-2xl p-6">
+            <h3 className="text-sm font-medium text-red-500 mb-4 flex items-center gap-2">
+              <Trash2 className="w-4 h-4" />
+              Опасная зона
+            </h3>
+            {requiresPassword && (
+              <p className="text-xs text-muted-foreground mb-3">
+                ⚠️ Для удаления заказа в статусе <strong>{status.label}</strong> требуется ввод пароля.
+              </p>
+            )}
+            <button
+              onClick={handleDeleteOrder}
+              disabled={isDeleting}
+              className="w-full px-4 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {isDeleting ? 'Удаление...' : 'Удалить заказ'}
+            </button>
+            <p className="text-xs text-muted-foreground/60 mt-2 text-center">
+              Это действие нельзя отменить. Заказ будет полностью удалён.
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* ✅ МОДАЛКА ПОДТВЕРЖДЕНИЯ ПАРОЛЯ ДЛЯ УДАЛЕНИЯ ОДНОГО ЗАКАЗА */}
+      {showDeletePasswordModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-xl font-bold text-foreground mb-2">Подтверждение удаления</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Заказ #{displayNumber} находится в статусе <strong>{status.label}</strong>.
+              Введите пароль администратора для подтверждения удаления.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Пароль администратора
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Введите пароль..."
+                  className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      executeDelete(deletePassword);
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeletePasswordModal(false);
+                    setDeletePassword('');
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => executeDelete(deletePassword)}
+                  disabled={isDeleting || !deletePassword}
+                  className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -27,7 +27,7 @@ export function Cta() {
             </div>
             <div className="flex flex-wrap gap-4">
               <a
-                href="#footer"
+                href="/contacts"
                 className="inline-flex items-center rounded-sm bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 Записаться на ремонт

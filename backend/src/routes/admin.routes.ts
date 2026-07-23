@@ -15,7 +15,9 @@ import {
   deleteOrder,
   updateOrder,
   deleteOrderWithPassword,
-  retryOrderToCRM, // ✅ НОВЫЙ ИМПОРТ
+  retryOrderToCRM,
+  massDeleteOrders,
+  massDeleteOrdersWithPassword,
 } from '../controllers/admin/orders.controller';
 
 // Users
@@ -29,6 +31,7 @@ import {
   blockUser,
   unblockUser,
   changeUserPassword,
+  massDeleteUsers,
 } from '../controllers/admin/users.controller';
 
 // ARTICLES
@@ -46,6 +49,12 @@ import {
   updateService,
   deleteService,
 } from '../controllers/admin/content.controller';
+// ===== SETTINGS =====
+import {
+  getSettings,
+  updateSettings,
+  getMaintenanceStatus,
+} from '../controllers/admin/settings.controller';
 // QUEUE
 import { getCRMQueueStats, retryFailedOrders } from '../queues/crm.queue';
 
@@ -65,7 +74,9 @@ router.patch('/orders/:id/status', updateOrderStatus);
 router.put('/orders/:id', updateOrder);
 router.delete('/orders/:id', deleteOrder);
 router.post('/orders/:id/delete-with-password', deleteOrderWithPassword);
-router.post('/orders/:id/retry', retryOrderToCRM); // ✅ НОВЫЙ МАРШРУТ
+router.post('/orders/:id/retry', retryOrderToCRM);
+router.post('/orders/mass-delete', massDeleteOrders);
+router.post('/orders/mass-delete-with-password', massDeleteOrdersWithPassword);
 
 // ===== USERS =====
 router.get('/users', getUsers);
@@ -77,6 +88,7 @@ router.patch('/users/:id/role', updateUserRole);
 router.post('/users/:id/block', blockUser);
 router.post('/users/:id/unblock', unblockUser);
 router.put('/users/:id/password', changeUserPassword);
+router.post('/users/mass-delete', massDeleteUsers);
 
 // ===== ARTICLES =====
 router.get('/articles', getArticles);
@@ -84,12 +96,17 @@ router.get('/articles/:id', getArticleById);
 router.post('/articles', createArticle);
 router.put('/articles/:id', updateArticle);
 router.delete('/articles/:id', deleteArticle);
+
 // ===== SERVICES (УСЛУГИ) =====
 router.get('/services', getServices);
 router.get('/services/:id', getServiceById);
 router.post('/services', createService);
 router.put('/services/:id', updateService);
 router.delete('/services/:id', deleteService);
+// ===== SETTINGS =====
+router.get('/settings', getSettings);
+router.put('/settings', updateSettings);
+router.get('/settings/maintenance', getMaintenanceStatus);
 
 // ===== QUEUE (CRM) =====
 router.get('/queue/stats', async (req, res) => {

@@ -21,6 +21,7 @@ import {
   Mail,
   Phone
 } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface User {
   id: string;
@@ -60,6 +61,14 @@ export default function AdminUsersPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const limit = 20;
 
+  // ✅ ДЛЯ МАССОВЫХ ДЕЙСТВИЙ
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [isMassAction, setIsMassAction] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockPassword, setBlockPassword] = useState('');
+  const [blockAction, setBlockAction] = useState<'block' | 'unblock' | 'delete'>('block');
+  const [blockTargetId, setBlockTargetId] = useState<string | null>(null);
+
   useEffect(() => {
     fetchUsers();
   }, [page, search]);
@@ -85,6 +94,7 @@ export default function AdminUsersPage() {
       setUsers(data.users || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
+      setSelectedUsers(new Set());
     } catch (err: any) {
       setError(err.message || 'Ошибка загрузки пользователей');
     } finally {
@@ -104,6 +114,26 @@ export default function AdminUsersPage() {
     fetchUsers();
   };
 
+  // ✅ ЧЕКБОКСЫ
+  const selectAll = () => {
+    if (selectedUsers.size === users.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(users.map(u => u.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedUsers);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedUsers(newSet);
+  };
+
+  // ✅ БЛОКИРОВКА/РАЗБЛОКИРОВКА С ПАРОЛЕМ
   const handleToggleBlock = async (user: User) => {
     const action = user.blockedAt ? 'разблокировать' : 'заблокировать';
     if (!confirm(`${action} пользователя ${user.email}?`)) return;
@@ -114,10 +144,9 @@ export default function AdminUsersPage() {
         ? `/api/admin/users/${user.id}/unblock`
         : `/api/admin/users/${user.id}/block`;
       
-      const response = await fetch(url, {
+      const response = await fetchWithCsrf(url, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
 
       if (response.ok) {
@@ -133,16 +162,16 @@ export default function AdminUsersPage() {
     }
   };
 
+  // ✅ УДАЛЕНИЕ С ПАРОЛЕМ
   const handleDelete = async (user: User) => {
     if (!confirm(`Удалить пользователя ${user.email}? Это действие нельзя отменить.`)) return;
-
     if (!confirm('Вы уверены?')) return;
 
     setActionLoading(user.id);
     try {
-      const response = await fetch(`/api/admin/users/${user.id}`, {
+      const response = await fetchWithCsrf(`/api/admin/users/${user.id}`, {
         method: 'DELETE',
-        credentials: 'include',
+        body: JSON.stringify({}),
       });
 
       if (response.ok) {
@@ -155,6 +184,34 @@ export default function AdminUsersPage() {
       alert('Ошибка удаления');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // ✅ МАССОВОЕ УДАЛЕНИЕ
+  const handleMassDelete = async () => {
+    if (selectedUsers.size === 0) return;
+    if (!confirm(`Удалить ${selectedUsers.size} пользователей? Это действие нельзя отменить.`)) return;
+    if (!confirm('Вы уверены?')) return;
+
+    setIsMassAction(true);
+    try {
+      const ids = Array.from(selectedUsers);
+      const response = await fetchWithCsrf('/api/admin/users/mass-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+
+      if (response.ok) {
+        setSelectedUsers(new Set());
+        fetchUsers();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка массового удаления');
+      }
+    } catch (error) {
+      alert('Ошибка массового удаления');
+    } finally {
+      setIsMassAction(false);
     }
   };
 
@@ -237,6 +294,14 @@ export default function AdminUsersPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedUsers.size === users.length && users.length > 0}
+                    onChange={selectAll}
+                    className="w-4 h-4 rounded border-border bg-muted text-foreground focus:ring-foreground/20"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Пользователь
                 </th>
@@ -260,13 +325,21 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-border">
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                     Пользователей не найдено
                   </td>
                 </tr>
               ) : (
                 users.map((user) => (
                   <tr key={user.id} className="hover:bg-muted/30 transition">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.has(user.id)}
+                        onChange={() => toggleSelect(user.id)}
+                        className="w-4 h-4 rounded border-border bg-muted text-foreground focus:ring-foreground/20"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-medium text-foreground">
                         {user.firstName || user.lastName 
@@ -378,6 +451,29 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      {/* ✅ ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
+      {selectedUsers.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-card border border-border rounded-2xl shadow-2xl p-4 flex items-center gap-4 animate-in slide-in-from-bottom-4">
+          <span className="text-sm text-foreground font-medium">
+            Выбрано: {selectedUsers.size}
+          </span>
+          <button
+            onClick={handleMassDelete}
+            disabled={isMassAction}
+            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2"
+          >
+            {isMassAction ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Удалить выбранные
+          </button>
+          <button
+            onClick={() => setSelectedUsers(new Set())}
+            className="px-4 py-2 border border-border rounded-lg text-sm text-muted-foreground hover:text-foreground transition"
+          >
+            Отмена
+          </button>
+        </div>
+      )}
     </div>
   );
 }

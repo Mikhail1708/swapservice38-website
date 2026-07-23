@@ -12,8 +12,10 @@ import {
   X, 
   Loader2,
   ChevronDown,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
+import { fetchWithCsrf, deleteWithCsrf } from '@/lib/csrf';
 
 interface Order {
   id: string;
@@ -60,6 +62,15 @@ export default function AdminOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const limit = 20;
 
+  // ✅ ДЛЯ ЧЕКБОКСОВ
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [isMassAction, setIsMassAction] = useState(false);
+  
+  // ✅ ДЛЯ МОДАЛКИ С ПАРОЛЕМ
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [massDeletePassword, setMassDeletePassword] = useState('');
+  const [isMassDeletingWithPassword, setIsMassDeletingWithPassword] = useState(false);
+
   useEffect(() => {
     fetchOrders();
   }, [page, statusFilter, search]);
@@ -86,6 +97,7 @@ export default function AdminOrdersPage() {
       setOrders(data.orders || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
+      setSelectedOrders(new Set());
     } catch (err: any) {
       setError(err.message || 'Ошибка загрузки заказов');
     } finally {
@@ -118,6 +130,84 @@ export default function AdminOrdersPage() {
 
   const getStatusLabel = (status: string) => {
     return statusOptions.find(s => s.value === status)?.label || status;
+  };
+
+  // ✅ ЧЕКБОКСЫ
+  const selectAll = () => {
+    if (selectedOrders.size === orders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(orders.map(o => o.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedOrders);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedOrders(newSet);
+  };
+
+  // ✅ МАССОВОЕ УДАЛЕНИЕ — ПРОВЕРЯЕМ СТАТУСЫ
+  const handleMassDelete = async () => {
+    if (selectedOrders.size === 0) return;
+    
+    const ids = Array.from(selectedOrders);
+    const selectedOrdersData = orders.filter(o => ids.includes(o.id));
+    
+    // Проверяем, есть ли заказы, которые нельзя удалить без пароля
+    const hasNonDeletable = selectedOrdersData.some(o => 
+      o.status !== 'pending' && o.status !== 'crm_failed' && o.status !== 'paid'
+    );
+    
+    if (hasNonDeletable) {
+      // Показываем модалку с паролем
+      setShowPasswordModal(true);
+      setMassDeletePassword('');
+    } else {
+      // Можно удалить без пароля
+      if (!confirm(`Удалить ${selectedOrders.size} заказов? Это действие нельзя отменить.`)) return;
+      await executeMassDelete(null);
+    }
+  };
+
+  // ✅ ВЫПОЛНЕНИЕ МАССОВОГО УДАЛЕНИЯ
+  const executeMassDelete = async (password: string | null) => {
+    setIsMassAction(true);
+    try {
+      const ids = Array.from(selectedOrders);
+      const body: any = { ids };
+      if (password) {
+        body.password = password;
+      }
+      
+      const url = password 
+        ? '/api/admin/orders/mass-delete-with-password'
+        : '/api/admin/orders/mass-delete';
+      
+      const response = await fetchWithCsrf(url, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      
+      if (response.ok) {
+        setSelectedOrders(new Set());
+        setShowPasswordModal(false);
+        setMassDeletePassword('');
+        fetchOrders();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка массового удаления');
+      }
+    } catch (error) {
+      alert('Ошибка массового удаления');
+    } finally {
+      setIsMassAction(false);
+      setIsMassDeletingWithPassword(false);
+    }
   };
 
   if (loading && orders.length === 0) {
@@ -216,6 +306,14 @@ export default function AdminOrdersPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedOrders.size === orders.length && orders.length > 0}
+                    onChange={selectAll}
+                    className="w-4 h-4 rounded border-border bg-muted text-foreground focus:ring-foreground/20"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   № заказа
                 </th>
@@ -239,13 +337,21 @@ export default function AdminOrdersPage() {
             <tbody className="divide-y divide-border">
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                     Заказов не найдено
                   </td>
                 </tr>
               ) : (
                 orders.map((order) => (
                   <tr key={order.id} className="hover:bg-muted/30 transition">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.has(order.id)}
+                        onChange={() => toggleSelect(order.id)}
+                        className="w-4 h-4 rounded border-border bg-muted text-foreground focus:ring-foreground/20"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium text-foreground">
                       #{order.orderNumber || order.id.slice(0, 8)}
                     </td>
@@ -311,6 +417,81 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </div>
+
+      {/* ✅ ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
+      {selectedOrders.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-card border border-border rounded-2xl shadow-2xl p-4 flex items-center gap-4 animate-in slide-in-from-bottom-4">
+          <span className="text-sm text-foreground font-medium">
+            Выбрано: {selectedOrders.size}
+          </span>
+          <button
+            onClick={handleMassDelete}
+            disabled={isMassAction}
+            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2"
+          >
+            {isMassAction ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Удалить выбранные
+          </button>
+          <button
+            onClick={() => setSelectedOrders(new Set())}
+            className="px-4 py-2 border border-border rounded-lg text-sm text-muted-foreground hover:text-foreground transition"
+          >
+            Отмена
+          </button>
+        </div>
+      )}
+
+      {/* ✅ МОДАЛКА ПОДТВЕРЖДЕНИЯ ПАРОЛЯ ДЛЯ МАССОВОГО УДАЛЕНИЯ */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-xl font-bold text-foreground mb-2">Подтверждение удаления</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Вы пытаетесь удалить заказы в статусах, требующих подтверждения. 
+              Введите пароль администратора для подтверждения.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Пароль администратора
+                </label>
+                <input
+                  type="password"
+                  value={massDeletePassword}
+                  onChange={(e) => setMassDeletePassword(e.target.value)}
+                  placeholder="Введите пароль..."
+                  className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      executeMassDelete(massDeletePassword);
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setMassDeletePassword('');
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => executeMassDelete(massDeletePassword)}
+                  disabled={isMassDeletingWithPassword || !massDeletePassword}
+                  className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isMassDeletingWithPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

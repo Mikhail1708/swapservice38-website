@@ -1,13 +1,14 @@
-// backend/src/scripts/create-admin.ts
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcrypt';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// backend/create-admin.js
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
 async function main() {
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('👑 СОЗДАНИЕ АДМИНИСТРАТОРА');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
   const email = 'admin@site.com';
   const password = 'admin123';
   const passwordHash = await bcrypt.hash(password, 10);
@@ -21,7 +22,16 @@ async function main() {
     console.log(`✅ Пользователь ${email} уже существует`);
     console.log(`   Роль: ${existing.role}`);
     console.log(`   ID: ${existing.id}`);
-    return;
+    
+    if (existing.role !== 'admin') {
+      console.log('🔄 Обновляем роль до admin...');
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { role: 'admin' },
+      });
+      console.log(`✅ Пользователь ${email} теперь администратор!`);
+    }
+    process.exit(0);
   }
 
   // Создаём admin-пользователя
@@ -30,20 +40,21 @@ async function main() {
       email,
       passwordHash,
       firstName: 'Admin',
-      lastName: 'SWAPSERVICE',
+      lastName: '',
       role: 'admin',
       isVerified: true,
     },
   });
 
-  console.log('✅ ADMIN-ПОЛЬЗОВАТЕЛЬ СОЗДАН!');
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('✅ АДМИНИСТРАТОР СОЗДАН!');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`   Email:    ${user.email}`);
   console.log(`   Пароль:   ${password}`);
   console.log(`   Роль:     ${user.role}`);
   console.log(`   ID:       ${user.id}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('📝 Используй эти данные для входа в админку');
+  console.log('📝 Используй эти данные для входа в админку\n');
 }
 
 main()

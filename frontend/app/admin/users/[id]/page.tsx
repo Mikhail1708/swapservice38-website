@@ -111,6 +111,56 @@ export default function EditUserPage() {
     }
   };
 
+  // ✅ БЛОКИРОВКА/РАЗБЛОКИРОВКА
+  const handleBlockToggle = async () => {
+    if (!user) return;
+    const action = user.blockedAt ? 'разблокировать' : 'заблокировать';
+    if (!confirm(`${action} пользователя ${user.email}?`)) return;
+
+    try {
+      const url = user.blockedAt
+        ? `/api/admin/users/${id}/unblock`
+        : `/api/admin/users/${id}/block`;
+      
+      const response = await fetchWithCsrf(url, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+
+      if (response.ok) {
+        router.push('/admin/users');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка');
+      }
+    } catch (error) {
+      alert('Ошибка');
+    }
+  };
+
+  // ✅ УДАЛЕНИЕ
+  const handleDelete = async () => {
+    if (!user) return;
+    if (!confirm(`Удалить пользователя ${user.email}? Это действие нельзя отменить.`)) return;
+    if (!confirm('Вы уверены?')) return;
+
+    try {
+      const response = await fetchWithCsrf(`/api/admin/users/${id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({}),
+      });
+
+      if (response.ok) {
+        router.push('/admin/users');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Ошибка удаления');
+      }
+    } catch (error) {
+      alert('Ошибка удаления');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -294,22 +344,7 @@ export default function EditUserPage() {
         <div className="flex flex-wrap gap-3">
           {user.blockedAt ? (
             <button
-              onClick={async () => {
-                if (!confirm('Разблокировать пользователя?')) return;
-                try {
-                  const response = await fetch(`/api/admin/users/${id}/unblock`, {
-                    method: 'POST',
-                    credentials: 'include',
-                  });
-                  if (response.ok) {
-                    router.push('/admin/users');
-                  } else {
-                    alert('Ошибка разблокировки');
-                  }
-                } catch (error) {
-                  alert('Ошибка разблокировки');
-                }
-              }}
+              onClick={handleBlockToggle}
               className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-500 rounded-lg text-sm font-medium hover:bg-green-500/30 transition"
             >
               <CheckCircle className="w-4 h-4" />
@@ -317,22 +352,7 @@ export default function EditUserPage() {
             </button>
           ) : (
             <button
-              onClick={async () => {
-                if (!confirm('Заблокировать пользователя?')) return;
-                try {
-                  const response = await fetch(`/api/admin/users/${id}/block`, {
-                    method: 'POST',
-                    credentials: 'include',
-                  });
-                  if (response.ok) {
-                    router.push('/admin/users');
-                  } else {
-                    alert('Ошибка блокировки');
-                  }
-                } catch (error) {
-                  alert('Ошибка блокировки');
-                }
-              }}
+              onClick={handleBlockToggle}
               className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-500 rounded-lg text-sm font-medium hover:bg-red-500/30 transition"
             >
               <Ban className="w-4 h-4" />
@@ -340,22 +360,7 @@ export default function EditUserPage() {
             </button>
           )}
           <button
-            onClick={async () => {
-              if (!confirm('Удалить пользователя? Это действие нельзя отменить.')) return;
-              try {
-                const response = await fetch(`/api/admin/users/${id}`, {
-                  method: 'DELETE',
-                  credentials: 'include',
-                });
-                if (response.ok) {
-                  router.push('/admin/users');
-                } else {
-                  alert('Ошибка удаления');
-                }
-              } catch (error) {
-                alert('Ошибка удаления');
-              }
-            }}
+            onClick={handleDelete}
             className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg text-sm font-medium hover:bg-red-500/20 transition"
           >
             <X className="w-4 h-4" />

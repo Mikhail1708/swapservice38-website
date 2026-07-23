@@ -207,3 +207,14 @@ model Cart {
   @@unique([userId])
   @@unique([guestId])
 }
+// ============================================================
+// НАСТРОЙКИ САЙТА
+// ============================================================
+model Setting {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String   @default("")
+  description     String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}

@@ -49,7 +49,7 @@ export const fetchWithCsrf = async (
 
   console.log(`🛡️ fetchWithCsrf: ${url}, токен: ${token.substring(0, 10)}...`);
 
-  const headers = {
+  const headers: HeadersInit = {
     'Content-Type': 'application/json',
     'X-CSRF-Token': token,
     'CSRF-Token': token,
@@ -76,5 +76,24 @@ export const fetchWithCsrf = async (
     headers,
     body: finalBody,
     credentials: 'include',
+  });
+};
+
+// ✅ ДЛЯ DELETE, PUT, PATCH — ТОЖЕ РАБОТАЕТ
+export const deleteWithCsrf = async (url: string): Promise<Response> => {
+  return fetchWithCsrf(url, { method: 'DELETE' });
+};
+
+export const putWithCsrf = async (url: string, body: any): Promise<Response> => {
+  return fetchWithCsrf(url, { 
+    method: 'PUT', 
+    body: JSON.stringify(body) 
+  });
+};
+
+export const patchWithCsrf = async (url: string, body: any): Promise<Response> => {
+  return fetchWithCsrf(url, { 
+    method: 'PATCH', 
+    body: JSON.stringify(body) 
   });
 };
