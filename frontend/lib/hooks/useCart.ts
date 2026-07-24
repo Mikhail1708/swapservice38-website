@@ -10,6 +10,7 @@ interface CartItem {
   price: number;
   quantity: number;
   image?: string;
+  maxStock?: number; // ✅ ДОБАВЛЯЕМ
 }
 
 interface Cart {
@@ -77,7 +78,14 @@ export function useCart() {
       });
 
       if (!response.ok) {
-        return false;
+        const errorData = await response.json();
+        // ✅ ПРОБРАСЫВАЕМ ОШИБКУ С ДЕТАЛЯМИ
+        const error = new Error(errorData.error || 'Ошибка добавления');
+        (error as any).availableStock = errorData.availableStock;
+        (error as any).currentQuantity = errorData.currentQuantity;
+        (error as any).maxAvailable = errorData.maxAvailable;
+        (error as any).code = errorData.code;
+        throw error;
       }
 
       const data = await response.json();
@@ -92,11 +100,10 @@ export function useCart() {
       return true;
     } catch (error) {
       console.error('❌ Add to cart error:', error);
-      return false;
+      throw error;
     }
   }, []);
 
-  // ✅ ОБНОВЛЕНИЕ КОЛИЧЕСТВА
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
     try {
       const response = await fetchWithCsrf('/api/cart/update', {
@@ -105,7 +112,11 @@ export function useCart() {
       });
 
       if (!response.ok) {
-        return false;
+        const errorData = await response.json();
+        const error = new Error(errorData.error || 'Ошибка обновления');
+        (error as any).availableStock = errorData.availableStock;
+        (error as any).code = errorData.code;
+        throw error;
       }
 
       const data = await response.json();
@@ -120,7 +131,7 @@ export function useCart() {
       return true;
     } catch (error) {
       console.error('❌ Update cart error:', error);
-      return false;
+      throw error;
     }
   }, []);
 
@@ -160,6 +171,13 @@ export function useCart() {
     return item?.quantity || 0;
   }, [cart]);
 
+  // ✅ ПОЛУЧАЕМ МАКСИМАЛЬНЫЙ ОСТАТОК ДЛЯ ТОВАРА
+  const getMaxStock = useCallback((productId: string): number => {
+    if (!cart) return 999;
+    const item = cart.items.find(item => item.productId === productId);
+    return item?.maxStock || 999;
+  }, [cart]);
+
   return {
     cart,
     isLoading,
@@ -170,5 +188,6 @@ export function useCart() {
     refetch: fetchCart,
     isInCart,
     getQuantity,
+    getMaxStock, // ✅ ДОБАВЛЯЕМ
   };
 }

@@ -46,11 +46,10 @@ const ITEMS_PER_PAGE = 16;
 const fetchProducts = async (): Promise<Product[]> => {
   console.log('🔄 Загрузка товаров из CRM (без кеша)...');
   
-  // ✅ ДОБАВЛЯЕМ TIMESTAMP ДЛЯ ОБХОДА ЛЮБОГО КЕША
   const timestamp = Date.now();
   const response = await fetchWithCsrf(`/api/products?limit=999&_t=${timestamp}`, {
     method: 'GET',
-    cache: 'no-store', // ✅ ЗАПРЕЩАЕМ КЕШИРОВАНИЕ НА УРОВНЕ FETCH
+    cache: 'no-store',
   });
   
   if (!response.ok) {
@@ -69,6 +68,7 @@ const fetchProducts = async (): Promise<Product[]> => {
       hasImages: !!items[0].images,
       imagesLength: items[0].images?.length || 0,
       image: items[0].images?.[0],
+      stock: items[0].stock,
     });
   }
   
@@ -220,7 +220,7 @@ function ProductCard({ product }: { product: Product }) {
               {product.category}
             </span>
           )}
-          {product.stock !== undefined && product.stock > 0 && (
+          {!isOutOfStock && product.stock !== undefined && product.stock > 0 && (
             <span className="text-[10px] text-green-500 px-2 py-0.5 rounded-full bg-green-500/10">
               {product.stock} шт.
             </span>
@@ -242,6 +242,7 @@ function ProductCard({ product }: { product: Product }) {
           <AddToCartButton 
             productId={String(product.id)} 
             showQuantity={false}
+            maxStock={product.stock || 0}
             className="px-3 py-2 text-sm"
           />
         </div>

@@ -10,13 +10,15 @@ interface CRMProduct {
   id: number;
   name: string;
   price: number;
+  retail_price?: number;
   sku?: string;
+  stock: number;
   images?: string[];
   inStock?: boolean;
 }
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ — ПОЛУЧЕНИЕ ТОВАРА ИЗ CRM
+// ПОЛУЧЕНИЕ ТОВАРА ИЗ CRM С ОСТАТКОМ
 // ============================================================
 const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> => {
   try {
@@ -30,7 +32,19 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
       return null;
     }
 
-    return await response.json() as CRMProduct;
+    const data = await response.json();
+    
+    // Нормализуем данные
+    return {
+      id: data.id || data.productId,
+      name: data.name || 'Товар',
+      price: data.price || data.retail_price || 0,
+      retail_price: data.retail_price || data.price || 0,
+      sku: data.sku || data.article || null,
+      stock: data.stock || 0,
+      images: data.images || [],
+      inStock: data.inStock !== undefined ? data.inStock : (data.stock || 0) > 0,
+    };
   } catch (error) {
     console.error('❌ Ошибка получения товара из CRM:', error);
     return null;
@@ -38,7 +52,7 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
 };
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ — ФОРМАТИРОВАНИЕ ОТВЕТА КОРЗИНЫ
+// ФОРМАТИРОВАНИЕ ОТВЕТА КОРЗИНЫ
 // ============================================================
 const formatCartResponse = (cart: any) => {
   const items = Array.isArray(cart.items) ? cart.items : [];
@@ -67,15 +81,11 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 
     let cart = null;
 
-    // ✅ 1. ЕСЛИ ЕСТЬ userId — ИЩЕМ КОРЗИНУ ПОЛЬЗОВАТЕЛЯ
     if (userId) {
-      console.log('🔍 Ищем корзину для userId:', userId);
-
       cart = await prisma.cart.findUnique({
         where: { userId: String(userId) },
       });
 
-      // ✅ 2. ЕСЛИ НЕТ КОРЗИНЫ У ПОЛЬЗОВАТЕЛЯ, НО ЕСТЬ guestId — ПЕРЕНОСИМ
       if (!cart && guestId) {
         console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
 
@@ -84,7 +94,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         });
 
         if (guestCart && guestCart.items && (guestCart.items as any[]).length > 0) {
-          // Создаём корзину пользователя с товарами гостя
           cart = await prisma.cart.create({
             data: {
               userId: String(userId),
@@ -92,12 +101,10 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
             },
           });
 
-          // Удаляем корзину гостя
           await prisma.cart.delete({
             where: { guestId: guestId },
           });
 
-          // Удаляем guestId cookie
           res.clearCookie('guestId', {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
@@ -107,7 +114,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 
           console.log(`✅ Корзина перенесена, товаров: ${(guestCart.items as any[]).length}`);
         } else {
-          // Корзина гостя пуста — создаём пустую корзину пользователя
           cart = await prisma.cart.create({
             data: {
               userId: String(userId),
@@ -118,7 +124,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         }
       }
 
-      // ✅ 3. ЕСЛИ ВСЁ РАВНО НЕТ КОРЗИНЫ — СОЗДАЁМ ПУСТУЮ
       if (!cart) {
         cart = await prisma.cart.create({
           data: {
@@ -128,11 +133,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         });
         console.log('🆕 Создана пустая корзина для пользователя (новый)');
       }
-    }
-    // ✅ 4. ЕСЛИ НЕТ userId, НО ЕСТЬ guestId — ИЩЕМ КОРЗИНУ ГОСТЯ
-    else if (guestId) {
-      console.log('🔍 Ищем корзину для guestId:', guestId);
-
+    } else if (guestId) {
       cart = await prisma.cart.findUnique({
         where: { guestId: guestId },
       });
@@ -146,9 +147,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         });
         console.log('🆕 Создана пустая корзина для гостя');
       }
-    }
-    // ✅ 5. НЕТ НИ userId, НИ guestId — СОЗДАЁМ НОВОГО ГОСТЯ
-    else {
+    } else {
       guestId = uuidv4();
       cart = await prisma.cart.create({
         data: {
@@ -175,7 +174,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ============================================================
-// ДОБАВЛЕНИЕ В КОРЗИНУ
+// ДОБАВЛЕНИЕ В КОРЗИНУ — С ПРОВЕРКОЙ ОСТАТКА
 // ============================================================
 export const addToCart = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -185,121 +184,120 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     console.log('🛒 Добавление в корзину:', { productId, quantity, userId, guestId });
 
-    // ✅ 1. ЕСЛИ ЕСТЬ userId — ИСПОЛЬЗУЕМ ЕГО
-    if (userId) {
-      console.log('🔍 Добавление для userId:', userId);
+    // ✅ 1. ПОЛУЧАЕМ ТОВАР ИЗ CRM С ОСТАТКОМ
+    const product = await getProductFromCRM(productId);
+    if (!product) {
+      res.status(404).json({ error: 'Товар не найден' });
+      return;
+    }
 
-      let cart = await prisma.cart.findUnique({
+    const availableStock = product.stock || 0;
+    console.log(`📦 Остаток товара ${productId}: ${availableStock} шт.`);
+
+    if (availableStock <= 0) {
+      res.status(400).json({ 
+        error: 'Товар отсутствует на складе',
+        code: 'OUT_OF_STOCK',
+        availableStock: 0,
+      });
+      return;
+    }
+
+    // ✅ 2. НАХОДИМ ИЛИ СОЗДАЁМ КОРЗИНУ
+    let cart = null;
+    let currentItems: any[] = [];
+
+    if (userId) {
+      cart = await prisma.cart.findUnique({
         where: { userId: String(userId) },
       });
+    } else {
+      if (!guestId) {
+        guestId = uuidv4();
+        res.cookie('guestId', guestId, {
+          httpOnly: true,
+          maxAge: 30 * 24 * 60 * 60 * 1000,
+          path: '/',
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+        });
+      }
+      cart = await prisma.cart.findUnique({
+        where: { guestId: guestId },
+      });
+    }
 
-      if (!cart) {
+    if (!cart) {
+      if (userId) {
         cart = await prisma.cart.create({
           data: {
             userId: String(userId),
             items: [],
           },
         });
-        console.log('🆕 Создана корзина для пользователя');
-      }
-
-      let items = Array.isArray(cart.items) ? cart.items : [];
-
-      // Проверяем, есть ли уже такой товар
-      const existingItemIndex = items.findIndex(
-        (item) => String(item.productId) === String(productId)
-      );
-
-      if (existingItemIndex !== -1) {
-        items[existingItemIndex].quantity += quantity;
-        console.log('🔄 Обновлено количество:', productId, '->', items[existingItemIndex].quantity);
       } else {
-        const product = await getProductFromCRM(productId);
-        if (!product) {
-          res.status(404).json({ error: 'Товар не найден' });
-          return;
-        }
-
-        items.push({
-          productId: String(productId),
-          name: product.name || 'Товар',
-          price: product.price || 0,
-          quantity: quantity,
-          image: product.images?.[0] || '/images/logo/logo.png',
-          sku: product.sku || null,
+        cart = await prisma.cart.create({
+          data: {
+            guestId: guestId,
+            items: [],
+          },
         });
-        console.log('➕ Добавлен новый товар:', productId);
       }
+      console.log('🆕 Создана новая корзина');
+    }
 
-      const updatedCart = await prisma.cart.update({
-        where: { id: cart.id },
-        data: { items: items },
+    currentItems = Array.isArray(cart.items) ? cart.items : [];
+
+    // ✅ 3. СЧИТАЕМ СКОЛЬКО УЖЕ В КОРЗИНЕ ЭТОГО ТОВАРА
+    const existingItemIndex = currentItems.findIndex(
+      (item) => String(item.productId) === String(productId)
+    );
+    const currentQuantity = existingItemIndex !== -1 ? currentItems[existingItemIndex].quantity : 0;
+    const newQuantity = currentQuantity + quantity;
+
+    // ✅ 4. ПРОВЕРЯЕМ ЧТО НЕ ПРЕВЫШАЕМ ОСТАТОК
+    if (newQuantity > availableStock) {
+      const maxAvailable = availableStock - currentQuantity;
+      res.status(400).json({ 
+        error: `Недостаточно товара на складе. Доступно: ${availableStock} шт., в корзине: ${currentQuantity} шт.`,
+        code: 'STOCK_LIMIT_EXCEEDED',
+        availableStock,
+        currentQuantity,
+        maxAvailable: Math.max(0, maxAvailable),
+        productId,
       });
-
-      res.json(formatCartResponse(updatedCart));
       return;
     }
 
-    // ✅ 2. НЕТ userId — РАБОТАЕМ С guestId
-    if (!guestId) {
-      guestId = uuidv4();
-      res.cookie('guestId', guestId, {
-        httpOnly: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-      });
-      console.log('🆕 Создан новый guestId:', guestId);
-    }
-
-    console.log('🔍 Добавление для guestId:', guestId);
-
-    let cart = await prisma.cart.findUnique({
-      where: { guestId: guestId },
-    });
-
-    if (!cart) {
-      cart = await prisma.cart.create({
-        data: {
-          guestId: guestId,
-          items: [],
-        },
-      });
-      console.log('🆕 Создана корзина для гостя');
-    }
-
-    let items = Array.isArray(cart.items) ? cart.items : [];
-
-    const existingItemIndex = items.findIndex(
-      (item) => String(item.productId) === String(productId)
-    );
-
+    // ✅ 5. ОБНОВЛЯЕМ КОРЗИНУ
     if (existingItemIndex !== -1) {
-      items[existingItemIndex].quantity += quantity;
-      console.log('🔄 Обновлено количество:', productId, '->', items[existingItemIndex].quantity);
+      currentItems[existingItemIndex].quantity = newQuantity;
+      console.log('🔄 Обновлено количество:', productId, '->', newQuantity);
     } else {
-      const product = await getProductFromCRM(productId);
-      if (!product) {
-        res.status(404).json({ error: 'Товар не найден' });
-        return;
-      }
-
-      items.push({
+      currentItems.push({
         productId: String(productId),
         name: product.name || 'Товар',
         price: product.price || 0,
         quantity: quantity,
         image: product.images?.[0] || '/images/logo/logo.png',
         sku: product.sku || null,
+        maxStock: availableStock, // ✅ СОХРАНЯЕМ МАКСИМАЛЬНЫЙ ОСТАТОК
       });
       console.log('➕ Добавлен новый товар:', productId);
     }
 
-    const updatedCart = await prisma.cart.update({
-      where: { id: cart.id },
-      data: { items: items },
-    });
+    let updatedCart;
+    if (userId) {
+      updatedCart = await prisma.cart.update({
+        where: { userId: String(userId) },
+        data: { items: currentItems },
+      });
+    } else {
+      updatedCart = await prisma.cart.update({
+        where: { guestId: guestId },
+        data: { items: currentItems },
+      });
+    }
 
     res.json(formatCartResponse(updatedCart));
   } catch (error) {
@@ -309,7 +307,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ============================================================
-// ОБНОВЛЕНИЕ КОЛИЧЕСТВА
+// ОБНОВЛЕНИЕ КОЛИЧЕСТВА — С ПРОВЕРКОЙ ОСТАТКА
 // ============================================================
 export const updateCart = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -324,6 +322,17 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
+    // ✅ 1. ПОЛУЧАЕМ ТОВАР ИЗ CRM С ОСТАТКОМ
+    const product = await getProductFromCRM(productId);
+    if (!product) {
+      res.status(404).json({ error: 'Товар не найден' });
+      return;
+    }
+
+    const availableStock = product.stock || 0;
+    console.log(`📦 Остаток товара ${productId}: ${availableStock} шт.`);
+
+    // ✅ 2. НАХОДИМ КОРЗИНУ
     let cart = null;
     if (userId) {
       cart = await prisma.cart.findUnique({
@@ -343,23 +352,53 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
 
     let items = Array.isArray(cart.items) ? cart.items : [];
 
-    if (quantity === 0) {
-      // Удаляем товар
-      items = items.filter((item) => String(item.productId) !== String(productId));
-      console.log('🗑️ Товар удалён из корзины:', productId);
-    } else {
-      // Обновляем количество
-      const existingItemIndex = items.findIndex(
-        (item) => String(item.productId) === String(productId)
-      );
-      if (existingItemIndex !== -1) {
-        items[existingItemIndex].quantity = quantity;
-        console.log('🔄 Количество обновлено:', productId, '->', quantity);
-      } else {
-        res.status(404).json({ error: 'Товар не найден в корзине' });
-        return;
-      }
+    // ✅ 3. НАХОДИМ ТОВАР В КОРЗИНЕ
+    const existingItemIndex = items.findIndex(
+      (item) => String(item.productId) === String(productId)
+    );
+
+    if (existingItemIndex === -1) {
+      res.status(404).json({ error: 'Товар не найден в корзине' });
+      return;
     }
+
+    // ✅ 4. ЕСЛИ quantity === 0 — УДАЛЯЕМ
+    if (quantity === 0) {
+      items.splice(existingItemIndex, 1);
+      console.log('🗑️ Товар удалён из корзины:', productId);
+      
+      let updatedCart;
+      if (userId) {
+        updatedCart = await prisma.cart.update({
+          where: { userId: String(userId) },
+          data: { items: items },
+        });
+      } else {
+        updatedCart = await prisma.cart.update({
+          where: { guestId: guestId },
+          data: { items: items },
+        });
+      }
+      
+      res.json(formatCartResponse(updatedCart));
+      return;
+    }
+
+    // ✅ 5. ПРОВЕРЯЕМ ЧТО НЕ ПРЕВЫШАЕМ ОСТАТОК
+    if (quantity > availableStock) {
+      res.status(400).json({ 
+        error: `Недостаточно товара на складе. Доступно: ${availableStock} шт.`,
+        code: 'STOCK_LIMIT_EXCEEDED',
+        availableStock,
+        requestedQuantity: quantity,
+        productId,
+      });
+      return;
+    }
+
+    // ✅ 6. ОБНОВЛЯЕМ КОЛИЧЕСТВО
+    items[existingItemIndex].quantity = quantity;
+    console.log('🔄 Количество обновлено:', productId, '->', quantity);
 
     let updatedCart;
     if (userId) {

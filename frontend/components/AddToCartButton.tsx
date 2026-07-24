@@ -11,19 +11,22 @@ interface AddToCartButtonProps {
   className?: string;
   showQuantity?: boolean;
   onAdd?: () => void;
+  maxStock?: number;
 }
 
 export function AddToCartButton({ 
   productId, 
   className = '', 
   showQuantity = true,
-  onAdd 
+  onAdd,
+  maxStock: propMaxStock = 999,
 }: AddToCartButtonProps) {
   const { addToCart, updateQuantity, refetch, isInCart, getQuantity } = useCart();
   const [isAdding, setIsAdding] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [localCount, setLocalCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   
   const inCart = isInCart(productId);
   const cartQuantity = getQuantity(productId);
@@ -35,11 +38,14 @@ export function AddToCartButton({
       setQuantity(cartQuantity);
     } else {
       setLocalCount(0);
+      setQuantity(1);
     }
+    setError(null);
   }, [inCart, cartQuantity]);
 
   const handleAdd = async () => {
     setIsAdding(true);
+    setError(null);
     try {
       const result = await addToCart(productId, quantity);
       if (result) {
@@ -48,8 +54,13 @@ export function AddToCartButton({
         setTimeout(() => setShowToast(false), 3000);
         if (onAdd) onAdd();
       }
-    } catch (error) {
-      console.error('❌ Ошибка добавления в корзину:', error);
+    } catch (err: any) {
+      console.error('❌ Ошибка добавления в корзину:', err);
+      if (err.message?.includes('недостаточно') || err.message?.includes('STOCK_LIMIT')) {
+        setError(`Доступно только ${propMaxStock} шт.`);
+      } else {
+        setError(err.message || 'Ошибка добавления');
+      }
     } finally {
       setIsAdding(false);
     }
@@ -58,71 +69,87 @@ export function AddToCartButton({
   const handleQuantityChange = async (newQuantity: number) => {
     if (newQuantity < 0) return;
     
+    // ✅ МИНУС ВСЕГДА РАБОТАЕТ — ПРОВЕРКА ТОЛЬКО ДЛЯ ПЛЮСА
+    if (newQuantity > propMaxStock) {
+      setError(`Доступно только ${propMaxStock} шт.`);
+      return;
+    }
+    setError(null);
+
     // Если количество становится 0 — удаляем товар из корзины
     if (newQuantity === 0) {
       await updateQuantity(productId, 0);
       await refetch();
       return;
     }
-    
-    // Обновляем локально сразу
+
     setLocalCount(newQuantity);
     setQuantity(newQuantity);
-    
-    // Отправляем на сервер
+
     try {
       await updateQuantity(productId, newQuantity);
       await refetch();
-    } catch (error) {
-      console.error('❌ Ошибка обновления количества:', error);
-      // Откатываем при ошибке
+    } catch (err: any) {
+      console.error('❌ Ошибка обновления количества:', err);
+      if (err.message?.includes('недостаточно') || err.message?.includes('STOCK_LIMIT')) {
+        setError(`Доступно только ${propMaxStock} шт.`);
+      } else {
+        setError('Ошибка обновления');
+      }
       setLocalCount(cartQuantity);
       setQuantity(cartQuantity);
     }
   };
 
-  // Если товар в корзине — показываем контролы количества
+  // ✅ МИНУС ВСЕГДА АКТИВЕН, ЕСЛИ КОЛИЧЕСТВО > 0
+  const canAddMore = localCount < propMaxStock;
+  const isOutOfStock = propMaxStock <= 0;
+
+  // Если товар в корзине — контролы количества
   if (inCart && localCount > 0) {
     return (
-      <div className="flex items-center gap-2">
-        <div className="flex items-center border border-border rounded-lg overflow-hidden bg-muted/50">
-          <button
-            onClick={() => handleQuantityChange(localCount - 1)}
-            className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
-            disabled={isAdding}
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center border border-border rounded-lg overflow-hidden bg-muted/50">
+            <button
+              onClick={() => handleQuantityChange(localCount - 1)}
+              className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
+              disabled={isAdding || localCount <= 0}
+            >
+              <Minus className="w-3.5 h-3.5 text-foreground" />
+            </button>
+            <span className="w-8 text-center text-sm font-medium text-foreground">
+              {localCount}
+            </span>
+            <button
+              onClick={() => handleQuantityChange(localCount + 1)}
+              className={`px-2.5 py-2 transition ${canAddMore ? 'hover:bg-muted' : 'opacity-30 cursor-not-allowed'}`}
+              disabled={isAdding || !canAddMore || isOutOfStock}
+            >
+              <Plus className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          </div>
+          <Link
+            href="/cart"
+            className="p-2 text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-muted"
           >
-            <Minus className="w-3.5 h-3.5 text-foreground" />
-          </button>
-          <span className="w-8 text-center text-sm font-medium text-foreground">
-            {localCount}
-          </span>
-          <button
-            onClick={() => handleQuantityChange(localCount + 1)}
-            className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
-            disabled={isAdding}
-          >
-            <Plus className="w-3.5 h-3.5 text-foreground" />
-          </button>
+            <ShoppingCart className="w-4 h-4" />
+          </Link>
         </div>
-        
-        {/* Кнопка перейти в корзину */}
-        <Link
-          href="/cart"
-          className="p-2 text-muted-foreground hover:text-foreground transition rounded-lg hover:bg-muted"
-          title="Перейти в корзину"
-        >
-          <ShoppingCart className="w-4 h-4" />
-        </Link>
+        {error && <span className="text-[10px] text-red-500">{error}</span>}
+        {propMaxStock < 10 && propMaxStock > 0 && (
+          <span className="text-[10px] text-muted-foreground/60">Осталось {propMaxStock} шт.</span>
+        )}
       </div>
     );
   }
 
-  // Если товара нет в корзине — показываем кнопку "В корзину"
+  // Если товара нет в корзине
   return (
     <>
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center gap-2">
-          {showQuantity && (
+          {showQuantity && !isOutOfStock && (
             <div className="flex items-center border border-border rounded-lg overflow-hidden bg-muted/50">
               <button
                 onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
@@ -135,9 +162,16 @@ export function AddToCartButton({
                 {quantity}
               </span>
               <button
-                onClick={() => setQuantity(prev => prev + 1)}
-                className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
-                disabled={isAdding}
+                onClick={() => {
+                  if (quantity + 1 > propMaxStock) {
+                    setError(`Доступно только ${propMaxStock} шт.`);
+                    return;
+                  }
+                  setError(null);
+                  setQuantity(prev => prev + 1);
+                }}
+                className={`px-2.5 py-2 hover:bg-muted transition ${quantity >= propMaxStock ? 'opacity-30 cursor-not-allowed' : ''}`}
+                disabled={isAdding || quantity >= propMaxStock || isOutOfStock}
               >
                 <Plus className="w-3.5 h-3.5 text-foreground" />
               </button>
@@ -146,10 +180,12 @@ export function AddToCartButton({
 
           <button
             onClick={handleAdd}
-            disabled={isAdding}
+            disabled={isAdding || isOutOfStock}
             className={`relative overflow-hidden px-4 py-2.5 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 ${
               inCart
                 ? 'bg-green-600 hover:bg-green-700 text-white'
+                : isOutOfStock
+                ? 'bg-muted text-muted-foreground cursor-not-allowed'
                 : 'bg-foreground hover:bg-foreground/80 text-background'
             } disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
           >
@@ -160,6 +196,11 @@ export function AddToCartButton({
                 <Check className="w-4 h-4" />
                 <span>В корзине</span>
               </>
+            ) : isOutOfStock ? (
+              <>
+                <X className="w-4 h-4" />
+                <span>Нет в наличии</span>
+              </>
             ) : (
               <>
                 <ShoppingCart className="w-4 h-4" />
@@ -168,9 +209,14 @@ export function AddToCartButton({
             )}
           </button>
         </div>
+        {error && <span className="text-[10px] text-red-500">{error}</span>}
+        {!isOutOfStock && propMaxStock < 10 && propMaxStock > 0 && (
+          <span className="text-[10px] text-muted-foreground/60">Осталось {propMaxStock} шт.</span>
+        )}
+        {isOutOfStock && <span className="text-[10px] text-red-500">Нет в наличии</span>}
       </div>
 
-      {/* Тост-уведомление как на WB */}
+      {/* Тост */}
       {showToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 duration-300">
           <div className="bg-green-600 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4">

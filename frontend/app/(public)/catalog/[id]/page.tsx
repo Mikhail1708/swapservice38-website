@@ -63,10 +63,10 @@ interface Product {
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
 // ============================================================
-// ИКОНКИ ДЛЯ ХАРАКТЕРИСТИК (БЕЗ Weight)
+// ИКОНКИ ДЛЯ ХАРАКТЕРИСТИК
 // ============================================================
 const characteristicIcons: Record<string, any> = {
-  'Вес': Package,      // ✅ ЗАМЕНИЛИ Weight НА Package
+  'Вес': Package,
   'Размер': Ruler,
   'Длина': Ruler,
   'Ширина': Ruler,
@@ -443,6 +443,7 @@ export default function ProductPage() {
                 <AddToCartButton 
                   productId={String(product.id)} 
                   showQuantity={true}
+                  maxStock={product.stock || 0}
                   className="px-6 py-3 text-base"
                 />
                 
