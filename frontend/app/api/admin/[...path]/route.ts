@@ -1,9 +1,41 @@
+// frontend/app/api/admin/[...path]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5001';
 
 // ============================================================
-// GET — все GET-запросы к админке
+// ПРЕОБРАЗОВАНИЕ ПУТЕЙ
+// ============================================================
+function transformPath(path: string): string {
+  // /content/services/:id → /services/:id
+  if (path.startsWith('content/services/')) {
+    return path.replace('content/services/', 'services/');
+  }
+  // /content/services → /services
+  if (path === 'content/services') {
+    return 'services';
+  }
+  // /content/articles/:id → /articles/:id
+  if (path.startsWith('content/articles/')) {
+    return path.replace('content/articles/', 'articles/');
+  }
+  // /content/articles → /articles
+  if (path === 'content/articles') {
+    return 'articles';
+  }
+  // /content/news/:id → /news/:id
+  if (path.startsWith('content/news/')) {
+    return path.replace('content/news/', 'news/');
+  }
+  // /content/news → /news
+  if (path === 'content/news') {
+    return 'news';
+  }
+  return path;
+}
+
+// ============================================================
+// GET
 // ============================================================
 export async function GET(
   req: NextRequest,
@@ -11,18 +43,29 @@ export async function GET(
 ) {
   try {
     const path = params.path.join('/');
+    const transformedPath = transformPath(path);
     const searchParams = req.nextUrl.searchParams.toString();
-    const url = `${BACKEND_URL}/api/admin/${path}${searchParams ? `?${searchParams}` : ''}`;
+    const url = `${BACKEND_URL}/api/admin/${transformedPath}${searchParams ? `?${searchParams}` : ''}`;
     const cookie = req.headers.get('cookie') || '';
+    const csrfToken = req.headers.get('x-csrf-token') || 
+                      req.headers.get('csrf-token') ||
+                      req.headers.get('CSRF-Token');
 
-    console.log(`🔄 [PROXY] GET ${url}`);
+    console.log(`🔄 [PROXY] GET ${url} (original: ${path})`);
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cookie': cookie,
+    };
+
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
+    }
 
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookie,
-      },
+      headers,
       credentials: 'include',
     });
 
@@ -38,7 +81,7 @@ export async function GET(
 }
 
 // ============================================================
-// POST — все POST-запросы к админке
+// POST
 // ============================================================
 export async function POST(
   req: NextRequest,
@@ -46,19 +89,37 @@ export async function POST(
 ) {
   try {
     const path = params.path.join('/');
-    const url = `${BACKEND_URL}/api/admin/${path}`;
+    const transformedPath = transformPath(path);
+    const url = `${BACKEND_URL}/api/admin/${transformedPath}`;
     const cookie = req.headers.get('cookie') || '';
     const body = await req.json();
+    const csrfToken = req.headers.get('x-csrf-token') || 
+                      req.headers.get('csrf-token') ||
+                      req.headers.get('CSRF-Token') ||
+                      body._csrf;
 
-    console.log(`🔄 [PROXY] POST ${url}`);
+    console.log(`🔄 [PROXY] POST ${url} (original: ${path})`);
+    console.log('🛡️ CSRF токен в POST:', csrfToken ? csrfToken.substring(0, 10) + '...' : 'отсутствует');
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cookie': cookie,
+    };
+
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
+    }
+
+    const requestBody = {
+      ...body,
+      _csrf: csrfToken || undefined,
+    };
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookie,
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(requestBody),
       credentials: 'include',
     });
 
@@ -74,7 +135,7 @@ export async function POST(
 }
 
 // ============================================================
-// PUT — все PUT-запросы к админке
+// PUT
 // ============================================================
 export async function PUT(
   req: NextRequest,
@@ -82,19 +143,37 @@ export async function PUT(
 ) {
   try {
     const path = params.path.join('/');
-    const url = `${BACKEND_URL}/api/admin/${path}`;
+    const transformedPath = transformPath(path);
+    const url = `${BACKEND_URL}/api/admin/${transformedPath}`;
     const cookie = req.headers.get('cookie') || '';
     const body = await req.json();
+    const csrfToken = req.headers.get('x-csrf-token') || 
+                      req.headers.get('csrf-token') ||
+                      req.headers.get('CSRF-Token') ||
+                      body._csrf;
 
-    console.log(`🔄 [PROXY] PUT ${url}`);
+    console.log(`🔄 [PROXY] PUT ${url} (original: ${path})`);
+    console.log('🛡️ CSRF токен в PUT:', csrfToken ? csrfToken.substring(0, 10) + '...' : 'отсутствует');
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cookie': cookie,
+    };
+
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
+    }
+
+    const requestBody = {
+      ...body,
+      _csrf: csrfToken || undefined,
+    };
 
     const response = await fetch(url, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookie,
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(requestBody),
       credentials: 'include',
     });
 
@@ -110,7 +189,7 @@ export async function PUT(
 }
 
 // ============================================================
-// PATCH — все PATCH-запросы к админке
+// PATCH
 // ============================================================
 export async function PATCH(
   req: NextRequest,
@@ -118,19 +197,37 @@ export async function PATCH(
 ) {
   try {
     const path = params.path.join('/');
-    const url = `${BACKEND_URL}/api/admin/${path}`;
+    const transformedPath = transformPath(path);
+    const url = `${BACKEND_URL}/api/admin/${transformedPath}`;
     const cookie = req.headers.get('cookie') || '';
     const body = await req.json();
+    const csrfToken = req.headers.get('x-csrf-token') || 
+                      req.headers.get('csrf-token') ||
+                      req.headers.get('CSRF-Token') ||
+                      body._csrf;
 
-    console.log(`🔄 [PROXY] PATCH ${url}`);
+    console.log(`🔄 [PROXY] PATCH ${url} (original: ${path})`);
+    console.log('🛡️ CSRF токен в PATCH:', csrfToken ? csrfToken.substring(0, 10) + '...' : 'отсутствует');
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cookie': cookie,
+    };
+
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
+    }
+
+    const requestBody = {
+      ...body,
+      _csrf: csrfToken || undefined,
+    };
 
     const response = await fetch(url, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookie,
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(requestBody),
       credentials: 'include',
     });
 
@@ -146,7 +243,7 @@ export async function PATCH(
 }
 
 // ============================================================
-// DELETE — все DELETE-запросы к админке
+// DELETE
 // ============================================================
 export async function DELETE(
   req: NextRequest,
@@ -154,17 +251,29 @@ export async function DELETE(
 ) {
   try {
     const path = params.path.join('/');
-    const url = `${BACKEND_URL}/api/admin/${path}`;
+    const transformedPath = transformPath(path);
+    const url = `${BACKEND_URL}/api/admin/${transformedPath}`;
     const cookie = req.headers.get('cookie') || '';
+    const csrfToken = req.headers.get('x-csrf-token') || 
+                      req.headers.get('csrf-token') ||
+                      req.headers.get('CSRF-Token');
 
-    console.log(`🔄 [PROXY] DELETE ${url}`);
+    console.log(`🔄 [PROXY] DELETE ${url} (original: ${path})`);
+    console.log('🛡️ CSRF токен в DELETE:', csrfToken ? csrfToken.substring(0, 10) + '...' : 'отсутствует');
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cookie': cookie,
+    };
+
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      headers['CSRF-Token'] = csrfToken;
+    }
 
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': cookie,
-      },
+      headers,
       credentials: 'include',
     });
 
@@ -180,7 +289,7 @@ export async function DELETE(
 }
 
 // ============================================================
-// OPTIONS — для CORS
+// OPTIONS
 // ============================================================
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -188,7 +297,7 @@ export async function OPTIONS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-CSRF-Token, CSRF-Token',
     },
   });
 }

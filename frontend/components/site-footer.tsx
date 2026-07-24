@@ -1,7 +1,7 @@
 // frontend/components/site-footer.tsx
 import Image from 'next/image';
 import Link from 'next/link';
-import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle, MessageSquare } from 'lucide-react';
 
 const COLUMNS = [
   {
@@ -66,6 +66,15 @@ export function SiteFooter() {
               <Send className="h-4 w-4" />
             </a>
             <a
+              href="https://web.max.ru/-70953461855659"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
+              aria-label="MAX"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </a>
+            <a
               href="https://www.instagram.com/swapservice38"
               target="_blank"
               rel="noopener noreferrer"
@@ -114,7 +123,7 @@ export function SiteFooter() {
             <li className="flex items-start gap-2">
               <Phone className="mt-0.5 h-4 w-4 shrink-0" />
               <a href="tel:+79148993838" className="hover:text-foreground">
-                +7 (914) 899-38-38
+                +7 (914) 895-58-88
               </a>
             </li>
             <li className="flex items-start gap-2">

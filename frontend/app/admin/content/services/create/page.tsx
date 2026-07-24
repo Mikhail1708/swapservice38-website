@@ -8,6 +8,7 @@ import { fetchWithCsrf } from '@/lib/csrf';
 export default function CreateServicePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -57,6 +58,7 @@ export default function CreateServicePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
 
     try {
       const payload = {
@@ -66,6 +68,8 @@ export default function CreateServicePage() {
         imageUrl: imageUrls.length > 0 ? imageUrls[0] : null,
         isActive: form.isActive,
       };
+
+      console.log('📤 Отправка создания услуги:', payload);
 
       const response = await fetchWithCsrf('/api/admin/content/services', {
         method: 'POST',
@@ -77,11 +81,11 @@ export default function CreateServicePage() {
       if (response.ok) {
         router.push('/admin/content/services');
       } else {
-        alert(result.error || 'Ошибка создания услуги');
+        setError(result.error || 'Ошибка создания услуги');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Ошибка:', error);
-      alert('Ошибка создания услуги');
+      setError(error.message || 'Ошибка создания услуги');
     }
     setLoading(false);
   };
@@ -97,6 +101,13 @@ export default function CreateServicePage() {
           <p className="text-sm text-muted-foreground">Добавьте новую услугу</p>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+          <X className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="bg-card border border-border rounded-2xl p-6 space-y-4">
         <div>

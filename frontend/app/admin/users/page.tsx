@@ -61,13 +61,8 @@ export default function AdminUsersPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const limit = 20;
 
-  // ✅ ДЛЯ МАССОВЫХ ДЕЙСТВИЙ
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [isMassAction, setIsMassAction] = useState(false);
-  const [showBlockModal, setShowBlockModal] = useState(false);
-  const [blockPassword, setBlockPassword] = useState('');
-  const [blockAction, setBlockAction] = useState<'block' | 'unblock' | 'delete'>('block');
-  const [blockTargetId, setBlockTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -114,7 +109,6 @@ export default function AdminUsersPage() {
     fetchUsers();
   };
 
-  // ✅ ЧЕКБОКСЫ
   const selectAll = () => {
     if (selectedUsers.size === users.length) {
       setSelectedUsers(new Set());
@@ -133,7 +127,6 @@ export default function AdminUsersPage() {
     setSelectedUsers(newSet);
   };
 
-  // ✅ БЛОКИРОВКА/РАЗБЛОКИРОВКА С ПАРОЛЕМ
   const handleToggleBlock = async (user: User) => {
     const action = user.blockedAt ? 'разблокировать' : 'заблокировать';
     if (!confirm(`${action} пользователя ${user.email}?`)) return;
@@ -162,7 +155,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ УДАЛЕНИЕ С ПАРОЛЕМ
   const handleDelete = async (user: User) => {
     if (!confirm(`Удалить пользователя ${user.email}? Это действие нельзя отменить.`)) return;
     if (!confirm('Вы уверены?')) return;
@@ -187,7 +179,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ МАССОВОЕ УДАЛЕНИЕ
   const handleMassDelete = async () => {
     if (selectedUsers.size === 0) return;
     if (!confirm(`Удалить ${selectedUsers.size} пользователей? Это действие нельзя отменить.`)) return;
@@ -236,7 +227,6 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Пользователи</h1>
@@ -251,7 +241,6 @@ export default function AdminUsersPage() {
         </Link>
       </div>
 
-      {/* Поиск */}
       <form onSubmit={handleSearch} className="flex gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
@@ -280,7 +269,6 @@ export default function AdminUsersPage() {
         )}
       </form>
 
-      {/* Ошибка */}
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -288,7 +276,6 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Таблица */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -423,7 +410,6 @@ export default function AdminUsersPage() {
           </table>
         </div>
 
-        {/* Пагинация */}
         {totalPages > 1 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-border bg-muted/30">
             <div className="text-sm text-muted-foreground">
@@ -452,7 +438,6 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      {/* ✅ ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
       {selectedUsers.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-card border border-border rounded-2xl shadow-2xl p-4 flex items-center gap-4 animate-in slide-in-from-bottom-4">
           <span className="text-sm text-foreground font-medium">

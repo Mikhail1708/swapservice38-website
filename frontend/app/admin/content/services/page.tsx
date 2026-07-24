@@ -12,6 +12,7 @@ import {
   DollarSign,
   Wrench
 } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Service {
   id: string;
@@ -37,17 +38,19 @@ export default function AdminServicesPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/admin/content/services', {
-        credentials: 'include',
+      const response = await fetchWithCsrf('/api/admin/content/services', {
+        method: 'GET',
       });
 
       if (!response.ok) {
-        throw new Error('Ошибка загрузки услуг');
+        const data = await response.json();
+        throw new Error(data.error || 'Ошибка загрузки услуг');
       }
 
       const data = await response.json();
       setServices(data.services || []);
     } catch (err: any) {
+      console.error('❌ Ошибка загрузки услуг:', err);
       setError(err.message || 'Ошибка загрузки услуг');
     } finally {
       setLoading(false);
@@ -58,9 +61,8 @@ export default function AdminServicesPage() {
     if (!confirm('Удалить услугу?')) return;
 
     try {
-      const response = await fetch(`/api/admin/content/services/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (response.ok) {

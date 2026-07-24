@@ -34,7 +34,7 @@ import {
   massDeleteUsers,
 } from '../controllers/admin/users.controller';
 
-// ARTICLES
+// CONTENT (Articles, News, Services)
 import {
   getArticles,
   getArticleById,
@@ -49,12 +49,14 @@ import {
   updateService,
   deleteService,
 } from '../controllers/admin/content.controller';
+
 // ===== SETTINGS =====
 import {
   getSettings,
   updateSettings,
   getMaintenanceStatus,
 } from '../controllers/admin/settings.controller';
+
 // QUEUE
 import { getCRMQueueStats, retryFailedOrders } from '../queues/crm.queue';
 
@@ -97,12 +99,27 @@ router.post('/articles', createArticle);
 router.put('/articles/:id', updateArticle);
 router.delete('/articles/:id', deleteArticle);
 
+// ✅ АЛИАСЫ ДЛЯ /content/articles (для совместимости с фронтендом)
+router.get('/content/articles', getArticles);
+router.get('/content/articles/:id', getArticleById);
+router.post('/content/articles', createArticle);
+router.put('/content/articles/:id', updateArticle);
+router.delete('/content/articles/:id', deleteArticle);
+
 // ===== SERVICES (УСЛУГИ) =====
 router.get('/services', getServices);
 router.get('/services/:id', getServiceById);
 router.post('/services', createService);
 router.put('/services/:id', updateService);
 router.delete('/services/:id', deleteService);
+
+// ✅ АЛИАСЫ ДЛЯ /content/services (для совместимости с фронтендом)
+router.get('/content/services', getServices);
+router.get('/content/services/:id', getServiceById);
+router.post('/content/services', createService);
+router.put('/content/services/:id', updateService);
+router.delete('/content/services/:id', deleteService);
+
 // ===== SETTINGS =====
 router.get('/settings', getSettings);
 router.put('/settings', updateSettings);

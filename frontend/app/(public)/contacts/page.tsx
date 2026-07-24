@@ -10,12 +10,14 @@ import {
   MessageCircle, 
   Play,
   ChevronRight,
-  Building2,
-  Clock as ClockIcon,
-  Calendar,
   Instagram,
   Youtube,
-  ArrowRight
+  ArrowRight,
+  MessageSquare,
+  ParkingCircle,
+  Wrench,
+  FileText,
+  X
 } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -65,8 +67,8 @@ export default function ContactsPage() {
             {/* Телефон */}
             <div className="bg-card border border-border rounded-lg p-6 hover:border-foreground/30 transition group">
               <div className="flex items-start gap-4">
-                <div className="p-3 bg-muted rounded-lg group-hover:bg-primary/10 transition">
-                  <Phone className="w-6 h-6 text-muted-foreground group-hover:text-foreground transition" />
+                <div className="p-3 rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition">
+                  <Phone className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Телефон</h3>
@@ -98,8 +100,8 @@ export default function ContactsPage() {
             {/* Email */}
             <div className="bg-card border border-border rounded-lg p-6 hover:border-foreground/30 transition group">
               <div className="flex items-start gap-4">
-                <div className="p-3 bg-muted rounded-lg group-hover:bg-primary/10 transition">
-                  <Mail className="w-6 h-6 text-muted-foreground group-hover:text-foreground transition" />
+                <div className="p-3 rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition">
+                  <Mail className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Email</h3>
@@ -117,8 +119,8 @@ export default function ContactsPage() {
             {/* Адрес */}
             <div className="bg-card border border-border rounded-lg p-6 hover:border-foreground/30 transition group">
               <div className="flex items-start gap-4">
-                <div className="p-3 bg-muted rounded-lg group-hover:bg-primary/10 transition">
-                  <MapPin className="w-6 h-6 text-muted-foreground group-hover:text-foreground transition" />
+                <div className="p-3 rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition">
+                  <MapPin className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Адрес</h3>
@@ -139,8 +141,8 @@ export default function ContactsPage() {
             {/* Режим работы */}
             <div className="bg-card border border-border rounded-lg p-6 hover:border-foreground/30 transition group">
               <div className="flex items-start gap-4">
-                <div className="p-3 bg-muted rounded-lg group-hover:bg-primary/10 transition">
-                  <Clock className="w-6 h-6 text-muted-foreground group-hover:text-foreground transition" />
+                <div className="p-3 rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition">
+                  <Clock className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Режим работы</h3>
@@ -150,10 +152,10 @@ export default function ContactsPage() {
               </div>
             </div>
 
-            {/* Соцсети */}
+            {/* Соцсети и мессенджеры */}
             <div className="bg-card border border-border rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Мы в соцсетях</h3>
-              <div className="flex gap-3">
+              <h3 className="text-sm font-semibold text-foreground mb-4">Мы в соцсетях и мессенджерах</h3>
+              <div className="flex gap-3 flex-wrap">
                 <a
                   href="https://t.me/swap38"
                   target="_blank"
@@ -162,6 +164,15 @@ export default function ContactsPage() {
                   aria-label="Telegram"
                 >
                   <Send className="h-5 w-5" />
+                </a>
+                <a
+                  href="https://web.max.ru/-70953461855659"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground hover:bg-muted"
+                  aria-label="MAX"
+                >
+                  <MessageSquare className="h-5 w-5" />
                 </a>
                 <a
                   href="https://www.instagram.com/swapservice38"
@@ -200,19 +211,26 @@ export default function ContactsPage() {
               />
             </div>
 
-            {/* Дополнительная информация */}
+            {/* Дополнительная информация — ТЕПЕРЬ В ОДНОМ СТИЛЕ */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
-                <div className="text-2xl mb-2">🚗</div>
+              <div className="bg-card border border-border rounded-lg p-5 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-3">
+                  <ParkingCircle className="h-5 w-5" />
+                </div>
                 <p className="text-sm font-medium text-foreground">Бесплатная парковка</p>
                 <p className="text-xs text-muted-foreground">Для клиентов</p>
               </div>
-              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
-                <div className="text-2xl mb-2">🔧</div>
+              <div className="bg-card border border-border rounded-lg p-5 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-3">
+                  <Wrench className="h-5 w-5" />
+                </div>
                 <p className="text-sm font-medium text-foreground">Осмотр на месте</p>
+                <p className="text-xs text-muted-foreground">Бесплатная диагностика</p>
               </div>
-              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
-                <div className="text-2xl mb-2">📋</div>
+              <div className="bg-card border border-border rounded-lg p-5 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-3">
+                  <FileText className="h-5 w-5" />
+                </div>
                 <p className="text-sm font-medium text-foreground">Консультация</p>
                 <p className="text-xs text-muted-foreground">По телефону или в сервисе</p>
               </div>
@@ -244,7 +262,7 @@ export default function ContactsPage() {
               Написать
             </a>
             <a
-              href="https://t.me/swap38"
+              href="https://web.telegram.org/k/#@swap38"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-sm border border-border px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-foreground transition-colors hover:bg-card"

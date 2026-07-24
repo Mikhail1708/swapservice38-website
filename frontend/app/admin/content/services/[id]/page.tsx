@@ -12,6 +12,7 @@ export default function EditServicePage() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -24,15 +25,20 @@ export default function EditServicePage() {
   useEffect(() => {
     const fetchService = async () => {
       try {
-        const response = await fetch(`/api/admin/content/services/${id}`, {
-          credentials: 'include',
+        console.log(`🔄 Загрузка услуги ${id}...`);
+        
+        const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
+          method: 'GET',
         });
 
         if (!response.ok) {
-          throw new Error('Ошибка загрузки услуги');
+          const data = await response.json();
+          throw new Error(data.error || 'Ошибка загрузки услуги');
         }
 
         const data = await response.json();
+        console.log('📦 Получены данные:', data);
+        
         const service = data.service;
         setForm({
           name: service.name || '',
@@ -43,15 +49,17 @@ export default function EditServicePage() {
         if (service.imageUrl) {
           setImageUrls([service.imageUrl]);
         }
-      } catch (error) {
-        console.error('Ошибка загрузки:', error);
-        alert('Ошибка загрузки услуги');
+      } catch (error: any) {
+        console.error('❌ Ошибка загрузки:', error);
+        setError(error.message || 'Ошибка загрузки услуги');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchService();
+    if (id) {
+      fetchService();
+    }
   }, [id]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,6 +102,7 @@ export default function EditServicePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError(null);
 
     try {
       const payload = {
@@ -104,20 +113,23 @@ export default function EditServicePage() {
         isActive: form.isActive,
       };
 
+      console.log('📤 Отправка обновления услуги:', payload);
+
       const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
         router.push('/admin/content/services');
       } else {
-        const data = await response.json();
-        alert(data.error || 'Ошибка обновления');
+        setError(data.error || 'Ошибка обновления');
       }
-    } catch (error) {
-      console.error(error);
-      alert('Ошибка обновления');
+    } catch (error: any) {
+      console.error('❌ Ошибка:', error);
+      setError(error.message || 'Ошибка обновления');
     }
     setSaving(false);
   };
@@ -130,6 +142,23 @@ export default function EditServicePage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+          <X className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+        <button
+          onClick={() => router.push('/admin/content/services')}
+          className="mt-4 px-4 py-2 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition"
+        >
+          Вернуться к услугам
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
@@ -138,7 +167,7 @@ export default function EditServicePage() {
         </button>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Редактирование услуги</h1>
-          <p className="text-sm text-muted-foreground">{form.name}</p>
+          <p className="text-sm text-muted-foreground">{form.name || 'Новая услуга'}</p>
         </div>
       </div>
 
@@ -153,6 +182,7 @@ export default function EditServicePage() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+            placeholder="Например: Установка дроп-китов"
           />
         </div>
 
@@ -165,6 +195,7 @@ export default function EditServicePage() {
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+            placeholder="Подробное описание услуги"
           />
         </div>
 
@@ -177,6 +208,7 @@ export default function EditServicePage() {
             value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
+            placeholder="15000"
             min={0}
           />
         </div>

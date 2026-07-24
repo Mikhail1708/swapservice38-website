@@ -14,7 +14,10 @@ import {
   Zap,
   Truck,
   Wrench,
-  Loader2
+  Loader2,
+  Sparkles,
+  Shield,
+  Coins
 } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -40,8 +43,8 @@ async function getArticles() {
   
   try {
     const response = await fetch(`${baseUrl}/api/articles?published=true&type=swap`, {
-      cache: 'force-cache', // Кэшируем на сервере
-      next: { revalidate: 3600 }, // Пересобираем каждый час
+      cache: 'force-cache',
+      next: { revalidate: 3600 },
     });
     
     if (!response.ok) {
@@ -109,7 +112,7 @@ export default async function SwapsPage() {
           </p>
         </div>
 
-        {/* Что такое свап */}
+        {/* Что такое свап — ИКОНКИ В ОДНОМ СТИЛЕ */}
         <div className="bg-gradient-to-r from-card to-card/50 border border-border rounded-lg p-8 mb-12">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
@@ -124,16 +127,22 @@ export default async function SwapsPage() {
               </p>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-muted/50 rounded-lg p-4 text-center">
-                <div className="text-2xl mb-1">⚡</div>
+              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-2">
+                  <Sparkles className="h-5 w-5" />
+                </div>
                 <p className="text-xs font-medium text-foreground">Мощность</p>
               </div>
-              <div className="bg-muted/50 rounded-lg p-4 text-center">
-                <div className="text-2xl mb-1">🔧</div>
+              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-2">
+                  <Shield className="h-5 w-5" />
+                </div>
                 <p className="text-xs font-medium text-foreground">Надёжность</p>
               </div>
-              <div className="bg-muted/50 rounded-lg p-4 text-center">
-                <div className="text-2xl mb-1">💰</div>
+              <div className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition group">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-2">
+                  <Coins className="h-5 w-5" />
+                </div>
                 <p className="text-xs font-medium text-foreground">Экономия</p>
               </div>
             </div>
@@ -261,7 +270,7 @@ export default async function SwapsPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-6">
             <Link
-              href="#footer"
+              href="/contacts"
               className="inline-flex items-center gap-2 rounded-sm bg-primary px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Записаться на консультацию
