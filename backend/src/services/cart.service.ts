@@ -1,7 +1,32 @@
+// backend/src/services/cart.service.ts
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
+
+// ✅ ТИП ДЛЯ ЭЛЕМЕНТА КОРЗИНЫ
+export interface CartItem {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image?: string;
+}
+
+// ✅ БЕЗОПАСНОЕ ПРИВЕДЕНИЕ С ОБРАБОТКОЙ ОШИБОК
+const safeItems = (items: any): CartItem[] => {
+  if (!items) return [];
+  if (Array.isArray(items)) {
+    return items.filter((item: any) => 
+      item && typeof item === 'object' && 
+      'productId' in item && 
+      'quantity' in item &&
+      'name' in item &&
+      'price' in item
+    ) as CartItem[];
+  }
+  return [];
+};
 
 // Получение корзины по userId или guestId
 export const getCart = async (userId?: string, guestId?: string) => {
@@ -14,7 +39,6 @@ export const getCart = async (userId?: string, guestId?: string) => {
   });
 
   if (!cart) {
-    // Создаём новую корзину
     const newGuestId = guestId || uuidv4();
     cart = await prisma.cart.create({
       data: {
@@ -38,24 +62,21 @@ export const addToCart = async (
   userId?: string,
   guestId?: string
 ) => {
-  // Если нет userId и guestId - создаём guestId
   if (!userId && !guestId) {
     guestId = uuidv4();
   }
 
   const cart = await getCart(userId, guestId);
   
-  // Преобразуем items в массив
-  let items = Array.isArray(cart.items) ? cart.items : [];
+  // ✅ БЕЗОПАСНОЕ ПРИВЕДЕНИЕ
+  let items = safeItems(cart.items);
   
-  // Ищем существующий товар
-  const existingIndex = items.findIndex((item: any) => item.productId === productId);
+  const existingIndex = items.findIndex((item: CartItem) => item.productId === productId);
   
   if (existingIndex >= 0) {
-    // Обновляем количество
+    // ✅ УВЕРЕНЫ, ЧТО ЭТО CartItem
     items[existingIndex].quantity += quantity;
   } else {
-    // Добавляем новый товар
     items.push({
       productId,
       name: productName,
@@ -65,10 +86,9 @@ export const addToCart = async (
     });
   }
 
-  // Обновляем корзину
   const updatedCart = await prisma.cart.update({
     where: { id: cart.id },
-    data: { items },
+    data: { items: items as any },
   });
 
   return updatedCart;
@@ -83,22 +103,21 @@ export const updateCartItem = async (
   const cart = await prisma.cart.findUnique({ where: { id: cartId } });
   if (!cart) throw new Error('Корзина не найдена');
 
-  let items = Array.isArray(cart.items) ? cart.items : [];
+  let items = safeItems(cart.items);
   
-  const itemIndex = items.findIndex((item: any) => item.productId === productId);
+  const itemIndex = items.findIndex((item: CartItem) => item.productId === productId);
   if (itemIndex < 0) throw new Error('Товар не найден в корзине');
 
   if (quantity <= 0) {
-    // Удаляем товар
     items.splice(itemIndex, 1);
   } else {
-    // Обновляем количество
+    // ✅ УВЕРЕНЫ, ЧТО ЭТО CartItem
     items[itemIndex].quantity = quantity;
   }
 
   return await prisma.cart.update({
     where: { id: cartId },
-    data: { items },
+    data: { items: items as any },
   });
 };
 
@@ -113,15 +132,15 @@ export const clearCart = async (cartId: string) => {
 // Получение корзины с подсчётом суммы
 export const getCartWithTotal = async (userId?: string, guestId?: string) => {
   const cart = await getCart(userId, guestId);
-  const items = Array.isArray(cart.items) ? cart.items : [];
+  const items = safeItems(cart.items);
   
-  const total = items.reduce((sum: number, item: any) => {
+  const total = items.reduce((sum: number, item: CartItem) => {
     return sum + (item.price * item.quantity);
   }, 0);
 
   return {
     ...cart,
     total,
-    itemsCount: items.reduce((sum: number, item: any) => sum + item.quantity, 0),
+    itemsCount: items.reduce((sum: number, item: CartItem) => sum + item.quantity, 0),
   };
 };

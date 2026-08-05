@@ -52,6 +52,11 @@ const PUBLIC_PATHS = [
   '/api/products/categories',
   '/api/health',
   '/api/csrf-token',
+  '/api/cart',        // ← БЕЗ ЗВЁЗДОЧКИ
+  '/api/cart/add',    // ← ЯВНО
+  '/api/cart/update', // ← ЯВНО
+  '/api/cart/clear',  // ← ЯВНО
+  '/api/orders',      // ← ЯВНО
 ];
 
 const isPublicPath = (path: string): boolean => {

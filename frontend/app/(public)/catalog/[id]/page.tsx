@@ -447,13 +447,7 @@ export default function ProductPage() {
                   className="px-6 py-3 text-base"
                 />
                 
-                <p className="text-xs text-muted-foreground/50">
-                  {isOutOfStock 
-                    ? 'Товар временно отсутствует на складе' 
-                    : inCart
-                      ? `Уже в корзине (${quantityInCart} шт.)`
-                      : `Доступно ${product.stock || 0} шт.`}
-                </p>
+                
               </div>
             </div>
 

@@ -3,6 +3,14 @@ import pino from 'pino';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 
+// ✅ РАСШИРЯЕМ ТИП ERROR ДЛЯ AXIOS
+interface AxiosError extends Error {
+  response?: {
+    data?: any;
+    status?: number;
+  };
+}
+
 // Создаём логгер
 export const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -35,12 +43,13 @@ export const log = {
 
   error: (message: string, error?: any) => {
     if (error instanceof Error) {
+      const axiosError = error as AxiosError;
       logger.error({
         message,
         error: error.message,
         stack: error.stack,
-        ...(error.response?.data && { responseData: error.response.data }),
-        ...(error.response?.status && { responseStatus: error.response.status }),
+        ...(axiosError.response?.data && { responseData: axiosError.response.data }),
+        ...(axiosError.response?.status && { responseStatus: axiosError.response.status }),
       });
     } else if (error) {
       logger.error({ message, data: error });

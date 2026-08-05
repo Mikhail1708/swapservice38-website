@@ -1,0 +1,341 @@
+// backend/tests/unit/services/auth.service.test.ts
+import { register, login, verifyEmail, changePassword, requestPasswordChange, confirmPasswordChange } from '../../../src/services/auth.service';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+
+// ✅ МОКИ ДОЛЖНЫ БЫТЬ ПЕРВЫМИ!
+jest.mock('@prisma/client', () => {
+  const mockPrisma = {
+    user: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+  return {
+    PrismaClient: jest.fn(() => mockPrisma),
+  };
+});
+
+jest.mock('bcrypt');
+jest.mock('jsonwebtoken');
+
+// ✅ ПОЛУЧАЕМ МОКИ
+const mockPrisma = new PrismaClient() as jest.Mocked<PrismaClient>;
+
+// ✅ МОКИ ДЛЯ REDIS И EMAIL (из setup.ts)
+
+describe('Auth Service', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.JWT_SECRET = 'test_secret';
+    process.env.JWT_EXPIRES_IN = '7d';
+  });
+
+  // ============================================================
+  // REGISTER
+  // ============================================================
+  describe('register', () => {
+    const registerData = {
+      email: 'test@example.com',
+      password: 'Test1234!',
+      firstName: 'Test',
+      lastName: 'User'
+    };
+
+    it('should register user and send verification email', async () => {
+      // ✅ ПРАВИЛЬНЫЙ МОК
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.user.create as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: registerData.email,
+        firstName: registerData.firstName,
+        lastName: registerData.lastName,
+        isVerified: false,
+        role: 'user',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+
+      const result = await register(
+        registerData.email,
+        registerData.password,
+        registerData.firstName,
+        registerData.lastName
+      );
+
+      expect(result).toEqual({ message: 'Код отправлен на почту' });
+      expect(mockPrisma.user.create).toHaveBeenCalled();
+    });
+
+    it('should throw error if user already exists', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: registerData.email,
+        isVerified: true,
+      });
+
+      await expect(
+        register(registerData.email, registerData.password)
+      ).rejects.toThrow('Пользователь с таким email уже зарегистрирован');
+
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // VERIFY EMAIL
+  // ============================================================
+  describe('verifyEmail', () => {
+    const email = 'test@example.com';
+    const code = '123456';
+
+    it('should verify user email with valid code', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue(code);
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email,
+        isVerified: true,
+      });
+
+      const result = await verifyEmail(email, code);
+
+      expect(result).toEqual({ message: 'Email подтверждён' });
+      expect(mockPrisma.user.update).toHaveBeenCalled();
+    });
+
+    it('should throw error if code is invalid', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue('wrong_code');
+
+      await expect(verifyEmail(email, code)).rejects.toThrow(
+        'Неверный или просроченный код'
+      );
+    });
+
+    it('should throw error if code is expired', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue(null);
+
+      await expect(verifyEmail(email, code)).rejects.toThrow(
+        'Неверный или просроченный код'
+      );
+    });
+  });
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
+  describe('login', () => {
+    const loginData = {
+      email: 'test@example.com',
+      password: 'Test1234!',
+    };
+
+    it('should login user and return JWT token', async () => {
+      const mockUser = {
+        id: 'user-1',
+        email: loginData.email,
+        passwordHash: 'hashed_password',
+        firstName: 'Test',
+        lastName: 'User',
+        role: 'user',
+        phone: '+79999999999',
+        address: 'г. Иркутск',
+        isVerified: true,
+      };
+
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (jwt.sign as jest.Mock).mockReturnValue('mock_jwt_token');
+
+      const result = await login(loginData.email, loginData.password);
+
+      expect(result).toHaveProperty('token', 'mock_jwt_token');
+      expect(result.user).toHaveProperty('id', mockUser.id);
+    });
+
+    it('should throw error if user not found', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(login(loginData.email, loginData.password)).rejects.toThrow(
+        'Неверный email или пароль'
+      );
+    });
+
+    it('should throw error if email not verified', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: loginData.email,
+        passwordHash: 'hashed_password',
+        isVerified: false,
+      });
+
+      await expect(login(loginData.email, loginData.password)).rejects.toThrow(
+        'Email не подтверждён'
+      );
+    });
+
+    it('should throw error if password is incorrect', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: loginData.email,
+        passwordHash: 'hashed_password',
+        isVerified: true,
+      });
+
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(login(loginData.email, loginData.password)).rejects.toThrow(
+        'Неверный email или пароль'
+      );
+    });
+  });
+
+  // ============================================================
+  // CHANGE PASSWORD
+  // ============================================================
+  describe('changePassword', () => {
+    const userId = 'user-1';
+    const currentPassword = 'Old1234!';
+    const newPassword = 'New1234!';
+
+    it('should change password with valid current password', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: userId,
+        passwordHash: 'old_hashed_password',
+      });
+
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_password');
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
+
+      const result = await changePassword(userId, currentPassword, newPassword);
+
+      expect(result).toEqual({ message: 'Пароль успешно изменён' });
+    });
+
+    it('should throw error if user not found', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        changePassword(userId, currentPassword, newPassword)
+      ).rejects.toThrow('Пользователь не найден');
+    });
+
+    it('should throw error if user has no password (OAuth)', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: userId,
+        passwordHash: null,
+      });
+
+      await expect(
+        changePassword(userId, currentPassword, newPassword)
+      ).rejects.toThrow('У этого аккаунта нет пароля (используйте OAuth)');
+    });
+
+    it('should throw error if current password is incorrect', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: userId,
+        passwordHash: 'old_hashed_password',
+      });
+
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        changePassword(userId, currentPassword, newPassword)
+      ).rejects.toThrow('Неверный текущий пароль');
+    });
+  });
+
+  // ============================================================
+  // REQUEST PASSWORD CHANGE
+  // ============================================================
+  describe('requestPasswordChange', () => {
+    const userId = 'user-1';
+    const email = 'test@example.com';
+
+    it('should send password change code to email', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: userId,
+        email: email,
+        passwordHash: 'hashed_password',
+      });
+
+      const result = await requestPasswordChange(userId, email);
+
+      expect(result).toEqual({ message: 'Код подтверждения отправлен на почту' });
+    });
+
+    it('should throw error if user not found', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(requestPasswordChange(userId, email)).rejects.toThrow(
+        'Пользователь не найден'
+      );
+    });
+
+    it('should throw error if email does not match', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: userId,
+        email: 'wrong@example.com',
+        passwordHash: 'hashed_password',
+      });
+
+      await expect(requestPasswordChange(userId, email)).rejects.toThrow(
+        'Email не совпадает с email пользователя'
+      );
+    });
+  });
+
+  // ============================================================
+  // CONFIRM PASSWORD CHANGE
+  // ============================================================
+  describe('confirmPasswordChange', () => {
+    const userId = 'user-1';
+    const code = '123456';
+    const newPassword = 'New1234!';
+
+    it('should confirm password change with valid code', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue(code);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_password');
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
+
+      const result = await confirmPasswordChange(userId, code, newPassword);
+
+      expect(result).toEqual({ message: 'Пароль успешно изменён' });
+    });
+
+    it('should throw error if code is invalid', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue('wrong_code');
+
+      await expect(
+        confirmPasswordChange(userId, code, newPassword)
+      ).rejects.toThrow('Неверный или просроченный код');
+    });
+
+    it('should throw error if code is expired', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue(null);
+
+      await expect(
+        confirmPasswordChange(userId, code, newPassword)
+      ).rejects.toThrow('Неверный или просроченный код');
+    });
+
+    it('should throw error if password is too short', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.get.mockResolvedValue(code);
+
+      await expect(
+        confirmPasswordChange(userId, code, 'short')
+      ).rejects.toThrow('Пароль должен быть минимум 8 символов');
+    });
+  });
+});

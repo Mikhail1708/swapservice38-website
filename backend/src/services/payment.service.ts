@@ -42,8 +42,13 @@ const cleanPhone = (phone: string): string => {
 // ============================================================
 // СОЗДАНИЕ ПЛАТЕЖА
 // ============================================================
+// backend/src/services/payment.service.ts
+
 export const createPayment = async (orderId: string, returnUrl: string) => {
   try {
+    // ============================================================
+    // 1. ПОЛУЧАЕМ ЗАКАЗ
+    // ============================================================
     const order = await prisma.order.findUnique({
       where: { id: orderId },
     });
@@ -58,7 +63,9 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
 
     log.info('💳 Создание платежа', { orderId, total: order.total });
 
-    // ✅ ТЕСТОВЫЙ РЕЖИМ
+    // ============================================================
+    // 2. ТЕСТОВЫЙ РЕЖИМ
+    // ============================================================
     if (isTestMode) {
       log.info('⚠️ ЮKassa в тестовом режиме');
       
@@ -76,7 +83,9 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       };
     }
 
-    // ===== БОЕВОЙ РЕЖИМ =====
+    // ============================================================
+    // 3. БОЕВОЙ РЕЖИМ
+    // ============================================================
     const auth = Buffer.from(`${YOO_KASSA_SHOP_ID}:${YOO_KASSA_SECRET_KEY}`).toString('base64');
 
     const headers = {
@@ -156,12 +165,33 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       paymentUrl: response.data.confirmation.confirmation_url,
       status: response.data.status,
     };
+
   } catch (error: any) {
+    // ============================================================
+    // 4. ОБРАБОТКА ОШИБОК
+    // ============================================================
+    
+    // ✅ ЕСЛИ ЭТО НАША ОШИБКА — ПРОБРАСЫВАЕМ БЕЗ ИЗМЕНЕНИЙ
+    if (error.message === 'Заказ не найден' || error.message === 'Заказ уже оплачен') {
+      throw error;
+    }
+    
+    // ✅ ОШИБКА ЮKASSA
+    if (error.response?.data?.description) {
+      log.error('❌ Ошибка ЮKassa', { 
+        orderId, 
+        error: error.response.data,
+        status: error.response.status 
+      });
+      throw new Error(error.response.data.description);
+    }
+    
+    // ✅ ДРУГИЕ ОШИБКИ
     log.error('❌ Ошибка создания платежа', { 
       orderId, 
-      error: error.response?.data || error.message 
+      error: error.message || error 
     });
-    throw new Error(error.response?.data?.description || 'Ошибка создания платежа');
+    throw new Error('Ошибка создания платежа');
   }
 };
 
