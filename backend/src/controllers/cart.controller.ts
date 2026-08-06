@@ -17,15 +17,33 @@ interface CRMProduct {
   inStock?: boolean;
 }
 
+// Тип для элемента корзины
+interface CartItem {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image?: string;
+  sku?: string | null;
+  maxStock?: number;
+}
+
 // ============================================================
 // ПОЛУЧЕНИЕ ТОВАРА ИЗ CRM С ОСТАТКОМ
 // ============================================================
 const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> => {
   try {
     const crmApiUrl = process.env.CRM_API_URL || 'http://localhost:5000';
+    
+    // Используем AbortController для таймаута
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch(`${crmApiUrl}/api/public/products/${productId}`, {
-      timeout: 5000,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.error('❌ Товар не найден в CRM:', productId);
@@ -34,16 +52,15 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
 
     const data = await response.json();
     
-    // Нормализуем данные
     return {
-      id: data.id || data.productId,
-      name: data.name || 'Товар',
-      price: data.price || data.retail_price || 0,
-      retail_price: data.retail_price || data.price || 0,
-      sku: data.sku || data.article || null,
-      stock: data.stock || 0,
-      images: data.images || [],
-      inStock: data.inStock !== undefined ? data.inStock : (data.stock || 0) > 0,
+      id: (data as any).id || (data as any).productId || 0,
+      name: (data as any).name || 'Товар',
+      price: (data as any).price || (data as any).retail_price || 0,
+      retail_price: (data as any).retail_price || (data as any).price || 0,
+      sku: (data as any).sku || (data as any).article || null,
+      stock: (data as any).stock || 0,
+      images: (data as any).images || [],
+      inStock: (data as any).inStock !== undefined ? (data as any).inStock : ((data as any).stock || 0) > 0,
     };
   } catch (error) {
     console.error('❌ Ошибка получения товара из CRM:', error);
@@ -55,9 +72,9 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
 // ФОРМАТИРОВАНИЕ ОТВЕТА КОРЗИНЫ
 // ============================================================
 const formatCartResponse = (cart: any) => {
-  const items = Array.isArray(cart.items) ? cart.items : [];
-  const total = items.reduce((sum: number, item: any) => sum + (item.price || 0) * (item.quantity || 0), 0);
-  const itemsCount = items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+  const items: CartItem[] = Array.isArray(cart.items) ? cart.items : [];
+  const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
+  const itemsCount = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
 
   return {
     cart: {
@@ -97,7 +114,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
           cart = await prisma.cart.create({
             data: {
               userId: String(userId),
-              items: guestCart.items,
+              items: guestCart.items as any,
             },
           });
 
@@ -205,7 +222,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     // ✅ 2. НАХОДИМ ИЛИ СОЗДАЁМ КОРЗИНУ
     let cart = null;
-    let currentItems: any[] = [];
+    let currentItems: CartItem[] = [];
 
     if (userId) {
       cart = await prisma.cart.findUnique({
@@ -274,15 +291,16 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       currentItems[existingItemIndex].quantity = newQuantity;
       console.log('🔄 Обновлено количество:', productId, '->', newQuantity);
     } else {
-      currentItems.push({
+      const newItem: CartItem = {
         productId: String(productId),
         name: product.name || 'Товар',
         price: product.price || 0,
         quantity: quantity,
         image: product.images?.[0] || '/images/logo/logo.png',
         sku: product.sku || null,
-        maxStock: availableStock, // ✅ СОХРАНЯЕМ МАКСИМАЛЬНЫЙ ОСТАТОК
-      });
+        maxStock: availableStock,
+      };
+      currentItems.push(newItem);
       console.log('➕ Добавлен новый товар:', productId);
     }
 
@@ -290,12 +308,12 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     if (userId) {
       updatedCart = await prisma.cart.update({
         where: { userId: String(userId) },
-        data: { items: currentItems },
+        data: { items: currentItems as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
       });
     } else {
       updatedCart = await prisma.cart.update({
         where: { guestId: guestId },
-        data: { items: currentItems },
+        data: { items: currentItems as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
       });
     }
 
@@ -350,7 +368,7 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    let items = Array.isArray(cart.items) ? cart.items : [];
+    let items: CartItem[] = Array.isArray(cart.items) ? cart.items : [];
 
     // ✅ 3. НАХОДИМ ТОВАР В КОРЗИНЕ
     const existingItemIndex = items.findIndex(
@@ -371,12 +389,12 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
       if (userId) {
         updatedCart = await prisma.cart.update({
           where: { userId: String(userId) },
-          data: { items: items },
+          data: { items: items as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
         });
       } else {
         updatedCart = await prisma.cart.update({
           where: { guestId: guestId },
-          data: { items: items },
+          data: { items: items as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
         });
       }
       
@@ -404,12 +422,12 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
     if (userId) {
       updatedCart = await prisma.cart.update({
         where: { userId: String(userId) },
-        data: { items: items },
+        data: { items: items as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
       });
     } else {
       updatedCart = await prisma.cart.update({
         where: { guestId: guestId },
-        data: { items: items },
+        data: { items: items as any }, // ✅ ПРИВОДИМ К any ДЛЯ PRISMA
       });
     }
 

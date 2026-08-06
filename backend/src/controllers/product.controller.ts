@@ -159,7 +159,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
         });
         
         const products = productsResponse.data?.items || productsResponse.data || [];
-        const uniqueCategories = [...new Set(products.map((p: any) => p.category).filter(Boolean))];
+        const uniqueCategories = [...new Set(products.map((p: any) => p.category).filter(Boolean))] as string[];
         categories = uniqueCategories;
         console.log(`✅ Получено ${categories.length} категорий из товаров`);
       } catch (fallbackError) {

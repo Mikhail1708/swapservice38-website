@@ -4,6 +4,33 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// ✅ ДОБАВЛЯЕМ ТИП ДЛЯ ЭЛЕМЕНТА КОРЗИНЫ
+interface CartItem {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image?: string;
+  sku?: string | null;
+  maxStock?: number;
+}
+
+// ============================================================
+// БЕЗОПАСНОЕ ПРИВЕДЕНИЕ ЭЛЕМЕНТОВ КОРЗИНЫ
+// ============================================================
+const safeItems = (items: any): CartItem[] => {
+  if (!items) return [];
+  if (Array.isArray(items)) {
+    return items.filter((item: any) => 
+      item && typeof item === 'object' && 
+      'productId' in item && 
+      'quantity' in item &&
+      'price' in item
+    ) as CartItem[];
+  }
+  return [];
+};
+
 // ============================================================
 // ПОЛУЧЕНИЕ КОРЗИНЫ С ПОДСЧЁТОМ
 // ============================================================
@@ -25,9 +52,10 @@ const getCartWithTotal = async (userId?: string) => {
     return { id: null, items: [], total: 0, itemsCount: 0 };
   }
 
-  const items = Array.isArray(cart.items) ? cart.items : [];
-  const total = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 0), 0);
-  const itemsCount = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+  // ✅ ИСПОЛЬЗУЕМ БЕЗОПАСНОЕ ПРИВЕДЕНИЕ
+  const items = safeItems(cart.items);
+  const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
+  const itemsCount = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
 
   console.log('🛒 Товаров в корзине (БД):', items.length);
 
@@ -60,7 +88,7 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
       return;
     }
 
-    const guestItems = guestCart.items as any[];
+    const guestItems = safeItems(guestCart.items);
     console.log(`📦 Товаров в гостевой корзине: ${guestItems.length}`);
 
     let userCart = await prisma.cart.findUnique({
@@ -68,7 +96,7 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
     });
 
     if (userCart) {
-      const userItems = userCart.items as any[];
+      const userItems = safeItems(userCart.items);
       const mergedItems = [...userItems];
       
       for (const guestItem of guestItems) {
@@ -87,14 +115,14 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
       
       await prisma.cart.update({
         where: { userId: userId },
-        data: { items: mergedItems },
+        data: { items: mergedItems as any },
       });
       console.log(`✅ Корзина пользователя обновлена, ${mergedItems.length} товаров`);
     } else {
       await prisma.cart.create({
         data: {
           userId: userId,
-          items: guestItems,
+          items: guestItems as any,
         },
       });
       console.log(`✅ Создана корзина пользователя, ${guestItems.length} товаров`);
@@ -164,7 +192,8 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
     console.log('🛒 Корзина:', cart.items.length, 'товаров');
 
-    const total = cart.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    // ✅ total УЖЕ ПОСЧИТАН В getCartWithTotal, НО ПЕРЕСЧИТЫВАЕМ ДЛЯ НАДЕЖНОСТИ
+    const total = cart.items.reduce((sum: number, item: CartItem) => sum + (item.price * item.quantity), 0);
     
     // ✅ СОЗДАЁМ ЗАКАЗ ТОЛЬКО ЛОКАЛЬНО
     const localOrder = await prisma.order.create({
@@ -173,8 +202,8 @@ export const createOrderController = async (req: Request, res: Response): Promis
         guestEmail: client.email || null,
         guestPhone: client.phone || null,
         guestName: client.firstName || null,
-        items: cart.items,
-        total,
+        items: cart.items as any,
+        total: total,
         status: 'pending',
         deliveryMethod: deliveryMethod || 'pickup',
         deliveryAddress: deliveryAddress || null,

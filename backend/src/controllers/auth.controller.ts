@@ -16,7 +16,7 @@ import {
   confirmResetPassword
 } from '../services/auth.service';
 import { sendVerificationEmail } from '../services/email.service';
-import redis from '../config/redis';
+import redis from '@config/redis';
 
 const prisma = new PrismaClient();
 

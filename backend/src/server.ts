@@ -180,27 +180,33 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ============================================================
-// 10. ЗАПУСК
+// 10. ЗАПУСК (ТОЛЬКО ЕСЛИ НЕ В ТЕСТАХ!)
 // ============================================================
-app.listen(port, () => {
-  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  log.info(`🚀 Site Backend running on port ${port}`);
-  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  log.info(`📋 Health:     http://localhost:${port}/api/health`);
-  log.info(`📚 Swagger:    http://localhost:${port}/api-docs`);
-  log.info(`🔐 Auth:       http://localhost:${port}/api/auth`);
-  log.info(`💰 Payment:    http://localhost:${port}/api/payment`);
-  log.info(`🛡️ CSRF:       http://localhost:${port}/api/csrf-token`);
-  log.info(`📦 Products:   http://localhost:${port}/api/products`);
-  log.info(`🛒 Cart:       http://localhost:${port}/api/cart`);
-  log.info(`📝 Orders:     http://localhost:${port}/api/orders`);
-  log.info(`👑 Admin:      http://localhost:${port}/api/admin`);
-  log.info(`📰 Articles:   http://localhost:${port}/api/articles`);
-  log.info(`💬 Comments:   http://localhost:${port}/api/comments`);
-  log.info(`❤️ Likes:      http://localhost:${port}/api/likes`);
-  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  log.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  log.info(`📦 Redis:      ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
-  log.info(`🗄️  Database:   ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[0] || 'localhost'}`);
-  log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-});
+// ✅ ВАЖНО: Запускаем сервер только если файл запущен напрямую, а не импортирован
+if (require.main === module) {
+  app.listen(port, () => {
+    log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    log.info(`🚀 Site Backend running on port ${port}`);
+    log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    log.info(`📋 Health:     http://localhost:${port}/api/health`);
+    log.info(`📚 Swagger:    http://localhost:${port}/api-docs`);
+    log.info(`🔐 Auth:       http://localhost:${port}/api/auth`);
+    log.info(`💰 Payment:    http://localhost:${port}/api/payment`);
+    log.info(`🛡️ CSRF:       http://localhost:${port}/api/csrf-token`);
+    log.info(`📦 Products:   http://localhost:${port}/api/products`);
+    log.info(`🛒 Cart:       http://localhost:${port}/api/cart`);
+    log.info(`📝 Orders:     http://localhost:${port}/api/orders`);
+    log.info(`👑 Admin:      http://localhost:${port}/api/admin`);
+    log.info(`📰 Articles:   http://localhost:${port}/api/articles`);
+    log.info(`💬 Comments:   http://localhost:${port}/api/comments`);
+    log.info(`❤️ Likes:      http://localhost:${port}/api/likes`);
+    log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    log.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    log.info(`📦 Redis:      ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+    log.info(`🗄️  Database:   ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[0] || 'localhost'}`);
+    log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  });
+}
+
+// ✅ ЭКСПОРТИРУЕМ app ДЛЯ ТЕСТОВ
+export { app };
