@@ -2,7 +2,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import redis from '../config/redis';
+import redis from '@config/redis';
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeEmail } from './email.service';
 
 const prisma = new PrismaClient();
