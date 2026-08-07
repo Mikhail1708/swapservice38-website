@@ -1,0 +1,89 @@
+let csrfToken: string | null = null;
+let lastFetchTime: number = 0;
+const TOKEN_TTL = 4 * 60 * 1000;
+
+export const getCsrfToken = async (): Promise<string> => {
+  if (csrfToken && (Date.now() - lastFetchTime) < TOKEN_TTL) {
+    return csrfToken;
+  }
+
+  try {
+    const response = await fetch('/api/csrf-token', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ошибка получения CSRF токена: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.csrfToken) {
+      throw new Error('CSRF токен не получен');
+    }
+
+    csrfToken = data.csrfToken;
+    lastFetchTime = Date.now();
+    return csrfToken;
+  } catch (error) {
+    console.error('❌ Ошибка получения CSRF токена:', error);
+    throw error;
+  }
+};
+
+export const clearCsrfToken = () => {
+  csrfToken = null;
+  lastFetchTime = 0;
+};
+
+export const fetchWithCsrf = async (
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> => {
+  const token = await getCsrfToken();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': token,
+    'CSRF-Token': token,
+    ...options.headers,
+  };
+
+  let finalBody = options.body;
+  if (options.body && typeof options.body === 'string') {
+    try {
+      const parsed = JSON.parse(options.body);
+      finalBody = JSON.stringify({
+        ...parsed,
+        _csrf: token,
+      });
+    } catch (e) {
+      // Если не JSON — оставляем как есть
+    }
+  }
+
+  return fetch(url, {
+    ...options,
+    headers,
+    body: finalBody,
+    credentials: 'include',
+  });
+};
+
+export const deleteWithCsrf = async (url: string): Promise<Response> => {
+  return fetchWithCsrf(url, { method: 'DELETE' });
+};
+
+export const putWithCsrf = async (url: string, body: any): Promise<Response> => {
+  return fetchWithCsrf(url, { 
+    method: 'PUT', 
+    body: JSON.stringify(body) 
+  });
+};
+
+export const patchWithCsrf = async (url: string, body: any): Promise<Response> => {
+  return fetchWithCsrf(url, { 
+    method: 'PATCH', 
+    body: JSON.stringify(body) 
+  });
+};
