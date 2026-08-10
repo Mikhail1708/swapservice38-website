@@ -1,13 +1,18 @@
+// frontend/src/lib/csrf.ts
+
 let csrfToken: string | null = null;
 let lastFetchTime: number = 0;
-const TOKEN_TTL = 4 * 60 * 1000;
+const TOKEN_TTL = 4 * 60 * 1000; // 4 минуты
 
 export const getCsrfToken = async (): Promise<string> => {
+  // ✅ Проверяем что токен есть и не просрочен
   if (csrfToken && (Date.now() - lastFetchTime) < TOKEN_TTL) {
+    console.log('✅ CSRF токен из кэша:', csrfToken.substring(0, 10) + '...');
     return csrfToken;
   }
 
   try {
+    console.log('🔄 Запрос CSRF токена...');
     const response = await fetch('/api/csrf-token', {
       credentials: 'include',
       cache: 'no-store',
@@ -24,6 +29,13 @@ export const getCsrfToken = async (): Promise<string> => {
 
     csrfToken = data.csrfToken;
     lastFetchTime = Date.now();
+    
+    // ✅ ПРОВЕРКА ПЕРЕД ИСПОЛЬЗОВАНИЕМ
+    if (!csrfToken) {
+      throw new Error('CSRF токен не установлен');
+    }
+    
+    console.log('✅ CSRF токен получен:', csrfToken.substring(0, 10) + '...');
     return csrfToken;
   } catch (error) {
     console.error('❌ Ошибка получения CSRF токена:', error);

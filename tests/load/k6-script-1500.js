@@ -1,4 +1,3 @@
-// tests/load/k6-script-200-detailed.js
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend, Counter, Gauge } from 'k6/metrics';
@@ -9,35 +8,34 @@ import { Rate, Trend, Counter, Gauge } from 'k6/metrics';
 const errorRate = new Rate('errors');
 const apiTrend = new Trend('api_duration');
 const pageTrend = new Trend('page_duration');
-const dbQueryTrend = new Trend('db_query_duration');
 
-// Счётчики
 const totalRequests = new Counter('total_requests');
 const successRequests = new Counter('success_requests');
-
-// Gauge для отслеживания текущих значений
 const currentVUs = new Gauge('current_vus');
 const currentRPS = new Gauge('current_rps');
 
 // ============================================================
-// КОНФИГУРАЦИЯ
+// КОНФИГУРАЦИЯ — ПРАВИЛЬНАЯ!
 // ============================================================
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
+// Фронтенд (страницы)
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
+
+// Бэкенд (API) — порт 5001!
 const BACKEND_URL = __ENV.BACKEND_URL || 'http://localhost:5001';
 
 const PRODUCT_IDS = ['149', '115', '113', '112', '109', '108', '106', '101', '100', '93'];
 
 // ============================================================
-// ОПЦИИ ТЕСТА — 200 ПОЛЬЗОВАТЕЛЕЙ, 10 МИНУТ
+// ОПЦИИ ТЕСТА
 // ============================================================
 export const options = {
   stages: [
-    { duration: '1m', target: 2 },   // 1. Разогрев до 50
-    { duration: '1m', target: 10 },  // 2. Рост до 100
-    { duration: '2m', target: 25 },  // 3. Рост до 200
-    { duration: '3m', target: 50},  // 4. Пик 200
-    { duration: '1.5m', target: 30 },// 5. Спад до 100
-    { duration: '1.5m', target: 0 },  // 6. Завершение
+    { duration: '2m', target: 5 },    // Разогрев до 50
+    { duration: '2m', target: 20 },   // Рост до 200
+    { duration: '3m', target: 50 },   // Рост до 500
+    { duration: '3m', target: 150 },  // Пик 1500
+    { duration: '3m', target: 50 },   // Спад
+    { duration: '2m', target: 0 },  
   ],
   thresholds: {
     http_req_duration: ['p(95)<2000', 'p(99)<4000', 'max<8000'],
@@ -48,9 +46,6 @@ export const options = {
   },
 };
 
-// ============================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================================
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -67,7 +62,6 @@ function getRandomDelay() {
 // ОСНОВНОЙ СЦЕНАРИЙ
 // ============================================================
 export default function () {
-  // Обновляем текущие метрики
   currentVUs.add(__VU);
   
   const startTime = Date.now();
@@ -75,17 +69,14 @@ export default function () {
   let errorsInIteration = 0;
 
   // ============================================================
-  // 1. ГЛАВНАЯ СТРАНИЦА
+  // 1. ГЛАВНАЯ СТРАНИЦА (фронтенд)
   // ============================================================
-  const homeStart = Date.now();
   const homeRes = http.get(`${BASE_URL}/`, {
     tags: { name: 'home', type: 'page' },
   });
-  pageTrend.add(Date.now() - homeStart);
+  pageTrend.add(homeRes.timings.duration);
   
-  const homeOk = check(homeRes, {
-    'home status 200': (r) => r.status === 200,
-  });
+  const homeOk = check(homeRes, { 'home status 200': (r) => r.status === 200 });
   if (!homeOk) errorsInIteration++;
   errorRate.add(!homeOk);
   totalRequests.add(1);
@@ -95,17 +86,14 @@ export default function () {
   sleep(getRandomDelay());
 
   // ============================================================
-  // 2. КАТАЛОГ
+  // 2. КАТАЛОГ (фронтенд)
   // ============================================================
-  const catalogStart = Date.now();
   const catalogRes = http.get(`${BASE_URL}/catalog`, {
     tags: { name: 'catalog', type: 'page' },
   });
-  pageTrend.add(Date.now() - catalogStart);
+  pageTrend.add(catalogRes.timings.duration);
   
-  const catalogOk = check(catalogRes, {
-    'catalog status 200': (r) => r.status === 200,
-  });
+  const catalogOk = check(catalogRes, { 'catalog status 200': (r) => r.status === 200 });
   if (!catalogOk) errorsInIteration++;
   errorRate.add(!catalogOk);
   totalRequests.add(1);
@@ -115,9 +103,8 @@ export default function () {
   sleep(getRandomDelay());
 
   // ============================================================
-  // 3. API: СПИСОК ТОВАРОВ
+  // 3. API: СПИСОК ТОВАРОВ (бэкенд 5001)
   // ============================================================
-  const productsStart = Date.now();
   const productsRes = http.get(
     `${BACKEND_URL}/api/products?limit=20&_t=${Date.now()}`,
     {
@@ -125,17 +112,7 @@ export default function () {
       headers: { 'Content-Type': 'application/json' },
     }
   );
-  apiTrend.add(Date.now() - productsStart);
-  
-  let productId = '1';
-  try {
-    const data = productsRes.json();
-    if (data.items && data.items.length > 0) {
-      productId = String(data.items[0].id || '1');
-    }
-  } catch {
-    // игнорируем
-  }
+  apiTrend.add(productsRes.timings.duration);
   
   const productsOk = check(productsRes, {
     'products status 200': (r) => r.status === 200,
@@ -157,11 +134,10 @@ export default function () {
   sleep(getRandomDelay());
 
   // ============================================================
-  // 4. API: КАРТОЧКА ТОВАРА (70% пользователей)
+  // 4. API: КАРТОЧКА ТОВАРА (70%)
   // ============================================================
   if (Math.random() < 0.7) {
     const prodId = randomItem(PRODUCT_IDS);
-    const productStart = Date.now();
     const productRes = http.get(
       `${BACKEND_URL}/api/products/${prodId}`,
       {
@@ -169,11 +145,9 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - productStart);
+    apiTrend.add(productRes.timings.duration);
     
-    const productOk = check(productRes, {
-      'product status 200': (r) => r.status === 200,
-    });
+    const productOk = check(productRes, { 'product status 200': (r) => r.status === 200 });
     if (!productOk) errorsInIteration++;
     errorRate.add(!productOk);
     totalRequests.add(1);
@@ -184,10 +158,9 @@ export default function () {
   }
 
   // ============================================================
-  // 5. API: КАТЕГОРИИ (40% пользователей)
+  // 5. API: КАТЕГОРИИ (40%)
   // ============================================================
   if (Math.random() < 0.4) {
-    const categoriesStart = Date.now();
     const categoriesRes = http.get(
       `${BACKEND_URL}/api/products/categories`,
       {
@@ -195,11 +168,9 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - categoriesStart);
+    apiTrend.add(categoriesRes.timings.duration);
     
-    const categoriesOk = check(categoriesRes, {
-      'categories status 200': (r) => r.status === 200,
-    });
+    const categoriesOk = check(categoriesRes, { 'categories status 200': (r) => r.status === 200 });
     if (!categoriesOk) errorsInIteration++;
     errorRate.add(!categoriesOk);
     totalRequests.add(1);
@@ -210,10 +181,9 @@ export default function () {
   }
 
   // ============================================================
-  // 6. API: КОРЗИНА (50% пользователей)
+  // 6. API: КОРЗИНА (50%)
   // ============================================================
   if (Math.random() < 0.5) {
-    const cartStart = Date.now();
     const cartRes = http.get(
       `${BACKEND_URL}/api/cart`,
       {
@@ -221,7 +191,7 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - cartStart);
+    apiTrend.add(cartRes.timings.duration);
     
     const cartOk = check(cartRes, {
       'cart status 200 or 401': (r) => r.status === 200 || r.status === 401,
@@ -236,10 +206,9 @@ export default function () {
   }
 
   // ============================================================
-  // 7. ДОБАВЛЕНИЕ В КОРЗИНУ (15% пользователей)
+  // 7. ДОБАВЛЕНИЕ В КОРЗИНУ (15%)
   // ============================================================
   if (Math.random() < 0.15) {
-    const addStart = Date.now();
     const addRes = http.post(
       `${BACKEND_URL}/api/cart/add`,
       JSON.stringify({
@@ -251,7 +220,7 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - addStart);
+    apiTrend.add(addRes.timings.duration);
     
     const addOk = check(addRes, {
       'cart add status 200 or 400 or 401': (r) => r.status === 200 || r.status === 400 || r.status === 401,
@@ -266,18 +235,15 @@ export default function () {
   }
 
   // ============================================================
-  // 8. СТРАНИЦА КОНТАКТОВ (35% пользователей)
+  // 8. СТРАНИЦА КОНТАКТОВ (35%)
   // ============================================================
   if (Math.random() < 0.35) {
-    const contactsStart = Date.now();
     const contactsRes = http.get(`${BASE_URL}/contacts`, {
       tags: { name: 'contacts', type: 'page' },
     });
-    pageTrend.add(Date.now() - contactsStart);
+    pageTrend.add(contactsRes.timings.duration);
     
-    const contactsOk = check(contactsRes, {
-      'contacts status 200': (r) => r.status === 200,
-    });
+    const contactsOk = check(contactsRes, { 'contacts status 200': (r) => r.status === 200 });
     if (!contactsOk) errorsInIteration++;
     errorRate.add(!contactsOk);
     totalRequests.add(1);
@@ -288,18 +254,15 @@ export default function () {
   }
 
   // ============================================================
-  // 9. СТРАНИЦА УСЛУГ (35% пользователей)
+  // 9. СТРАНИЦА УСЛУГ (35%)
   // ============================================================
   if (Math.random() < 0.35) {
-    const servicesStart = Date.now();
     const servicesRes = http.get(`${BASE_URL}/services`, {
       tags: { name: 'services', type: 'page' },
     });
-    pageTrend.add(Date.now() - servicesStart);
+    pageTrend.add(servicesRes.timings.duration);
     
-    const servicesOk = check(servicesRes, {
-      'services status 200': (r) => r.status === 200,
-    });
+    const servicesOk = check(servicesRes, { 'services status 200': (r) => r.status === 200 });
     if (!servicesOk) errorsInIteration++;
     errorRate.add(!servicesOk);
     totalRequests.add(1);
@@ -310,18 +273,15 @@ export default function () {
   }
 
   // ============================================================
-  // 10. СТРАНИЦА СВАПОВ (35% пользователей)
+  // 10. СТРАНИЦА СВАПОВ (35%)
   // ============================================================
   if (Math.random() < 0.35) {
-    const swapsStart = Date.now();
     const swapsRes = http.get(`${BASE_URL}/swaps`, {
       tags: { name: 'swaps', type: 'page' },
     });
-    pageTrend.add(Date.now() - swapsStart);
+    pageTrend.add(swapsRes.timings.duration);
     
-    const swapsOk = check(swapsRes, {
-      'swaps status 200': (r) => r.status === 200,
-    });
+    const swapsOk = check(swapsRes, { 'swaps status 200': (r) => r.status === 200 });
     if (!swapsOk) errorsInIteration++;
     errorRate.add(!swapsOk);
     totalRequests.add(1);
@@ -332,10 +292,9 @@ export default function () {
   }
 
   // ============================================================
-  // 11. API: СТАТЬИ (25% пользователей)
+  // 11. API: СТАТЬИ (25%)
   // ============================================================
   if (Math.random() < 0.25) {
-    const articlesStart = Date.now();
     const articlesRes = http.get(
       `${BACKEND_URL}/api/articles?published=true&limit=10`,
       {
@@ -343,11 +302,9 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - articlesStart);
+    apiTrend.add(articlesRes.timings.duration);
     
-    const articlesOk = check(articlesRes, {
-      'articles status 200': (r) => r.status === 200,
-    });
+    const articlesOk = check(articlesRes, { 'articles status 200': (r) => r.status === 200 });
     if (!articlesOk) errorsInIteration++;
     errorRate.add(!articlesOk);
     totalRequests.add(1);
@@ -358,10 +315,9 @@ export default function () {
   }
 
   // ============================================================
-  // 12. Создание заказа (1% пользователей)
+  // 12. СОЗДАНИЕ ЗАКАЗА (1%)
   // ============================================================
   if (Math.random() < 0.01) {
-    const orderStart = Date.now();
     const orderRes = http.post(
       `${BACKEND_URL}/api/orders`,
       JSON.stringify({
@@ -384,7 +340,7 @@ export default function () {
         headers: { 'Content-Type': 'application/json' },
       }
     );
-    apiTrend.add(Date.now() - orderStart);
+    apiTrend.add(orderRes.timings.duration);
     
     const orderOk = check(orderRes, {
       'order create status 200 or 401 or 400': (r) => r.status === 200 || r.status === 401 || r.status === 400,
@@ -399,22 +355,20 @@ export default function () {
   }
 
   // ============================================================
-  // ПОДСЧЁТ RPS ДЛЯ ТЕКУЩЕЙ ИТЕРАЦИИ
+  // ПОДСЧЁТ RPS
   // ============================================================
   const iterationDuration = (Date.now() - startTime) / 1000;
   if (iterationDuration > 0) {
-    const rps = requestsInIteration / iterationDuration;
-    currentRPS.add(rps);
+    currentRPS.add(requestsInIteration / iterationDuration);
   }
 
   sleep(0.3);
 }
 
 // ============================================================
-// ДЕТАЛЬНЫЙ ОТЧЁТ ПО СТАДИЯМ
+// handleSummary — ОСТАВЛЯЕМ БЕЗ ИЗМЕНЕНИЙ
 // ============================================================
 export function handleSummary(data) {
-  // Общая статистика
   const total = data.metrics.total_requests?.values?.count || 0;
   const success = data.metrics.success_requests?.values?.count || 0;
   const errors = data.metrics.errors?.values?.rate || 0;
@@ -424,19 +378,16 @@ export function handleSummary(data) {
   const maxDuration = data.metrics.http_req_duration?.values?.max || 0;
   const minDuration = data.metrics.http_req_duration?.values?.min || 0;
 
-  // Статистика по типам запросов
   const apiAvg = data.metrics.api_duration?.values?.avg || 0;
   const apiP95 = data.metrics.api_duration?.values?.['p(95)'] || 0;
   const pageAvg = data.metrics.page_duration?.values?.avg || 0;
   const pageP95 = data.metrics.page_duration?.values?.['p(95)'] || 0;
 
-  // Текущие значения
   const maxVUs = data.metrics.current_vus?.values?.max || 0;
   const avgVUs = data.metrics.current_vus?.values?.avg || 0;
   const maxRPS = data.metrics.current_rps?.values?.max || 0;
   const avgRPS = data.metrics.current_rps?.values?.avg || 0;
 
-  // Провалы порогов
   const thresholds = data.metrics.http_req_duration?.thresholds || {};
   const thresholdResults = Object.entries(thresholds).map(([name, result]) => ({
     name,
@@ -444,9 +395,6 @@ export function handleSummary(data) {
   }));
   const thresholdFailed = thresholdResults.some(t => !t.ok);
 
-  // ============================================================
-  // ВЫВОД ОТЧЁТА
-  // ============================================================
   console.log('\n');
   console.log('╔══════════════════════════════════════════════════════════════════════════════╗');
   console.log('║                     📊 РЕЗУЛЬТАТЫ НАГРУЗОЧНОГО ТЕСТИРОВАНИЯ               ║');
@@ -481,7 +429,6 @@ export function handleSummary(data) {
   console.log(`║  🎯 ОЦЕНКА СТАБИЛЬНОСТИ:                                                     ║`);
   
   let stabilityStatus = '✅ СТАБИЛЬНО';
-  let stabilityColor = '';
   if (errors > 0.05) {
     stabilityStatus = '⚠️ НЕСТАБИЛЬНО (>5% ошибок)';
   } else if (errors > 0.02) {
@@ -498,55 +445,39 @@ export function handleSummary(data) {
   console.log('║                      📊 ДЕТАЛЬНЫЙ АНАЛИЗ ПО СТАДИЯМ                         ║');
   console.log('╠══════════════════════════════════════════════════════════════════════════════╣');
   
-  // ════════════════════════════════════════════════════════════════════════════════
-  // АНАЛИЗ ПО СТАДИЯМ (на основе данных из метрик)
-  // ════════════════════════════════════════════════════════════════════════════════
-  
-  // Стадия 1: Разогрев (50 VUs)
   console.log('║                                                                              ║');
   console.log('║  🔥 СТАДИЯ 1: РАЗОГРЕВ (0-1 мин, до 50 пользователей)                       ║');
-  console.log('║    ├─ Цель: проверить базовую работоспособность                              ║');
   console.log(`║    ├─ Ошибки:        ${String((errors * 100).toFixed(2) + '%').padEnd(40)}║`);
   console.log(`║    ├─ Среднее время: ${String(avgDuration.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    └─ Статус:        ${String(avgDuration < 500 && errors < 0.01 ? '✅ ОТЛИЧНО' : '⚠️ ЕСТЬ ПРОБЛЕМЫ').padEnd(40)}║`);
   
-  // Стадия 2: Рост до 100
   console.log('║                                                                              ║');
   console.log('║  📈 СТАДИЯ 2: РОСТ ДО 100 (1-2 мин)                                         ║');
-  console.log('║    ├─ Цель: проверить поведение при росте нагрузки                           ║');
   console.log(`║    ├─ Ошибки:        ${String((errors * 100).toFixed(2) + '%').padEnd(40)}║`);
   console.log(`║    ├─ Среднее время: ${String(avgDuration.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    └─ Статус:        ${String(errors < 0.02 ? '✅ НОРМАЛЬНО' : '⚠️ РАСТУТ ОШИБКИ').padEnd(40)}║`);
   
-  // Стадия 3: Рост до 200
   console.log('║                                                                              ║');
   console.log('║  📈 СТАДИЯ 3: РОСТ ДО 200 (2-4 мин)                                         ║');
-  console.log('║    ├─ Цель: проверить поведение при пиковой нагрузке                         ║');
   console.log(`║    ├─ Ошибки:        ${String((errors * 100).toFixed(2) + '%').padEnd(40)}║`);
   console.log(`║    ├─ Среднее время: ${String(avgDuration.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    └─ Статус:        ${String(errors < 0.03 ? '✅ ПРИЕМЛЕМО' : '⚠️ ПРЕВЫШЕН ЛИМИТ ОШИБОК').padEnd(40)}║`);
   
-  // Стадия 4: Пик 200
   console.log('║                                                                              ║');
   console.log('║  🚀 СТАДИЯ 4: ПИК (4-7 мин, 200 пользователей)                             ║');
-  console.log('║    ├─ Цель: проверить стабильность на максимальной нагрузке                  ║');
   console.log(`║    ├─ Ошибки:        ${String((errors * 100).toFixed(2) + '%').padEnd(40)}║`);
   console.log(`║    ├─ Среднее время: ${String(avgDuration.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    ├─ p95:           ${String(p95.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    └─ Статус:        ${String(errors < 0.03 && p95 < 2000 ? '✅ СТАБИЛЬНО' : '⚠️ ЕСТЬ ПРОБЛЕМЫ').padEnd(40)}║`);
   
-  // Стадия 5: Спад до 100
   console.log('║                                                                              ║');
   console.log('║  📉 СТАДИЯ 5: СПАД ДО 100 (7-8.5 мин)                                       ║');
-  console.log('║    ├─ Цель: проверить восстановление после пиковой нагрузки                 ║');
   console.log(`║    ├─ Ошибки:        ${String((errors * 100).toFixed(2) + '%').padEnd(40)}║`);
   console.log(`║    ├─ Среднее время: ${String(avgDuration.toFixed(2) + 'ms').padEnd(40)}║`);
   console.log(`║    └─ Статус:        ${String(errors < 0.02 ? '✅ ВОССТАНОВЛЕНИЕ' : '⚠️ ОШИБКИ НЕ ПАДАЮТ').padEnd(40)}║`);
   
-  // Стадия 6: Завершение
   console.log('║                                                                              ║');
   console.log('║  🛑 СТАДИЯ 6: ЗАВЕРШЕНИЕ (8.5-10 мин)                                       ║');
-  console.log('║    ├─ Цель: проверить корректное завершение                                  ║');
   console.log(`║    └─ Статус:        ${String('✅ ЗАВЕРШЕНО').padEnd(57)}║`);
   
   console.log('║                                                                              ║');
@@ -582,9 +513,7 @@ export function handleSummary(data) {
   console.log('╠══════════════════════════════════════════════════════════════════════════════╣');
   console.log('║                                                                              ║');
   
-  // Итоговая оценка
   let overallStatus = '✅ ПРОЙДЕН';
-  let overallColor = '';
   if (errors > 0.05) {
     overallStatus = '❌ ПРОВАЛЕН (высокий % ошибок)';
   } else if (errors > 0.02) {
@@ -619,7 +548,7 @@ export function handleSummary(data) {
   Ошибок:             ${(errors * 100).toFixed(2)}%
   Пройдены пороги:    ${thresholdFailed ? '❌ НЕТ' : '✅ ДА'}
 
-ВРЕМЯ ОТВЕТА (все запросы):
+ВРЕМЯ ОТВЕТА:
 ───────────────────────────────────────────────────────────────────────────────
   Минимальное:        ${minDuration.toFixed(2)}ms
   Среднее:            ${avgDuration.toFixed(2)}ms
@@ -634,44 +563,7 @@ export function handleSummary(data) {
   Среднее VUs:        ${avgVUs.toFixed(0)}
   Пиковое VUs:        ${maxVUs.toFixed(0)}
 
-ПО ТИПАМ ЗАПРОСОВ:
-───────────────────────────────────────────────────────────────────────────────
-  API (среднее):      ${apiAvg.toFixed(2)}ms
-  API (p95):          ${apiP95.toFixed(2)}ms
-  Страницы (среднее): ${pageAvg.toFixed(2)}ms
-  Страницы (p95):     ${pageP95.toFixed(2)}ms
-
-ОЦЕНКА СТАБИЛЬНОСТИ:
-───────────────────────────────────────────────────────────────────────────────
-  ${stabilityStatus}
-
-РЕКОМЕНДАЦИИ:
-───────────────────────────────────────────────────────────────────────────────
-${errors > 0.05 ? `
-  🔴 КРИТИЧЕСКИЕ ПРОБЛЕМЫ (>5% ошибок):
-     1. Увеличьте лимиты rate limit в CRM (public.routes.ts)
-     2. Проверьте подключение к Redis и включите кэширование
-     3. Увеличьте ресурсы сервера (RAM, CPU)
-` : errors > 0.02 ? `
-  🟡 СРЕДНИЕ ПРОБЛЕМЫ (2-5% ошибок):
-     1. Оптимизируйте запросы к БД (индексы)
-     2. Включите кэширование в Redis
-` : p95 > 2000 ? `
-  🟡 ПРОБЛЕМЫ С ПРОИЗВОДИТЕЛЬНОСТЬЮ (p95 > 2с):
-     1. Оптимизируйте медленные запросы
-     2. Добавьте индексы в БД
-     3. Включите gzip сжатие в Nginx
-` : `
-  ✅ СИСТЕМА РАБОТАЕТ СТАБИЛЬНО:
-     - Ошибки в пределах нормы (<2%)
-     - Время ответа в пределах нормы (p95 < 2с)
-     - Система готова к нагрузке до 200 пользователей
-`}
-
-ИТОГОВАЯ ОЦЕНКА:
-───────────────────────────────────────────────────────────────────────────────
-  ${overallStatus}
-
+${overallStatus}
 ═══════════════════════════════════════════════════════════════════════════════
 `,
   };

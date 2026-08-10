@@ -32,7 +32,7 @@ export default function PaymentPage() {
         console.log(`🔄 1. Загрузка заказа ${orderId}...`);
 
         // 1. Получаем заказ
-        const orderResponse = await fetch(`/api/orders/details?id=${orderId}`, {
+        const orderResponse = await fetch(`/api/orders/${orderId}`, {
           credentials: 'include',
         });
 

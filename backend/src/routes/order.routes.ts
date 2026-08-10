@@ -1,4 +1,3 @@
-// backend/src/routes/order.routes.ts (обновляем)
 import { Router } from 'express';
 import { validate } from '../middleware/validate.middleware';
 import { createOrderSchema } from '../schemas/order.schema';
@@ -10,7 +9,8 @@ import {
 } from '../controllers/order.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
-const router = Router();
+// ✅ ДОБАВЛЯЕМ ТИП
+const router: Router = Router();
 
 // ✅ ВСЕ РОУТЫ С ВАЛИДАЦИЕЙ
 router.post('/', authMiddleware, validate(createOrderSchema), createOrderController);
