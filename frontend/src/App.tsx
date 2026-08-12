@@ -2,7 +2,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
-import { AdminLayout } from '@/components/admin/layout/AdminLayout' // ✅ ДОБАВЛЯЕМ!
+import { AdminLayout } from '@/components/admin/layout/AdminLayout'
 
 // ============================================================
 // ПУБЛИЧНЫЕ СТРАНИЦЫ
@@ -23,7 +23,7 @@ import PaymentFailPage from '@/app/(public)/payment/fail/page'
 import PaymentPage from '@/app/(public)/payment/[orderId]/page'
 
 // ============================================================
-// СТРАНИЦЫ АВТОРИЗАЦИИ (AUTH)
+// СТРАНИЦЫ АВТОРИЗАЦИИ (AUTH) — БЕЗ ХЕДЕРА
 // ============================================================
 import LoginPage from '@/app/(auth)/login/page'
 import RegisterPage from '@/app/(auth)/register/page'
@@ -31,12 +31,16 @@ import VerifyPage from '@/app/(auth)/verify/page'
 import ResetPasswordPage from '@/app/(auth)/reset-password/page'
 import ResetPasswordNewPage from '@/app/(auth)/reset-password/new/page'
 import ResetPasswordVerifyPage from '@/app/(auth)/reset-password/verify/page'
+import OAuthCallbackPage from '@/app/(auth)/oauth-callback/page'
+import OAuthSuccessPage from '@/app/(auth)/oauth-success/page'
+
+// ============================================================
+// ПРОФИЛЬ — С ХЕДЕРОМ И ФУТЕРОМ!
+// ============================================================
 import ProfilePage from '@/app/(auth)/profile/page'
 import ChangePasswordPage from '@/app/(auth)/profile/change-password/page'
 import OrdersPage from '@/app/(auth)/profile/orders/page'
 import OrderDetailPage from '@/app/(auth)/profile/orders/details/page'
-import OAuthCallbackPage from '@/app/(auth)/oauth-callback/page'
-import OAuthSuccessPage from '@/app/(auth)/oauth-success/page'
 
 // ============================================================
 // АДМИН-ПАНЕЛЬ
@@ -58,195 +62,56 @@ import AdminServicesPage from '@/app/admin/content/services/page'
 import AdminCreateServicePage from '@/app/admin/content/services/create/page'
 import AdminEditServicePage from '@/app/admin/content/services/[id]/page'
 
+// ============================================================
+// КОМПОНЕНТ-ОБЁРТКА ДЛЯ СТРАНИЦ С ХЕДЕРОМ И ФУТЕРОМ
+// ============================================================
+function PageLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <SiteHeader />
+      <main className="min-h-screen">{children}</main>
+      <SiteFooter />
+    </>
+  )
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* ===== ПУБЛИЧНЫЕ САЙТ (С ХЕДЕРОМ И ФУТЕРОМ) ===== */}
-        <Route
-          path="/"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <HomePage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/catalog"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <CatalogPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/catalog/:id"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <ProductPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/cart"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <CartPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/contacts"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <ContactsPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/services"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <ServicesPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/services/:id"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <ServiceDetailPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/swaps"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <SwapsPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/swaps/:id"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <SwapDetailPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/offer"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <OfferPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/privacy"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <PrivacyPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/payment/success"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <PaymentSuccessPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/payment/fail"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <PaymentFailPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
-        <Route
-          path="/payment/:orderId"
-          element={
-            <>
-              <SiteHeader />
-              <main>
-                <PaymentPage />
-              </main>
-              <SiteFooter />
-            </>
-          }
-        />
+        {/* ===== ПУБЛИЧНЫЕ С ХЕДЕРОМ И ФУТЕРОМ ===== */}
+        <Route path="/" element={<PageLayout><HomePage /></PageLayout>} />
+        <Route path="/catalog" element={<PageLayout><CatalogPage /></PageLayout>} />
+        <Route path="/catalog/:id" element={<PageLayout><ProductPage /></PageLayout>} />
+        <Route path="/cart" element={<PageLayout><CartPage /></PageLayout>} />
+        <Route path="/contacts" element={<PageLayout><ContactsPage /></PageLayout>} />
+        <Route path="/services" element={<PageLayout><ServicesPage /></PageLayout>} />
+        <Route path="/services/:id" element={<PageLayout><ServiceDetailPage /></PageLayout>} />
+        <Route path="/swaps" element={<PageLayout><SwapsPage /></PageLayout>} />
+        <Route path="/swaps/:id" element={<PageLayout><SwapDetailPage /></PageLayout>} />
+        <Route path="/offer" element={<PageLayout><OfferPage /></PageLayout>} />
+        <Route path="/privacy" element={<PageLayout><PrivacyPage /></PageLayout>} />
+        <Route path="/payment/success" element={<PageLayout><PaymentSuccessPage /></PageLayout>} />
+        <Route path="/payment/fail" element={<PageLayout><PaymentFailPage /></PageLayout>} />
+        <Route path="/payment/:orderId" element={<PageLayout><PaymentPage /></PageLayout>} />
 
-        {/* ===== АВТОРИЗАЦИЯ (БЕЗ ХЕДЕРА/ФУТЕРА) ===== */}
+        {/* ===== ПРОФИЛЬ — ТОЖЕ С ХЕДЕРОМ И ФУТЕРОМ! ===== */}
+        <Route path="/profile" element={<PageLayout><ProfilePage /></PageLayout>} />
+        <Route path="/profile/change-password" element={<PageLayout><ChangePasswordPage /></PageLayout>} />
+        <Route path="/profile/orders" element={<PageLayout><OrdersPage /></PageLayout>} />
+        <Route path="/profile/orders/details" element={<PageLayout><OrderDetailPage /></PageLayout>} />
+
+        {/* ===== АВТОРИЗАЦИЯ — БЕЗ ХЕДЕРА (полноэкранные) ===== */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/reset-password/new" element={<ResetPasswordNewPage />} />
         <Route path="/reset-password/verify" element={<ResetPasswordVerifyPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/profile/change-password" element={<ChangePasswordPage />} />
-        <Route path="/profile/orders" element={<OrdersPage />} />
-        <Route path="/profile/orders/details" element={<OrderDetailPage />} />
         <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
         <Route path="/oauth-success" element={<OAuthSuccessPage />} />
 
-        {/* ===== АДМИНКА — ОБЁРНУТА В AdminLayout ===== */}
+        {/* ===== АДМИНКА — С АДМИН-ЛЕЙАУТОМ ===== */}
         <Route path="/admin" element={<AdminLayout><AdminDashboardPage /></AdminLayout>} />
         <Route path="/admin/orders" element={<AdminLayout><AdminOrdersPage /></AdminLayout>} />
         <Route path="/admin/orders/:id" element={<AdminLayout><AdminOrderDetailPage /></AdminLayout>} />
