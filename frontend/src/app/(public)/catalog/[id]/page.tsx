@@ -1,4 +1,4 @@
-// frontend/app/(public)/catalog/[id]/page.tsx
+// frontend/src/app/(public)/catalog/[id]/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -444,8 +444,6 @@ export default function ProductPage() {
                   maxStock={product.stock || 0}
                   className="px-6 py-3 text-base"
                 />
-                
-                
               </div>
             </div>
 
@@ -477,10 +475,10 @@ export default function ProductPage() {
         </div>
       </div>
 
-      {/* ===== ЛАЙТБОКС ===== */}
+      {/* ===== ЛАЙТБОКС С ЗАТЕМНЕНИЕМ ===== */}
       {isLightboxOpen && images.length > 0 && (
         <div 
-          className="fixed inset-0 z-[100] bg-black/98 flex items-center justify-center"
+          className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300"
           onClick={closeLightbox}
         >
           <button

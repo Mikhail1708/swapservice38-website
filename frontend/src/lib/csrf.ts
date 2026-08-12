@@ -5,7 +5,6 @@ let lastFetchTime: number = 0;
 const TOKEN_TTL = 4 * 60 * 1000; // 4 минуты
 
 export const getCsrfToken = async (): Promise<string> => {
-  // ✅ Проверяем что токен есть и не просрочен
   if (csrfToken && (Date.now() - lastFetchTime) < TOKEN_TTL) {
     console.log('✅ CSRF токен из кэша:', csrfToken.substring(0, 10) + '...');
     return csrfToken;
@@ -30,11 +29,6 @@ export const getCsrfToken = async (): Promise<string> => {
     csrfToken = data.csrfToken;
     lastFetchTime = Date.now();
     
-    // ✅ ПРОВЕРКА ПЕРЕД ИСПОЛЬЗОВАНИЕМ
-    if (!csrfToken) {
-      throw new Error('CSRF токен не установлен');
-    }
-    
     console.log('✅ CSRF токен получен:', csrfToken.substring(0, 10) + '...');
     return csrfToken;
   } catch (error) {
@@ -54,15 +48,25 @@ export const fetchWithCsrf = async (
 ): Promise<Response> => {
   const token = await getCsrfToken();
 
+  // ✅ БАЗОВЫЕ ЗАГОЛОВКИ
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
     'X-CSRF-Token': token,
     'CSRF-Token': token,
     ...options.headers,
   };
 
+  // ✅ ПРОВЕРЯЕМ — ЭТО FormData?
+  const isFormData = options.body instanceof FormData;
+  
+  // ✅ ДЛЯ FormData НЕ ДОБАВЛЯЕМ Content-Type
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   let finalBody = options.body;
-  if (options.body && typeof options.body === 'string') {
+  
+  // ✅ ЕСЛИ ЭТО JSON — ДОБАВЛЯЕМ _csrf В БОДИ
+  if (!isFormData && options.body && typeof options.body === 'string') {
     try {
       const parsed = JSON.parse(options.body);
       finalBody = JSON.stringify({
@@ -72,6 +76,13 @@ export const fetchWithCsrf = async (
     } catch (e) {
       // Если не JSON — оставляем как есть
     }
+  }
+
+  // ✅ ДЛЯ FormData — ДОБАВЛЯЕМ _csrf КАК ПОЛЕ
+  if (isFormData) {
+    const formData = options.body as FormData;
+    formData.append('_csrf', token);
+    finalBody = formData;
   }
 
   return fetch(url, {

@@ -18,38 +18,45 @@ export default function CreateServicePage() {
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
 
-    setUploading(true);
-    const uploadedUrls: string[] = [];
+  setUploading(true);
+  const uploadedUrls: string[] = [];
 
-    for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.append('file', file);
+  for (const file of Array.from(files)) {
+    const formData = new FormData();
+    formData.append('file', file);
 
-      try {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
+    try {
+      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf — ОН САМ ДОБАВИТ _csrf В FormData
+      const response = await fetchWithCsrf('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.url) {
-            uploadedUrls.push(data.url);
-          }
+      if (response.ok) {
+        const data = await response.json();
+        if (data.url) {
+          uploadedUrls.push(data.url);
         }
-      } catch (error) {
-        console.error('Ошибка загрузки:', error);
+      } else {
+        const text = await response.text();
+        console.error('❌ Ошибка загрузки:', response.status, text);
+        alert(`Ошибка загрузки: ${response.status}`);
       }
+    } catch (error) {
+      console.error('❌ Ошибка загрузки:', error);
+      alert('Ошибка загрузки файла');
     }
+  }
 
-    setImageUrls([...imageUrls, ...uploadedUrls]);
-    setUploading(false);
-    e.target.value = '';
-  };
+  setImageUrls(prev => [...prev, ...uploadedUrls]);
+  setUploading(false);
+  e.target.value = '';
+};
+
 
   const removeImage = (index: number) => {
     setImageUrls(imageUrls.filter((_, i) => i !== index));

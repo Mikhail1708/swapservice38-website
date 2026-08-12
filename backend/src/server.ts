@@ -26,6 +26,8 @@ import articlesRoutes from './routes/articles.routes';
 import commentsRoutes from './routes/comments.routes';
 import likesRoutes from './routes/likes.routes';
 import csrfRoutes from './routes/csrf.routes';
+import servicesRoutes from './routes/services.routes';
+import uploadRoutes from './routes/upload.routes'; // ✅ ДОБАВЛЯЕМ
 
 dotenv.config();
 
@@ -92,9 +94,6 @@ app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// CSRF
-app.use(csrfMiddleware);
-
 // ============================================================
 // 3. ЛОГИРОВАНИЕ ЗАПРОСОВ
 // ============================================================
@@ -131,13 +130,20 @@ try {
 }
 
 // ============================================================
-// 6. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
+// 6. CSRF MIDDLEWARE (ДО ЗАЩИЩЁННЫХ РОУТОВ, ПОСЛЕ ПУБЛИЧНЫХ)
+// ============================================================
+// CSRF проверяет все запросы, кроме PUBLIC_PATHS
+app.use(csrfMiddleware);
+
+// ============================================================
+// 7. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)
 // ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/csrf-token', csrfRoutes);
+app.use('/api/services', servicesRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -149,7 +155,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================================================
-// 7. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
+// 8. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
 // ============================================================
 app.use('/api/orders', authMiddleware);
 app.use('/api/orders', orderRoutes);
@@ -170,19 +176,39 @@ app.use('/api/likes', authMiddleware);
 app.use('/api/likes', likesRoutes);
 
 // ============================================================
-// 8. ОБРАБОТЧИК 404
+// 9. UPLOAD — ЗАЩИЩЁННЫЙ РОУТ (С АВТОРИЗАЦИЕЙ И CSRF)
+// ============================================================
+// ✅ Роут загрузки файлов — ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ
+// CSRF уже проверен выше, authMiddleware проверяет JWT
+app.use('/api/upload', authMiddleware);
+app.use('/api/upload', uploadRoutes);
+
+// ============================================================
+// 10. СТАТИЧЕСКИЕ ФАЙЛЫ (ДЛЯ ЗАГРУЖЕННЫХ ИЗОБРАЖЕНИЙ)
+// ============================================================
+const uploadsPath = path.join(__dirname, '../uploads');
+if (fs.existsSync(uploadsPath)) {
+  app.use('/uploads', express.static(uploadsPath));
+  log.info('📁 Статика uploads: ' + uploadsPath);
+} else {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+  log.info('📁 Создана папка uploads: ' + uploadsPath);
+  app.use('/uploads', express.static(uploadsPath));
+}
+
+// ============================================================
+// 11. ОБРАБОТЧИК 404
 // ============================================================
 app.use(notFoundHandler);
 
 // ============================================================
-// 9. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
+// 12. ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 // ============================================================
 app.use(errorHandler);
 
 // ============================================================
-// 10. ЗАПУСК (ТОЛЬКО ЕСЛИ НЕ В ТЕСТАХ!)
+// 13. ЗАПУСК (ТОЛЬКО ЕСЛИ НЕ В ТЕСТАХ!)
 // ============================================================
-// ✅ ВАЖНО: Запускаем сервер только если файл запущен напрямую, а не импортирован
 if (require.main === module) {
   app.listen(port, () => {
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -200,10 +226,12 @@ if (require.main === module) {
     log.info(`📰 Articles:   http://localhost:${port}/api/articles`);
     log.info(`💬 Comments:   http://localhost:${port}/api/comments`);
     log.info(`❤️ Likes:      http://localhost:${port}/api/likes`);
+    log.info(`📤 Upload:     http://localhost:${port}/api/upload`);
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     log.info(`📦 Redis:      ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
     log.info(`🗄️  Database:   ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[0] || 'localhost'}`);
+    log.info(`📁 Uploads:    ${uploadsPath}`);
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   });
 }

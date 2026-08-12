@@ -35,7 +35,7 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 const fetchService = async (id: string): Promise<Service | null> => {
   console.log(`🔄 Загрузка услуги ${id}...`);
   
-  const response = await fetchWithCsrf(`/api/admin/services/${id}`, {
+  const response = await fetch(`/api/services/${id}`, {
     method: 'GET',
     cache: 'no-store',
   });

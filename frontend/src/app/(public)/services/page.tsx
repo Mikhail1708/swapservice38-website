@@ -1,4 +1,4 @@
-// frontend/app/(public)/services/page.tsx
+// frontend/src/app/(public)/services/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -20,8 +20,6 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { fetchWithCsrf }  from '@/lib/csrf';
-import { useAuth }  from '@/lib/hooks/useAuth';
 
 // ============================================================
 // СТАТИЧНАЯ УСЛУГА — СВАПЫ (всегда есть)
@@ -74,13 +72,15 @@ interface Service {
 const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 
 // ============================================================
-// API — ЗАГРУЗКА ДИНАМИЧЕСКИХ УСЛУГ ИЗ АДМИНКИ
+// API — ЗАГРУЗКА ДИНАМИЧЕСКИХ УСЛУГ ИЗ ПУБЛИЧНОГО ЭНДПОИНТА
 // ============================================================
 const fetchServices = async (): Promise<Service[]> => {
-  console.log('🔄 Загрузка услуг из админки...');
+  console.log('🔄 Загрузка услуг из публичного API...');
   
   const timestamp = Date.now();
-  const response = await fetchWithCsrf(`/api/admin/content/services?_t=${timestamp}`, {
+  
+  // ✅ ПУБЛИЧНЫЙ ЭНДПОИНТ — НЕ ТРЕБУЕТ АВТОРИЗАЦИИ!
+  const response = await fetch(`/api/services?_t=${timestamp}`, {
     method: 'GET',
     cache: 'no-store',
   });
@@ -180,7 +180,6 @@ function ServiceCard({
       }`}>
         <div className="flex items-center gap-3 mb-3">
           <Icon className="w-8 h-8 text-foreground" />
-          {/* ❌ УБРАЛИ ПОДПИСЬ "Основная услуга" / "Услуга 01" */}
         </div>
         <h2 className="heading-display text-2xl text-foreground">
           {service.name}
@@ -247,7 +246,6 @@ const WHY_CHOOSE_US = [
 // ОСНОВНАЯ СТРАНИЦА
 // ============================================================
 export default function ServicesPage() {
-  const { user, loading: authLoading } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -272,14 +270,13 @@ export default function ServicesPage() {
     loadServices();
   }, []);
 
-  const isAdmin = user?.role === 'admin';
-
+  // ✅ ВСЕГДА ПОКАЗЫВАЕМ СВАПЫ + ДИНАМИЧЕСКИЕ УСЛУГИ
   const allServices = [
     STATIC_SWAP_SERVICE,
     ...services.filter(s => s.isActive),
   ];
 
-  if (loading || authLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -293,12 +290,14 @@ export default function ServicesPage() {
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom">
+        {/* Хлебные крошки */}
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
           <Link href="/" className="hover:text-foreground transition">Главная</Link>
           <ChevronRight className="w-4 h-4" />
           <span className="text-foreground">Услуги</span>
         </div>
 
+        {/* Заголовок */}
         <div className="mb-16">
           <span className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
             Наши услуги
@@ -319,6 +318,7 @@ export default function ServicesPage() {
           </p>
         </div>
 
+        {/* Блоки "Почему выбирают нас" */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
           {WHY_CHOOSE_US.map((item) => (
             <div key={item.title} className="bg-card border border-border rounded-lg p-5 text-center hover:border-foreground/30 transition">
@@ -329,6 +329,7 @@ export default function ServicesPage() {
           ))}
         </div>
 
+        {/* Ошибка */}
         {error && (
           <div className="text-center py-12 bg-card border border-border rounded-2xl mb-8">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -342,6 +343,7 @@ export default function ServicesPage() {
           </div>
         )}
 
+        {/* Список услуг */}
         <div className="space-y-8">
           {allServices.map((service, index) => {
             const isStatic = service.id === 'swap-static';
@@ -360,18 +362,7 @@ export default function ServicesPage() {
           })}
         </div>
 
-        {isAdmin && services.filter(s => s.isActive).length === 0 && !error && (
-          <div className="mt-8 text-center text-sm text-muted-foreground/60 bg-card border border-border rounded-lg p-6">
-            <p className="text-foreground">👋 Добавьте дополнительные услуги через админ-панель</p>
-            <Link
-              href="/admin/content/services"
-              className="inline-block mt-2 text-foreground hover:underline font-medium"
-            >
-              Перейти в админку →
-            </Link>
-          </div>
-        )}
-
+        {/* CTA-блок */}
         <div className="mt-16 bg-gradient-to-r from-primary/10 via-muted to-primary/5 border border-border rounded-2xl p-8 text-center">
           <h2 className="heading-display text-2xl text-foreground">
             Нужна консультация?

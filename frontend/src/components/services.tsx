@@ -35,7 +35,7 @@ const fetchServices = async (): Promise<Service[]> => {
   console.log('🔄 [Главная] Загрузка услуг...');
   
   const timestamp = Date.now();
-  const response = await fetchWithCsrf(`/api/admin/content/services?_t=${timestamp}`, {
+  const response = await fetch(`/api/services?_t=${timestamp}`, {
     method: 'GET',
     cache: 'no-store',
   });

@@ -8,7 +8,8 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
     return res.status(401).json({ error: 'Не авторизован' });
   }
 
-  if (!['admin', 'manager'].includes(user.role)) {
+  // ✅ ТОЛЬКО ADMIN ИЛИ MANAGER
+  if (user.role !== 'admin' && user.role !== 'manager') {
     return res.status(403).json({ error: 'Доступ запрещён. Требуется роль admin или manager' });
   }
 
@@ -22,6 +23,7 @@ export const requireAdminOnly = (req: Request, res: Response, next: NextFunction
     return res.status(401).json({ error: 'Не авторизован' });
   }
 
+  // ✅ ТОЛЬКО ADMIN
   if (user.role !== 'admin') {
     return res.status(403).json({ error: 'Доступ запрещён. Требуется роль admin' });
   }
