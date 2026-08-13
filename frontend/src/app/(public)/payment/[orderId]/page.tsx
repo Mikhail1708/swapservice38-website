@@ -1,21 +1,25 @@
 // frontend/app/(public)/payment/[orderId]/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, Image, Link } from '@/lib/next-shims';
-import { Loader2, CreditCard, ArrowLeft } from 'lucide-react';
-import { getCsrfToken }  from '@/lib/csrf';
+import { Loader2, CreditCard, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
+import { getCsrfToken } from '@/lib/csrf';
 
 export default function PaymentPage() {
   const params = useParams();
   const router = useRouter();
-  const orderId = params.id;
+  const orderId = params.id as string;
   
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  
+  // ✅ БЛОКИРОВКА ПОВТОРНЫХ ЗАПРОСОВ
+  const isProcessingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
     console.log('📄 PaymentPage mounted, orderId:', orderId);
@@ -26,6 +30,13 @@ export default function PaymentPage() {
       setLoading(false);
       return;
     }
+
+    // ✅ БЛОКИРУЕМ ПОВТОРНЫЙ ЗАПРОС ПРИ ПЕРЕЗАГРУЗКЕ СТРАНИЦЫ
+    if (isProcessingRef.current) {
+      console.log('⚠️ Платеж уже обрабатывается, пропускаем');
+      return;
+    }
+    isProcessingRef.current = true;
 
     const fetchData = async () => {
       try {
@@ -48,21 +59,26 @@ export default function PaymentPage() {
         console.log('✅ 4. Заказ получен:', orderData);
         setOrder(orderData.order || orderData);
 
-        // 2. Принудительно получаем CSRF токен
-        console.log('🛡️ Получение CSRF токена...');
-        const csrfToken = await getCsrfToken();
-        console.log('✅ CSRF токен получен:', csrfToken.substring(0, 10) + '...');
+        // 2. Проверяем статус заказа
+        const orderStatus = orderData.order?.status || orderData.status;
+        if (orderStatus === 'paid' || orderStatus === 'confirmed') {
+          console.log('✅ Заказ уже оплачен, редирект на успех');
+          router.push('/payment/success?orderId=' + orderId);
+          return;
+        }
 
-        // 3. Создаём платёж с CSRF токеном
+        // 3. Создаём платёж
         console.log(`💳 5. Создание платежа для заказа ${orderId}...`);
         setIsCreatingPayment(true);
+
+        const csrfToken = await getCsrfToken();
+        console.log('🛡️ CSRF токен получен');
 
         const paymentResponse = await fetch('/api/payment/create', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
-            'CSRF-Token': csrfToken,
           },
           body: JSON.stringify({ 
             orderId: orderId,
@@ -75,11 +91,17 @@ export default function PaymentPage() {
 
         const paymentData = await paymentResponse.json();
         console.log('📦 7. Ответ платежа:', paymentData);
-        
+
         if (paymentResponse.ok && paymentData.paymentUrl) {
           console.log('✅ 8. Платёж создан, URL:', paymentData.paymentUrl);
           setPaymentUrl(paymentData.paymentUrl);
         } else {
+          // Если заказ уже обработан — перенаправляем на страницу успеха или в профиль
+          if (paymentData.error === 'Заказ уже обработан') {
+            console.log('ℹ️ Заказ уже обработан, перенаправляем');
+            router.push('/profile/orders');
+            return;
+          }
           console.error('❌ 9. Ошибка создания платежа:', paymentData);
           setError(paymentData.error || 'Не удалось создать платёж');
         }
@@ -88,14 +110,22 @@ export default function PaymentPage() {
         setError(error.message || 'Произошла ошибка');
       } finally {
         console.log('🏁 11. Завершение загрузки');
-        setLoading(false);
-        setIsCreatingPayment(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+          setIsCreatingPayment(false);
+          isProcessingRef.current = false;
+        }
       }
     };
 
     fetchData();
-  }, [orderId]);
 
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [orderId, router]);
+
+  // ✅ РЕДИРЕКТ НА ОПЛАТУ
   const handlePay = () => {
     if (paymentUrl) {
       console.log('🔗 Редирект на оплату:', paymentUrl);
@@ -103,27 +133,36 @@ export default function PaymentPage() {
     }
   };
 
+  // ✅ LOADING
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background pt-32">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Загрузка...</p>
+        </div>
       </div>
     );
   }
 
+  // ✅ ОШИБКА
   if (error) {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20">
         <div className="container-custom max-w-2xl">
           <div className="text-center py-16 bg-card border border-border rounded-2xl">
-            <div className="text-4xl mb-4">❌</div>
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-red-500" />
+              </div>
+            </div>
             <h2 className="text-2xl font-bold text-foreground">Ошибка</h2>
             <p className="text-muted-foreground mt-2">{error}</p>
             <Link 
-              href="/cart" 
+              href="/profile/orders" 
               className="inline-block mt-6 px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
             >
-              Вернуться в корзину
+              Перейти к заказам
             </Link>
           </div>
         </div>
@@ -131,12 +170,53 @@ export default function PaymentPage() {
     );
   }
 
+  // ✅ УСПЕХ (ЗАКАЗ УЖЕ ОПЛАЧЕН)
+  if (order?.status === 'paid' || order?.status === 'confirmed') {
+    return (
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom max-w-2xl">
+          <Link href="/profile/orders" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition mb-6">
+            <ArrowLeft className="w-4 h-4" />
+            Назад к заказам
+          </Link>
+
+          <div className="bg-card border border-border rounded-2xl p-8 text-center">
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                <CheckCircle className="w-8 h-8 text-green-500" />
+              </div>
+            </div>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Заказ уже оплачен! 🎉</h1>
+            <p className="text-muted-foreground mb-6">
+              Ваш заказ уже обработан. Спасибо за покупку!
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link 
+                href="/profile/orders" 
+                className="px-6 py-3 bg-foreground text-background rounded-xl hover:bg-foreground/90 transition"
+              >
+                Мои заказы
+              </Link>
+              <Link 
+                href="/catalog" 
+                className="px-6 py-3 border border-border text-foreground rounded-xl hover:bg-muted transition"
+              >
+                Продолжить покупки
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ СТРАНИЦА ОПЛАТЫ
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom max-w-2xl">
-        <Link href="/cart" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition mb-6">
+        <Link href="/profile/orders" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition mb-6">
           <ArrowLeft className="w-4 h-4" />
-          Назад в корзину
+          Назад к заказам
         </Link>
 
         <div className="bg-card border border-border rounded-2xl p-8">
@@ -145,7 +225,7 @@ export default function PaymentPage() {
           <div className="space-y-4">
             <div className="flex justify-between py-2 border-b border-border">
               <span className="text-muted-foreground">Номер заказа:</span>
-              <span className="font-medium text-foreground">{order?.documentNumber || orderId.slice(0, 8)}</span>
+              <span className="font-medium text-foreground">{order?.orderNumber || orderId.slice(0, 8)}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-border">
               <span className="text-muted-foreground">Сумма:</span>

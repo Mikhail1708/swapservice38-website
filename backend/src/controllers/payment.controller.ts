@@ -47,11 +47,16 @@ export const createPaymentController = async (req: Request, res: Response): Prom
       return;
     }
 
-    console.log('✅ Заказ найден:', { id: order.id, total: order.total, status: order.status });
+    console.log('✅ Заказ найден:', { 
+      id: order.id, 
+      total: order.total, 
+      status: order.status,
+      crmOrderId: order.crmOrderId 
+    });
 
     // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОПЛАЧЕН
-    if (order.status === 'paid') {
-      console.log('⚠️ Заказ уже оплачен');
+    if (order.status === 'paid' || order.status === 'confirmed') {
+      console.log('✅ Заказ уже оплачен, редирект на успех');
       res.json({
         success: true,
         paymentId: 'already_paid',
@@ -61,13 +66,7 @@ export const createPaymentController = async (req: Request, res: Response): Prom
       return;
     }
 
-    // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОТПРАВЛЕН В CRM
-    if (order.crmOrderId) {
-      console.log('⚠️ Заказ уже отправлен в CRM');
-      res.status(400).json({ error: 'Заказ уже обработан' });
-      return;
-    }
-
+    // ✅ ЕСЛИ ЗАКАЗ УЖЕ В CRM — НЕ БЛОКИРУЕМ ОПЛАТУ, А СОЗДАЁМ ПЛАТЁЖ
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:3001';
     const returnUrl = `${clientUrl}/payment/success?orderId=${orderId}`;
 
