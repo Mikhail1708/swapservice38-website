@@ -1,10 +1,13 @@
-// frontend/backend/src/controllers/order.controller.ts (САЙТ)
+// frontend/backend/src/controllers/order.controller.ts (САЙТ, порт 5001)
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { addOrderToCRMQueue } from '../queues/crm.queue';
 
 const prisma = new PrismaClient();
 
-// ✅ ДОБАВЛЯЕМ ТИП ДЛЯ ЭЛЕМЕНТА КОРЗИНЫ
+// ============================================================
+// ТИПЫ
+// ============================================================
 interface CartItem {
   productId: string;
   name: string;
@@ -52,7 +55,6 @@ const getCartWithTotal = async (userId?: string) => {
     return { id: null, items: [], total: 0, itemsCount: 0 };
   }
 
-  // ✅ ИСПОЛЬЗУЕМ БЕЗОПАСНОЕ ПРИВЕДЕНИЕ
   const items = safeItems(cart.items);
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
   const itemsCount = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
@@ -139,7 +141,7 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
 };
 
 // ============================================================
-// POST /api/orders — СОЗДАНИЕ ЗАКАЗА
+// POST /api/orders — СОЗДАНИЕ ЗАКАЗА (через очередь CRM)
 // ============================================================
 export const createOrderController = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -192,10 +194,9 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
     console.log('🛒 Корзина:', cart.items.length, 'товаров');
 
-    // ✅ total УЖЕ ПОСЧИТАН В getCartWithTotal, НО ПЕРЕСЧИТЫВАЕМ ДЛЯ НАДЕЖНОСТИ
     const total = cart.items.reduce((sum: number, item: CartItem) => sum + (item.price * item.quantity), 0);
     
-    // ✅ СОЗДАЁМ ЗАКАЗ ТОЛЬКО ЛОКАЛЬНО
+    // ✅ 1. СОЗДАЁМ ЗАКАЗ ЛОКАЛЬНО
     const localOrder = await prisma.order.create({
       data: {
         userId: userId,
@@ -213,7 +214,35 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
     console.log('✅ Локальный заказ создан (pending):', localOrder.id);
 
-    // ✅ ОЧИЩАЕМ КОРЗИНУ
+    // ✅ 2. ОТПРАВЛЯЕМ ЗАКАЗ В CRM ЧЕРЕЗ ОЧЕРЕДЬ
+    try {
+      const crmOrderData = {
+        items: cart.items.map((item: CartItem) => ({
+          productId: parseInt(item.productId),
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        client: {
+          firstName: client.firstName?.trim() || '',
+          lastName: client.lastName?.trim() || '',
+          phone: client.phone?.trim() || '',
+          email: client.email?.trim() || '',
+          address: deliveryAddress || '',
+        },
+        deliveryMethod: deliveryMethod || 'pickup',
+        deliveryAddress: deliveryAddress || 'г. Иркутск, ул. Новаторов 36',
+        comment: comment || null,
+        source: 'website',
+      };
+
+      const job = await addOrderToCRMQueue(localOrder.id, crmOrderData);
+      console.log(`📥 Заказ ${localOrder.id} добавлен в очередь CRM (jobId: ${job.id})`);
+    } catch (error) {
+      console.error('❌ Ошибка добавления заказа в очередь CRM:', error);
+      // Продолжаем — заказ на сайте всё равно создан
+    }
+
+    // ✅ 3. ОЧИЩАЕМ КОРЗИНУ
     if (cart.id) {
       await prisma.cart.update({
         where: { id: cart.id },
@@ -229,7 +258,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
         total: localOrder.total,
         status: localOrder.status,
       },
-      message: 'Заказ создан, ожидает оплаты'
+      message: 'Заказ создан, ожидает обработки'
     });
 
   } catch (error: any) {

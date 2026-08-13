@@ -90,13 +90,13 @@ const processCreateOrder = async (data: any) => {
 
   const crmResult = response.data;
 
-  // Обновляем заказ в БД
+  // ✅ Обновляем заказ в БД — сохраняем crmOrderId, НО НЕ МЕНЯЕМ СТАТУС
   await prisma.order.update({
     where: { id: orderId },
     data: {
       crmOrderId: crmResult.orderId ? String(crmResult.orderId) : null,
       orderNumber: crmResult.documentNumber || null,
-      status: 'paid',
+      // status ОСТАЁТСЯ pending — вебхук обновит его!
     },
   });
 
@@ -162,13 +162,13 @@ export const addOrderToCRMQueue = async (orderId: string, orderData: any) => {
       data: { orderId, orderData },
     },
     {
-      attempts: 5, // 5 попыток
+      attempts: 5,
       backoff: {
         type: 'exponential',
-        delay: 5000, // 5 сек, 10 сек, 20 сек, 40 сек, 80 сек
+        delay: 5000,
       },
       removeOnComplete: true,
-      removeOnFail: false, // сохраняем для анализа
+      removeOnFail: false,
     }
   );
 

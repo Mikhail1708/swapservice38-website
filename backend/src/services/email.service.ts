@@ -19,7 +19,7 @@ const formatPhone = (phone: string): string => {
 };
 
 // ============================================================
-// СОЗДАНИЕ ОЧЕРЕДИ С FALLBACK
+// ОЧЕРЕДЬ (с fallback если Redis не работает)
 // ============================================================
 let emailQueue: Queue.Queue;
 
@@ -35,13 +35,8 @@ try {
   console.warn('⚠️ Очередь не инициализирована, email будут отправляться синхронно');
   emailQueue = {
     add: async (data: any) => {
-      try {
-        await sendEmailSync(data.to, data.subject, data.html);
-        return { id: 'fallback-' + Date.now() };
-      } catch (err) {
-        console.error('❌ Ошибка отправки письма (синхронно):', err);
-        throw err;
-      }
+      await sendEmailSync(data.to, data.subject, data.html);
+      return { id: 'fallback-' + Date.now() };
     },
     process: () => {},
     on: () => emailQueue,
@@ -49,7 +44,7 @@ try {
 }
 
 // ============================================================
-// НАСТРОЙКА ТРАНСПОРТА
+// ТРАНСПОРТ
 // ============================================================
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.yandex.ru',
@@ -73,33 +68,30 @@ transporter.verify((error, success) => {
 });
 
 // ============================================================
-// СИНХРОННАЯ ОТПРАВКА (FALLBACK)
+// СИНХРОННАЯ ОТПРАВКА (fallback)
 // ============================================================
 const sendEmailSync = async (to: string, subject: string, html: string) => {
-  const info = await transporter.sendMail({
+  return await transporter.sendMail({
     from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
     to,
     subject,
     html,
   });
-  return info;
 };
 
 // ============================================================
 // ОБРАБОТЧИК ОЧЕРЕДИ
 // ============================================================
 emailQueue.process(async (job) => {
+  const { to, subject, html } = job.data;
+  console.log(`📧 Отправка письма на ${to}`);
   try {
-    const { to, subject, html } = job.data;
-    console.log(`📧 Отправка письма на ${to}`);
-    
     const info = await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
       to,
       subject,
       html,
     });
-    
     console.log(`✅ Письмо отправлено: ${info.messageId}`);
     return info;
   } catch (error) {
@@ -109,7 +101,7 @@ emailQueue.process(async (job) => {
 });
 
 // ============================================================
-// БАЗОВАЯ ФУНКЦИЯ ОТПРАВКИ
+// ПУБЛИЧНАЯ ФУНКЦИЯ ОТПРАВКИ
 // ============================================================
 export const sendEmail = (to: string, subject: string, html: string) => {
   emailQueue.add({ to, subject, html }, {
@@ -122,7 +114,7 @@ export const sendEmail = (to: string, subject: string, html: string) => {
 };
 
 // ============================================================
-// ШАБЛОН ДЛЯ ПИСЕМ — СТИЛЬ SWAPSERVICE38
+// БАЗОВЫЙ ШАБЛОН
 // ============================================================
 const createEmailTemplate = (content: string) => `
 <!DOCTYPE html>
@@ -133,17 +125,11 @@ const createEmailTemplate = (content: string) => `
   <title>SWAPSERVICE38</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #ffffff;
       color: #000000;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
+      font-family: 'Inter', -apple-system, sans-serif;
       padding: 40px 20px;
     }
     .container {
@@ -154,24 +140,18 @@ const createEmailTemplate = (content: string) => `
       border-radius: 12px;
       overflow: hidden;
     }
-    /* ===== HEADER ===== */
     .header {
       padding: 32px 40px 24px;
       text-align: center;
       border-bottom: 1px solid #e0e0e0;
-      background: #ffffff;
     }
     .header .logo {
       font-size: 24px;
       font-weight: 800;
       letter-spacing: 2px;
       color: #000000;
-      text-decoration: none;
     }
-    .header .logo span {
-      color: #555555;
-      font-weight: 300;
-    }
+    .header .logo span { color: #555555; font-weight: 300; }
     .header .subtitle {
       font-size: 13px;
       font-weight: 300;
@@ -186,23 +166,9 @@ const createEmailTemplate = (content: string) => `
       background: #000000;
       margin: 12px auto 0;
     }
-    /* ===== CONTENT ===== */
-    .content {
-      padding: 32px 40px;
-    }
-    .content h2 {
-      font-size: 20px;
-      font-weight: 700;
-      color: #000000;
-      margin-bottom: 16px;
-    }
-    .content p {
-      font-size: 15px;
-      font-weight: 400;
-      line-height: 1.7;
-      color: #000000;
-      margin-bottom: 12px;
-    }
+    .content { padding: 32px 40px; }
+    .content h2 { font-size: 20px; font-weight: 700; color: #000000; margin-bottom: 16px; }
+    .content p { font-size: 15px; line-height: 1.7; color: #000000; margin-bottom: 12px; }
     .content .highlight {
       background: #f5f5f5;
       border-left: 3px solid #000000;
@@ -210,15 +176,7 @@ const createEmailTemplate = (content: string) => `
       border-radius: 6px;
       margin: 16px 0;
     }
-    .content .highlight p {
-      margin: 0;
-      font-size: 14px;
-      color: #000000;
-    }
-    .content .highlight strong {
-      color: #000000;
-      font-weight: 600;
-    }
+    .content .highlight p { margin: 0; font-size: 14px; color: #000000; }
     .content .code {
       background: #f5f5f5;
       color: #000000;
@@ -229,7 +187,6 @@ const createEmailTemplate = (content: string) => `
       border-radius: 8px;
       letter-spacing: 8px;
       margin: 16px 0;
-      font-family: 'Inter', monospace;
       border: 1px solid #e0e0e0;
     }
     .content .info-grid {
@@ -241,54 +198,13 @@ const createEmailTemplate = (content: string) => `
       border-radius: 8px;
       margin: 12px 0;
     }
-    .content .info-grid .label {
-      font-size: 12px;
-      font-weight: 400;
-      color: #555555;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .content .info-grid .value {
-      font-size: 15px;
-      font-weight: 600;
-      color: #000000;
-    }
-    .content .info-grid .full {
-      grid-column: 1 / -1;
-    }
-    .content .order-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0;
-      font-size: 14px;
-    }
-    .content .order-table th {
-      background: #f5f5f5;
-      padding: 10px 12px;
-      text-align: left;
-      font-weight: 600;
-      color: #000000;
-      border-bottom: 2px solid #000000;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .content .order-table td {
-      padding: 10px 12px;
-      border-bottom: 1px solid #e0e0e0;
-      color: #000000;
-    }
-    .content .order-table .total-row td {
-      font-weight: 700;
-      font-size: 16px;
-      border-top: 2px solid #000000;
-      padding-top: 14px;
-      color: #000000;
-    }
-    .content .order-table .discount-row td {
-      color: #555555;
-      font-weight: 500;
-    }
+    .content .info-grid .label { font-size: 12px; font-weight: 400; color: #555555; text-transform: uppercase; letter-spacing: 0.5px; }
+    .content .info-grid .value { font-size: 15px; font-weight: 600; color: #000000; }
+    .content .info-grid .full { grid-column: 1 / -1; }
+    .content .order-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    .content .order-table th { background: #f5f5f5; padding: 10px 12px; text-align: left; font-weight: 600; color: #000000; border-bottom: 2px solid #000000; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .content .order-table td { padding: 10px 12px; border-bottom: 1px solid #e0e0e0; color: #000000; }
+    .content .order-table .total-row td { font-weight: 700; font-size: 16px; border-top: 2px solid #000000; padding-top: 14px; color: #000000; }
     .content .status-box {
       background: #f5f5f5;
       padding: 14px 20px;
@@ -296,14 +212,7 @@ const createEmailTemplate = (content: string) => `
       margin: 16px 0;
       border: 1px solid #e0e0e0;
     }
-    .content .status-box p {
-      margin: 0;
-      font-size: 14px;
-      color: #000000;
-    }
-    .content .status-box strong {
-      color: #000000;
-    }
+    .content .status-box p { margin: 0; font-size: 14px; color: #000000; }
     .content .btn {
       display: inline-block;
       background: #000000;
@@ -316,116 +225,43 @@ const createEmailTemplate = (content: string) => `
       margin-top: 8px;
       transition: background 0.2s;
     }
-    .content .btn:hover {
-      background: #333333;
-    }
-    .content .text-muted {
-      color: #555555;
-      font-size: 13px;
-    }
-    .content .text-muted a {
-      color: #000000;
-      text-decoration: underline;
-      font-weight: 500;
-    }
-    /* ===== FOOTER ===== */
+    .content .btn:hover { background: #333333; }
+    .content .text-muted { color: #555555; font-size: 13px; }
+    .content .text-muted a { color: #000000; text-decoration: underline; font-weight: 500; }
     .footer {
       padding: 24px 40px;
       border-top: 1px solid #e0e0e0;
       text-align: center;
-      background: #ffffff;
     }
-    .footer .contacts {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-    .footer .contacts span {
-      font-size: 13px;
-      color: #000000;
-      font-weight: 400;
-    }
-    .footer .contacts span strong {
-      color: #000000;
-      font-weight: 600;
-    }
-    .footer .social {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      margin: 12px 0;
-    }
-    .footer .social a {
-      color: #555555;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 400;
-      transition: color 0.2s;
-    }
-    .footer .social a:hover {
-      color: #000000;
-    }
-    .footer .copy {
-      font-size: 12px;
-      color: #999999;
-      margin-top: 8px;
-      font-weight: 300;
-    }
-    /* ===== RESPONSIVE ===== */
+    .footer .contacts { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; }
+    .footer .contacts span { font-size: 13px; color: #000000; font-weight: 400; }
+    .footer .contacts span strong { color: #000000; font-weight: 600; }
+    .footer .social { display: flex; justify-content: center; gap: 20px; margin: 12px 0; }
+    .footer .social a { color: #555555; text-decoration: none; font-size: 13px; transition: color 0.2s; }
+    .footer .social a:hover { color: #000000; }
+    .footer .copy { font-size: 12px; color: #999999; margin-top: 8px; }
     @media (max-width: 480px) {
-      body {
-        padding: 16px 12px;
-      }
-      .header {
-        padding: 24px 20px;
-      }
-      .header .logo {
-        font-size: 20px;
-      }
-      .content {
-        padding: 24px 20px;
-      }
-      .content .info-grid {
-        grid-template-columns: 1fr;
-      }
-      .content .order-table th,
-      .content .order-table td {
-        padding: 8px 10px;
-        font-size: 13px;
-      }
-      .footer {
-        padding: 20px;
-      }
-      .footer .contacts {
-        gap: 10px;
-        flex-direction: column;
-      }
-      .footer .contacts span {
-        font-size: 13px;
-      }
-      .content .code {
-        font-size: 24px;
-        letter-spacing: 4px;
-        padding: 12px 16px;
-      }
+      body { padding: 16px 12px; }
+      .header { padding: 24px 20px; }
+      .content { padding: 24px 20px; }
+      .content .info-grid { grid-template-columns: 1fr; }
+      .content .order-table th, .content .order-table td { padding: 8px 10px; font-size: 13px; }
+      .footer { padding: 20px; }
+      .footer .contacts { gap: 10px; flex-direction: column; }
+      .content .code { font-size: 24px; letter-spacing: 4px; padding: 12px 16px; }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- HEADER -->
     <div class="header">
       <div class="logo">SWAP<span>SERVICE38</span></div>
       <div class="subtitle">Производство и установка тюнинг-комплектов</div>
       <div class="divider"></div>
     </div>
-    <!-- CONTENT -->
     <div class="content">
       ${content}
     </div>
-    <!-- FOOTER -->
     <div class="footer">
       <div class="contacts">
         <span>📞 <strong>+7 983 446 08 88</strong></span>
@@ -455,11 +291,8 @@ export const sendVerificationEmail = (email: string, code: string) => {
     <p>Для завершения регистрации введите код подтверждения:</p>
     <div class="code">${code}</div>
     <p class="text-muted">Код действителен в течение <strong>10 минут</strong>.</p>
-    <p class="text-muted" style="margin-top: 16px;">
-      Если вы не регистрировались, просто проигнорируйте это письмо.
-    </p>
+    <p class="text-muted" style="margin-top: 16px;">Если вы не регистрировались, просто проигнорируйте это письмо.</p>
   `;
-
   return sendEmail(email, 'Подтверждение регистрации на SWAPSERVICE38', createEmailTemplate(content));
 };
 
@@ -474,11 +307,8 @@ export const sendPasswordResetEmail = (email: string, code: string) => {
     <p>Для восстановления пароля введите код:</p>
     <div class="code">${code}</div>
     <p class="text-muted">Код действителен в течение <strong>15 минут</strong>.</p>
-    <p class="text-muted" style="margin-top: 16px;">
-      Если вы не запрашивали восстановление, просто проигнорируйте это письмо.
-    </p>
+    <p class="text-muted" style="margin-top: 16px;">Если вы не запрашивали восстановление, просто проигнорируйте это письмо.</p>
   `;
-
   return sendEmail(email, 'Восстановление пароля на SWAPSERVICE38', createEmailTemplate(content));
 };
 
@@ -493,16 +323,13 @@ export const sendPasswordChangeEmail = (email: string, code: string) => {
     <p>Для подтверждения введите код:</p>
     <div class="code">${code}</div>
     <p class="text-muted">Код действителен в течение <strong>15 минут</strong>.</p>
-    <p class="text-muted" style="margin-top: 16px;">
-      Если вы не запрашивали смену пароля, просто проигнорируйте это письмо.
-    </p>
+    <p class="text-muted" style="margin-top: 16px;">Если вы не запрашивали смену пароля, просто проигнорируйте это письмо.</p>
   `;
-
   return sendEmail(email, 'Смена пароля на SWAPSERVICE38', createEmailTemplate(content));
 };
 
 // ============================================================
-// ПОДТВЕРЖДЕНИЕ ЗАКАЗА ДЛЯ КЛИЕНТА
+// ПОДТВЕРЖДЕНИЕ ЗАКАЗА ДЛЯ КЛИЕНТА (с защитой от дублей)
 // ============================================================
 export const sendOrderConfirmationToCustomer = async (data: {
   orderId: string;
@@ -514,24 +341,21 @@ export const sendOrderConfirmationToCustomer = async (data: {
   items: Array<{ name: string; quantity: number; price: number; total: number }>;
   deliveryAddress: string;
   comment: string;
-  paymentId: string;
 }) => {
   if (!data.customerEmail) {
     console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, пропускаем`);
     return;
   }
 
-  // ✅ ПРОВЕРКА НА ДУБЛИРОВАНИЕ
   const notificationKey = `order:notified:customer:${data.orderId}`;
-  try {
-    const cached = await redis.get(notificationKey);
-    if (cached) {
-      console.log(`ℹ️ Уведомление клиенту для заказа ${data.orderId} уже отправлено, пропускаем`);
-      return;
-    }
-  } catch (error) {
-    console.warn('⚠️ Ошибка проверки Redis:', error);
+
+  // ✅ Атомарная проверка через setnx
+  const isNew = await redis.setnx(notificationKey, 'true');
+  if (!isNew) {
+    console.log(`ℹ️ Уведомление клиенту для заказа ${data.orderId} уже отправлено (setnx), пропускаем`);
+    return;
   }
+  await redis.expire(notificationKey, 7 * 24 * 60 * 60);
 
   const formattedPhone = formatPhone(data.customerPhone);
 
@@ -545,19 +369,15 @@ export const sendOrderConfirmationToCustomer = async (data: {
     </tr>
   `).join('');
 
-  const totalItems = data.items.reduce((sum, item) => sum + item.quantity, 0);
-
   const content = `
     <h2>✅ Заказ подтверждён</h2>
     <p>Здравствуйте, <strong>${data.customerName}</strong>!</p>
     <p>Спасибо за заказ в <strong>SWAPSERVICE38</strong>. Мы уже начали его обрабатывать.</p>
-
     <div class="highlight">
       <p><strong>Номер заказа:</strong> #${data.documentNumber}</p>
       <p><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</p>
       <p><strong>Сумма:</strong> ${data.total.toLocaleString()} ₽</p>
     </div>
-
     <h3 style="margin-top: 20px; font-size: 16px; font-weight: 600;">Товары в заказе</h3>
     <table class="order-table">
       <thead>
@@ -577,7 +397,6 @@ export const sendOrderConfirmationToCustomer = async (data: {
         </tr>
       </tbody>
     </table>
-
     <div class="info-grid">
       <div>
         <div class="label">Клиент</div>
@@ -600,14 +419,12 @@ export const sendOrderConfirmationToCustomer = async (data: {
         </div>
       ` : ''}
     </div>
-
     <div class="status-box">
       <p><strong>Статус заказа:</strong> Оплачен, ожидает подтверждения</p>
       <p style="font-size: 13px; color: #555555; margin-top: 4px;">
         Наш менеджер свяжется с вами в ближайшее время для уточнения деталей.
       </p>
     </div>
-
     <p style="margin-top: 20px; font-size: 14px;">
       Отслеживать статус заказа можно в 
       <a href="${process.env.CLIENT_URL || 'http://localhost:3001'}/profile/orders" style="color: #000000; text-decoration: underline; font-weight: 600;">личном кабинете</a>.
@@ -622,17 +439,10 @@ export const sendOrderConfirmationToCustomer = async (data: {
     `Подтверждение заказа #${data.documentNumber}`,
     createEmailTemplate(content)
   );
-
-  // ✅ СОХРАНЯЕМ В REDIS
-  try {
-    await redis.setex(notificationKey, 7 * 24 * 60 * 60, 'true');
-  } catch (error) {
-    console.warn('⚠️ Не удалось сохранить в Redis:', error);
-  }
 };
 
 // ============================================================
-// УВЕДОМЛЕНИЕ МЕНЕДЖЕРА О НОВОМ ЗАКАЗЕ
+// УВЕДОМЛЕНИЕ МЕНЕДЖЕРА О НОВОМ ЗАКАЗЕ (с защитой от дублей)
 // ============================================================
 export const sendOrderNotificationToManager = async (data: {
   orderId: string;
@@ -644,21 +454,17 @@ export const sendOrderNotificationToManager = async (data: {
   items: Array<{ name: string; quantity: number; price: number; total: number }>;
   deliveryAddress: string;
   comment: string;
-  paymentId: string;
 }) => {
   const managerEmail = process.env.MANAGER_EMAIL || 'swapservice38@yandex.ru';
-  
-  // ✅ ПРОВЕРКА НА ДУБЛИРОВАНИЕ
   const notificationKey = `order:notified:manager:${data.orderId}`;
-  try {
-    const cached = await redis.get(notificationKey);
-    if (cached) {
-      console.log(`ℹ️ Уведомление менеджеру для заказа ${data.orderId} уже отправлено, пропускаем`);
-      return;
-    }
-  } catch (error) {
-    console.warn('⚠️ Ошибка проверки Redis:', error);
+
+  // ✅ Атомарная проверка через setnx
+  const isNew = await redis.setnx(notificationKey, 'true');
+  if (!isNew) {
+    console.log(`ℹ️ Уведомление менеджеру для заказа ${data.orderId} уже отправлено (setnx), пропускаем`);
+    return;
   }
+  await redis.expire(notificationKey, 7 * 24 * 60 * 60);
 
   const formattedPhone = formatPhone(data.customerPhone);
 
@@ -674,12 +480,10 @@ export const sendOrderNotificationToManager = async (data: {
 
   const content = `
     <h2>Новый заказ на сайте</h2>
-    
     <div class="highlight">
       <p style="font-size: 18px; font-weight: 700;">Заказ #${data.documentNumber}</p>
       <p style="font-size: 16px;">Сумма: <strong>${data.total.toLocaleString()} ₽</strong></p>
     </div>
-
     <div class="info-grid">
       <div>
         <div class="label">Клиент</div>
@@ -710,7 +514,6 @@ export const sendOrderNotificationToManager = async (data: {
         </div>
       ` : ''}
     </div>
-
     <h3 style="margin-top: 20px; font-size: 16px; font-weight: 600;">Товары в заказе</h3>
     <table class="order-table">
       <thead>
@@ -730,11 +533,9 @@ export const sendOrderNotificationToManager = async (data: {
         </tr>
       </tbody>
     </table>
-
     <div class="status-box">
       <p><strong>Действие:</strong> Перейдите в админ-панель для подтверждения заказа.</p>
     </div>
-
     <p style="margin-top: 16px;">
       <a href="${process.env.CLIENT_URL || 'http://localhost:3001'}/admin/orders" class="btn">
         📋 Перейти к заказу
@@ -747,11 +548,4 @@ export const sendOrderNotificationToManager = async (data: {
     `Новый заказ #${data.documentNumber}`,
     createEmailTemplate(content)
   );
-
-  // ✅ СОХРАНЯЕМ В REDIS
-  try {
-    await redis.setex(notificationKey, 7 * 24 * 60 * 60, 'true');
-  } catch (error) {
-    console.warn('⚠️ Не удалось сохранить в Redis:', error);
-  }
 };

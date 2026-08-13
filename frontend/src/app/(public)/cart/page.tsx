@@ -21,7 +21,8 @@ import {
   Mail,
   MessageSquare,
   Package,
-  Phone
+  Phone,
+  Building2
 } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { useCart }  from '@/lib/context/CartContext';
@@ -51,7 +52,7 @@ export default function CartPage() {
   const { user } = useAuth();
   const router = useRouter();
   
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  // Состояние формы
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -60,9 +61,16 @@ export default function CartPage() {
     address: '',
     comment: '',
   });
+
+  // Способ доставки (только самовывоз и Почта/ТК)
+  const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'post'>('pickup');
+  // Название транспортной компании
+  const [tcName, setTcName] = useState('');
+
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [orderError, setOrderError] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const items = cart?.items || [];
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
@@ -116,8 +124,10 @@ export default function CartPage() {
         }
         return '';
       case 'address':
-        if (!value.trim()) return 'Укажите адрес доставки';
-        if (value.trim().length < 5) return 'Укажите полный адрес';
+        if (deliveryMethod === 'post') {
+          if (!value.trim()) return 'Укажите адрес доставки';
+          if (value.trim().length < 5) return 'Укажите полный адрес';
+        }
         return '';
       default:
         return '';
@@ -148,12 +158,23 @@ export default function CartPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    const fields = ['firstName', 'lastName', 'phone', 'email', 'address'] as const;
+    const fields = ['firstName', 'lastName', 'phone', 'email'] as const;
     
     fields.forEach(field => {
       const error = validateField(field, formData[field]);
       if (error) errors[field] = error;
     });
+
+    // Адрес обязателен только для Почты/ТК
+    if (deliveryMethod === 'post') {
+      const addressError = validateField('address', formData.address);
+      if (addressError) errors.address = addressError;
+    }
+
+    // Если Почта/ТК — проверить название компании
+    if (deliveryMethod === 'post' && !tcName.trim()) {
+      errors.tcName = 'Укажите название транспортной компании';
+    }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -169,83 +190,103 @@ export default function CartPage() {
     }
   };
 
-  const handleCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
+ const handleCheckout = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  if (isCheckingOut) return;
+  if (!user) {
+    setOrderError('Для оформления заказа необходимо авторизоваться');
+    router.push('/login?redirect=/cart');
+    return;
+  }
+  if (!validateForm()) return;
+  if (items.length === 0) {
+    setOrderError('Корзина пуста');
+    return;
+  }
+
+  setIsCheckingOut(true);
+  setOrderError(null);
+
+  try {
+    const cleanedPhone = cleanPhone(formData.phone);
     
-    if (!user) {
-      setOrderError('Для оформления заказа необходимо авторизоваться');
-      router.push('/login?redirect=/cart');
-      return;
-    }
-    
-    if (!validateForm()) return;
-    if (items.length === 0) {
-      setOrderError('Корзина пуста');
-      return;
+    let finalComment = formData.comment.trim();
+    if (deliveryMethod === 'post' && tcName.trim()) {
+      finalComment = `Транспортная компания: ${tcName.trim()}\n${finalComment}`.trim();
     }
 
-    setIsCheckingOut(true);
-    setOrderError(null);
+    const pickupAddress = 'г. Иркутск, ул. Новаторов 36';
 
+    const orderData = {
+      client: {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        phone: cleanedPhone,
+        email: formData.email.trim(),
+        address: deliveryMethod === 'post' 
+          ? formData.address.trim() 
+          : pickupAddress,
+      },
+      items: items
+        .map((item: CartItem) => {
+          const productId = parseInt(item.productId);
+          if (isNaN(productId)) {
+            console.warn(`⚠️ Пропущен товар с некорректным ID: ${item.productId}`);
+            return null;
+          }
+          return {
+            productId,
+            quantity: item.quantity,
+            price: item.price,
+          };
+        })
+        .filter(Boolean),
+      deliveryMethod: deliveryMethod,
+      deliveryAddress: deliveryMethod === 'post' 
+        ? formData.address.trim() 
+        : pickupAddress,
+      comment: finalComment || null,
+      source: 'website',
+    };
+
+    const response = await fetchWithCsrf('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData),
+    });
+
+    let data;
+    const text = await response.text();
     try {
-      const cleanedPhone = cleanPhone(formData.phone);
-      
-      const orderData = {
-        client: {
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
-          phone: cleanedPhone,
-          email: formData.email.trim(),
-          address: formData.address.trim(),
-        },
-        items: items.map((item: CartItem) => ({
-          productId: parseInt(item.productId),
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        deliveryMethod: 'courier',
-        deliveryAddress: formData.address.trim(),
-        comment: formData.comment.trim(),
-        source: 'website',
-      };
-
-      const response = await fetchWithCsrf('/api/orders', {
-        method: 'POST',
-        body: JSON.stringify(orderData),
-      });
-
-      let data;
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error('Ошибка сервера: ' + text.substring(0, 100));
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Ошибка создания заказа');
-      }
-
-      await clearCart();
-      await refetchCart();
-
-      if (data.paymentUrl) {
-        router.push(data.paymentUrl);
-      } else if (data.order?.id) {
-        router.push(`/payment/${data.order.id}`);
-      } else if (data.orderId) {
-        router.push(`/payment/${data.orderId}`);
-      } else {
-        router.push('/payment/success');
-      }
-
-    } catch (error: any) {
-      console.error('❌ Ошибка оформления заказа:', error);
-      setOrderError(error.message || 'Ошибка оформления заказа');
-    } finally {
-      setIsCheckingOut(false);
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Ошибка сервера: ' + text.substring(0, 100));
     }
-  };
+
+    if (!response.ok) {
+      throw new Error(data.error || data.message || 'Ошибка создания заказа');
+    }
+
+    await clearCart();
+    await refetchCart();
+
+    if (data.paymentUrl) {
+      router.push(data.paymentUrl);
+    } else if (data.order?.id) {
+      router.push(`/payment/${data.order.id}`);
+    } else if (data.orderId) {
+      router.push(`/payment/${data.orderId}`);
+    } else {
+      router.push('/payment/success');
+    }
+
+  } catch (error: any) {
+    console.error('❌ Ошибка оформления заказа:', error);
+    setOrderError(error.message || 'Ошибка оформления заказа');
+  } finally {
+    setIsCheckingOut(false);
+  }
+};
 
   const getFieldStatus = (field: string) => {
     if (!touched[field]) return 'idle';
@@ -542,21 +583,88 @@ export default function CartPage() {
                     )}
                   </div>
 
-                  {/* Адрес */}
+                  {/* Способ доставки */}
                   <div>
                     <label className="block text-sm text-muted-foreground font-medium mb-1.5">
-                      <Home className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
-                      Адрес доставки <span className="text-red-400">*</span>
+                      <Truck className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
+                      Способ доставки
                     </label>
-                    <AddressInput
-                      value={formData.address}
-                      onChange={(val) => handleFieldChange('address', val)}
-                      onBlur={() => handleFieldBlur('address')}
-                      error={formErrors.address}
-                      touched={touched.address}
-                      placeholder="г. Иркутск, ул. Ленина, д. 1"
-                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryMethod('pickup')}
+                        className={`px-3 py-2 border rounded-lg text-sm font-medium transition ${
+                          deliveryMethod === 'pickup'
+                            ? 'border-foreground bg-foreground/5 text-foreground'
+                            : 'border-border text-muted-foreground hover:border-foreground/30'
+                        }`}
+                      >
+                        Самовывоз
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryMethod('post')}
+                        className={`px-3 py-2 border rounded-lg text-sm font-medium transition ${
+                          deliveryMethod === 'post'
+                            ? 'border-foreground bg-foreground/5 text-foreground'
+                            : 'border-border text-muted-foreground hover:border-foreground/30'
+                        }`}
+                      >
+                        Транспортная компания
+                      </button>
+                    </div>
+                    {deliveryMethod === 'pickup' && (
+                      <p className="text-xs text-muted-foreground/60 mt-1">
+                        Самовывоз по адресу: г. Иркутск, ул. Новаторов 36
+                      </p>
+                    )}
                   </div>
+
+                  {/* Адрес — показываем только для Почты/ТК */}
+                  {deliveryMethod === 'post' && (
+                    <div>
+                      <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                        <Home className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
+                        Адрес доставки <span className="text-red-400">*</span>
+                      </label>
+                      <AddressInput
+                        value={formData.address}
+                        onChange={(val) => handleFieldChange('address', val)}
+                        onBlur={() => handleFieldBlur('address')}
+                        error={formErrors.address}
+                        touched={touched.address}
+                        placeholder="г. Иркутск, ул. Ленина, д. 1"
+                      />
+                    </div>
+                  )}
+
+                  {/* Название ТК — только для Почты/ТК */}
+                  {deliveryMethod === 'post' && (
+                    <div>
+                      <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                        <Building2 className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
+                        Название транспортной компании <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={tcName}
+                        onChange={(e) => setTcName(e.target.value)}
+                        onBlur={() => setTouched(prev => ({ ...prev, tcName: true }))}
+                        className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
+                          formErrors.tcName && touched.tcName
+                            ? 'border-red-500/50 focus:ring-red-500/20'
+                            : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
+                        }`}
+                        placeholder="Например: СДЭК, Почта России, DHL"
+                      />
+                      {formErrors.tcName && touched.tcName && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <X className="w-3 h-3" />
+                          {formErrors.tcName}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Комментарий */}
                   <div>

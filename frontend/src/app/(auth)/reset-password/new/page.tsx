@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter, Image, Link } from '@/lib/next-shims';
 import { Eye, EyeOff, ArrowRight, ArrowLeft, CheckCircle } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 export default function ResetPasswordNewPage() {
   const [password, setPassword] = useState('');
@@ -25,44 +26,43 @@ export default function ResetPasswordNewPage() {
   }, [email, code, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  e.preventDefault();
+  setError('');
 
-    if (password.length < 8) {
-      setError('Пароль должен быть минимум 8 символов');
-      return;
+  if (password.length < 8) {
+    setError('Пароль должен быть минимум 8 символов');
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    setError('Пароли не совпадают');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const response = await fetchWithCsrf('/api/auth/reset-password/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, newPassword: password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Ошибка смены пароля');
     }
 
-    if (password !== confirmPassword) {
-      setError('Пароли не совпадают');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const response = await fetch('/api/auth/reset-password/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code, newPassword: password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Ошибка смены пароля');
-      }
-
-      setSuccess(true);
-      setTimeout(() => {
-        router.push('/login?reset=true');
-      }, 2000);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setSuccess(true);
+    setTimeout(() => {
+      router.push('/login?reset=true');
+    }, 2000);
+  } catch (err: any) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white relative overflow-hidden">

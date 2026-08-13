@@ -3,20 +3,73 @@
 
 import { useState, useEffect } from 'react';
 import { Image, Link } from '@/lib/next-shims';
-import { Loader2, Package, ChevronRight, ShoppingBag, AlertCircle, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { 
+  Loader2, 
+  Package, 
+  ChevronRight, 
+  ShoppingBag, 
+  AlertCircle, 
+  ChevronLeft, 
+  ChevronRight as ChevronRightIcon,
+  // ✅ ДОБАВЛЕННЫЕ ИКОНКИ
+  Clock,
+  CheckCircle,
+  XCircle,
+  Truck
+} from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { fetchWithCsrf }  from '@/lib/csrf';
 
-const statusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: '⏳ Ожидает оплаты', color: 'bg-yellow-500/10 text-yellow-500' },
-  paid: { label: '✅ Оплачен, ожидает подтверждения', color: 'bg-blue-500/10 text-blue-500' },
-  confirmed: { label: '📦 Подтверждён', color: 'bg-indigo-500/10 text-indigo-500' },
-  assembling: { label: '🔧 Собирается', color: 'bg-purple-500/10 text-purple-500' },
-  packing: { label: '📦 Упаковывается', color: 'bg-purple-500/10 text-purple-500' },
-  shipped: { label: '🚚 Отправлен', color: 'bg-green-500/10 text-green-500' },
-  delivered: { label: '✅ Доставлен', color: 'bg-emerald-500/10 text-emerald-500' },
-  cancelled: { label: '❌ Отменён', color: 'bg-red-500/10 text-red-500' },
-  ordered: { label: '📋 Оформлен', color: 'bg-gray-500/10 text-gray-500' },
+// ✅ НОВЫЙ STATUSMAP С ИКОНКАМИ И ЦВЕТАМИ
+const statusMap: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+  pending: { 
+    label: 'Ожидает оплаты', 
+    color: 'text-yellow-500', 
+    bg: 'bg-yellow-500/10 border-yellow-500/20',
+    icon: <Clock className="w-4 h-4 text-yellow-500" />
+  },
+  paid: { 
+    label: 'Оплачен, ожидает подтверждения', 
+    color: 'text-blue-500', 
+    bg: 'bg-blue-500/10 border-blue-500/20',
+    icon: <CheckCircle className="w-4 h-4 text-blue-500" />
+  },
+  confirmed: { 
+    label: 'Подтверждён', 
+    color: 'text-indigo-500', 
+    bg: 'bg-indigo-500/10 border-indigo-500/20',
+    icon: <CheckCircle className="w-4 h-4 text-indigo-500" />
+  },
+  assembling: { 
+    label: 'Собирается', 
+    color: 'text-purple-500', 
+    bg: 'bg-purple-500/10 border-purple-500/20',
+    icon: <Package className="w-4 h-4 text-purple-500" />
+  },
+  packing: { 
+    label: 'Упаковывается', 
+    color: 'text-purple-500', 
+    bg: 'bg-purple-500/10 border-purple-500/20',
+    icon: <Package className="w-4 h-4 text-purple-500" />
+  },
+  shipped: { 
+    label: 'Отправлен', 
+    color: 'text-green-500', 
+    bg: 'bg-green-500/10 border-green-500/20',
+    icon: <Truck className="w-4 h-4 text-green-500" />
+  },
+  delivered: { 
+    label: 'Доставлен', 
+    color: 'text-emerald-500', 
+    bg: 'bg-emerald-500/10 border-emerald-500/20',
+    icon: <CheckCircle className="w-4 h-4 text-emerald-500" />
+  },
+  cancelled: { 
+    label: 'Отменён', 
+    color: 'text-red-500', 
+    bg: 'bg-red-500/10 border-red-500/20',
+    icon: <XCircle className="w-4 h-4 text-red-500" />
+  },
 };
 
 export default function OrdersPage() {
@@ -41,7 +94,6 @@ export default function OrdersPage() {
         setLoading(true);
         console.log('🔄 Загрузка заказов для пользователя:', user.id);
         
-        // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf ДЛЯ GET (нужен CSRF токен)
         const response = await fetchWithCsrf('/api/orders', {
           method: 'GET',
         });
@@ -74,7 +126,12 @@ export default function OrdersPage() {
   }, [user, authLoading]);
 
   const getStatus = (status: string) => {
-    return statusMap[status] || { label: status || 'Неизвестно', color: 'bg-gray-500/10 text-gray-500' };
+    return statusMap[status] || { 
+      label: status || 'Неизвестно', 
+      color: 'text-gray-500', 
+      bg: 'bg-gray-500/10 border-gray-500/20',
+      icon: <Package className="w-4 h-4 text-gray-500" />
+    };
   };
 
   const formatDate = (date: string) => {
@@ -185,7 +242,9 @@ export default function OrdersPage() {
                         <span className="font-medium text-foreground">
                           Заказ #{displayNumber}
                         </span>
-                        <span className={`text-xs px-3 py-1 rounded-full font-medium ${status.color}`}>
+                        {/* ✅ НОВЫЙ СТАТУС С ИКОНКОЙ И РАМКОЙ */}
+                        <span className={`text-xs px-3 py-1 rounded-full font-medium border ${status.bg} ${status.color} flex items-center gap-1.5`}>
+                          {status.icon}
                           {status.label}
                         </span>
                       </div>

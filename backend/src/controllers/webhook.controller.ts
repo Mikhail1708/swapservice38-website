@@ -1,5 +1,4 @@
-// backend/src/controllers/webhook.controller.ts (САЙТ) — НЕ МЕНЯЕТСЯ
-
+// backend/src/controllers/webhook.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';

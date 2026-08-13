@@ -232,7 +232,7 @@ export default function ContactsPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-4 mt-6">
             <a
-              href="tel:+79148993838"
+              href="tel:+79148955888"
               className="inline-flex items-center gap-2 rounded-sm bg-primary px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Phone className="w-4 h-4" />
