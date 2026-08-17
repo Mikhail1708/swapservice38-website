@@ -462,7 +462,7 @@ export default function CatalogPage() {
               )}
             </div>
             <p className="text-muted-foreground font-light mt-2">
-              Тюнинг-комплекты и запчасти для внедорожников
+              Тюнинг, свап-комплекты и запчасти для внедорожников
               {allProducts.length > 0 && (
                 <span className="ml-2 text-sm text-muted-foreground/50">
                   (всего {allProducts.length} товаров)

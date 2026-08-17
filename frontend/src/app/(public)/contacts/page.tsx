@@ -69,14 +69,14 @@ export default function ContactsPage() {
                   >
                     +7 (983) 446-08-88
                   </a>
-                  <p className="text-xs text-muted-foreground mt-1">Александр — магазин тюнинга</p>
+                  <p className="text-xs text-muted-foreground mt-1">Магазин тюнинга</p>
                   <a 
                     href="tel:+79834460888" 
                     className="text-lg font-medium text-foreground hover:text-muted-foreground transition block mt-1"
                   >
-                    +7 (924) 553-08-88
+                    +7 (924) 533-08-80
                   </a>
-                  <p className="text-xs text-muted-foreground mt-1">Николай — вопросы по свапу</p>
+                  <p className="text-xs text-muted-foreground mt-1">Свап и обслуживание авто</p>
                 </div>
               </div>
             </div>

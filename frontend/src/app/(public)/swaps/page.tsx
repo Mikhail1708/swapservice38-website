@@ -105,8 +105,7 @@ export default function SwapsPage() {
             </span>
           </h1>
           <p className="mt-4 text-muted-foreground max-w-2xl">
-            Устанавливаем мощные и надёжные моторы «под ключ» с полной интеграцией электроники.
-            Собственные свап-киты — идеальная посадка без «колхоза».
+            Устанавливаем мощные и надёжные моторы «под ключ» с полной интеграцией узлов управления.
           </p>
         </div>
 
@@ -152,12 +151,11 @@ export default function SwapsPage() {
           <h2 className="heading-display text-2xl text-foreground mb-6">
             Популярные моторы
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {[
               { name: '3UZ-FE', spec: 'V8 4.3 л', desc: 'Легендарный японский V8' },
               { name: '5VZ-FE', spec: 'V6 3.4 л', desc: '«Вечный» мотор Toyota' },
               { name: 'VQ35DE', spec: 'V6 3.5 л', desc: 'Мощный современный V6' },
-              { name: 'BMW M57', spec: '3.0d турбо', desc: 'Турбодизель с тягой' },
             ].map((m) => (
               <div key={m.name} className="bg-card border border-border rounded-lg p-4 text-center hover:border-foreground/30 transition">
                 <div className="heading-display text-lg text-foreground">{m.name}</div>

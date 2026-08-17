@@ -12,13 +12,12 @@ import {
   Package, 
   Gauge,
   Sparkles,
-  Truck,
-  Cog,
   Flame,
   Clock,
-  Users,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  BadgeDollarSign, 
+  HeartHandshake,   
 } from 'lucide-react';
 
 // ============================================================
@@ -27,12 +26,12 @@ import {
 const STATIC_SWAP_SERVICE = {
   id: 'swap-static',
   name: 'Свапы двигателей',
-  description: 'Профессиональная замена двигателей на 3UZ, 5VZ, VQ35 и другие моторы. Полная интеграция электроники, адаптация коробок передач, охлаждения и топливной системы.',
-  price: 150000,
+  description: 'Мы выполняем свап двигателей любого типа — от проверенных рядных моторов до V-образных конфигураций. Все этапы сопровождаются профессиональной адаптацией электроники, трансмиссии, системы охлаждения и топливной линии. Результат — идеальная работа всех систем, без сюрпризов.',
+  price: 200000,
   imageUrl: '/images/engines/3uz.png',
   isActive: true,
   icon: Flame,
-  features: ['Полная интеграция электроники', 'Собственные свап-киты', 'Гарантия на работу'],
+  features: ['Полная интеграция электроники', 'Собственные инженерные решения для свапа', 'Гарантия на работу'],
   href: '/swaps',
 };
 
@@ -179,7 +178,6 @@ function ServiceCard({
         index % 2 === 1 ? 'lg:order-1' : ''
       }`}>
         <div className="flex items-center gap-3 mb-3">
-          <Icon className="w-8 h-8 text-foreground" />
         </div>
         <h2 className="heading-display text-2xl text-foreground">
           {service.name}
@@ -221,24 +219,24 @@ function ServiceCard({
 // ============================================================
 const WHY_CHOOSE_US = [
   {
-    icon: Users,
-    title: 'Опыт 10+ лет',
-    description: 'Более 10 лет в сфере тюнинга и обслуживания внедорожников',
-  },
-  {
-    icon: Cog,
-    title: 'Собственное производство',
-    description: 'Сами разрабатываем и производим тюнинг-компоненты',
-  },
-  {
     icon: Clock,
-    title: 'Быстрые сроки',
-    description: 'Чёткое планирование и выполнение работ в оговоренные сроки',
+    title: 'Индивидуальный подход',
+    description: 'Подбираем решения под ваши задачи и бюджет, без шаблонных схем.',
   },
   {
     icon: Shield,
     title: 'Гарантия',
-    description: 'Гарантия на все виды работ и установленные запчасти',
+    description: 'Гарантия на все виды работ и установленные запчасти.',
+  },
+  {
+    icon: BadgeDollarSign,
+    title: 'Честные цены',
+    description: 'Прозрачное ценообразование без скрытых платежей и неожиданных сюрпризов.',
+  },
+  {
+    icon: HeartHandshake,
+    title: 'Обратная связь',
+    description: 'Всегда на связи: отвечаем на звонки и сообщения 7 дней в неделю, 24 часа в сутки.',
   },
 ];
 
@@ -306,11 +304,11 @@ export default function ServicesPage() {
             Профессиональные услуги
             <br />
             <span className="text-[clamp(28px,3vw,40px)] text-muted-foreground">
-              по тюнингу и обслуживанию
+              по свапу двигателей, тюнингу и обслуживанию
             </span>
           </h1>
           <p className="mt-4 text-muted-foreground max-w-2xl">
-            Полный спектр услуг по тюнингу, свапам двигателей и обслуживанию внедорожников.
+            Полный спектр услуг по тюнингу, свапу двигателей и обслуживанию внедорожников.
             Работаем с автомобилями любых марок и годов выпуска.
           </p>
           <p className="text-sm text-muted-foreground/60 mt-2">

@@ -9,19 +9,31 @@ const HERO_IMAGES = [
     src: '/images/hero-suv4.png',
     alt: 'Модифицированный внедорожник в студии',
     title: 'Свап двигателей',
-    subtitle: 'Профессиональная замена моторов на 3UZ, 5VZ, VQ35'
+    subtitle: 'Профессиональный свап двигателей с полной адаптацией. Решение задач любой сложности.'
   },
   {
     src: '/images/hero-suv2.png',
     alt: 'Внедорожник на бездорожье',
     title: 'Тюнинг внедорожников',
-    subtitle: 'Установка защиты, боди-лифт, усиление кузова'
+    subtitle: 'Тюнинг внедорожников, реставрация и усиление рам, разработка лифт-комплектов, установка защиты и силовых обвесов.'
   },
   {
     src: '/images/hero-suv3.png',
     alt: 'Мастерская по тюнингу',
     title: 'Собственное производство',
-    subtitle: 'Проектируем тюнинг-компоненты любой сложности'
+    subtitle: 'Проектируем тюнинг-компоненты любой сложности: 3D моделирование, сканирование, 3D печать, лазерная резка и токарная обработка.'
+  },
+  {
+    src: '/images/hero-suv1.png', // Замените на своё фото сервиса (например, фото мастерской)
+    alt: 'Профессиональный сервис',
+    title: 'Автосервис',
+    subtitle: 'Полный цикл обслуживания автомобилей: диагностика, ремонт двигателя, ходовой части, трансмиссии, замена масла, шиномонтаж и подготовка к сезону.'
+  },
+  {
+    src: '/images/hero-suv5.png', // Замените на своё фото магазина (например, фото стеллажа с деталями)
+    alt: 'Продажа тюнинг-комплектов',
+    title: 'Продажа тюнинг-комплектов',
+    subtitle: 'Широкий ассортимент тюнинг-комплектов и запчастей для внедорожников. Оригинальные детали и собственные разработки в наличии.'
   },
 ];
 
@@ -44,9 +56,9 @@ export function Hero() {
     goToSlide((currentIndex - 1 + HERO_IMAGES.length) % HERO_IMAGES.length);
   }, [currentIndex, goToSlide]);
 
-  // Автоматическое переключение каждые 5 секунд
+  // Автоматическое переключение каждые 12 секунд (чтобы текст успели прочитать)
   useEffect(() => {
-    const timer = setInterval(goToNext, 10000);
+    const timer = setInterval(goToNext, 12000);
     return () => clearInterval(timer);
   }, [goToNext]);
 
@@ -112,7 +124,7 @@ export function Hero() {
 
       {/* Контент */}
       <div className="container-custom relative z-10 flex min-h-[100svh] flex-col justify-center pt-28 pb-16">
-        <div className="max-w-2xl">
+        <div className="w-full max-w-3xl">
           {/* Индикатор текущего слайда */}
           <div className="flex items-center gap-3 mb-6">
             <span className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">
@@ -130,20 +142,15 @@ export function Hero() {
             </h1>
           </div>
 
-          {/* Подзаголовок с анимацией */}
+          {/* Подзаголовок с анимацией и полным отображением текста */}
           <div className="relative overflow-hidden mt-3">
             <p
               key={`sub-${currentIndex}`}
-              className="max-w-lg text-pretty text-base leading-relaxed text-muted-foreground transition-all duration-700 ease-in-out delay-100"
+              className="w-full text-pretty text-base leading-relaxed text-muted-foreground transition-all duration-700 ease-in-out delay-100 whitespace-pre-line"
             >
               {currentImage.subtitle}
             </p>
           </div>
-
-          <p className="mt-6 max-w-lg text-pretty text-base leading-relaxed text-muted-foreground">
-            Собственное производство тюнинг-компонентов. Тестируем всё на реальных
-            авто, прежде чем отдать клиенту.
-          </p>
 
           <div className="mt-10 flex flex-wrap gap-4">
             <a

@@ -136,10 +136,6 @@ export function AddToCartButton({
             <ShoppingCart className="w-4 h-4" />
           </Link>
         </div>
-        {error && <span className="text-[10px] text-red-500">{error}</span>}
-        {propMaxStock < 10 && propMaxStock > 0 && (
-          <span className="text-[10px] text-muted-foreground/60">Осталось {propMaxStock} шт.</span>
-        )}
       </div>
     );
   }
@@ -209,11 +205,6 @@ export function AddToCartButton({
             )}
           </button>
         </div>
-        {error && <span className="text-[10px] text-red-500">{error}</span>}
-        {!isOutOfStock && propMaxStock < 10 && propMaxStock > 0 && (
-          <span className="text-[10px] text-muted-foreground/60">Осталось {propMaxStock} шт.</span>
-        )}
-        {isOutOfStock && <span className="text-[10px] text-red-500">Нет в наличии</span>}
       </div>
 
       {/* Тост */}
