@@ -10,6 +10,7 @@ export const registerSchema = z.object({
   password: passwordSchema,
   firstName: nameSchema.optional(),
   lastName: nameSchema.optional(),
+  middleName: nameSchema.optional(), // ✅ ДОБАВЛЕНО
 });
 
 // ============================================================
@@ -60,6 +61,7 @@ export const resetPasswordConfirmSchema = z.object({
 export const updateProfileSchema = z.object({
   firstName: nameSchema.optional(),
   lastName: nameSchema.optional(),
+  middleName: nameSchema.optional(), // ✅ ДОБАВЛЕНО
   phone: z.string().optional(),
   address: z.string().optional(),
 });

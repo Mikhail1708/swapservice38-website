@@ -16,6 +16,7 @@ model User {
   passwordHash  String?
   firstName     String?
   lastName      String?
+  middleName    String?
   phone         String?
   address       String?
   isVerified    Boolean  @default(false)
@@ -163,7 +164,6 @@ model Order {
   user           User     @relation(fields: [userId], references: [id])
   guestEmail     String?
   guestPhone     String?
-  guestName      String?
   items          Json
   total          Float
   status         String   @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled

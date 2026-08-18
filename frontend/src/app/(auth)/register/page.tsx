@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [middleName, setMiddleName] = useState(''); // ✅ ДОБАВЛЕНО
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -54,7 +55,7 @@ export default function RegisterPage() {
     try {
       const response = await fetchWithCsrf('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password, firstName, lastName }),
+        body: JSON.stringify({ email, password, firstName, lastName, middleName }), // ✅ ДОБАВЛЕНО middleName
       });
 
       const data = await response.json();
@@ -214,7 +215,7 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4"> {/* ✅ 3 КОЛОНКИ */}
             <div>
               <label htmlFor="firstName" className="block text-sm text-muted-foreground font-medium mb-2">
                 Имя
@@ -238,6 +239,19 @@ export default function RegisterPage() {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Петров"
+                className="w-full px-4 py-3 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+              />
+            </div>
+            <div>
+              <label htmlFor="middleName" className="block text-sm text-muted-foreground font-medium mb-2">
+                Отчество
+              </label>
+              <input
+                id="middleName"
+                type="text"
+                value={middleName}
+                onChange={(e) => setMiddleName(e.target.value)}
+                placeholder="Иванович"
                 className="w-full px-4 py-3 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
               />
             </div>

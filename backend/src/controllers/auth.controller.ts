@@ -2,10 +2,10 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
-import { 
-  register, 
-  verifyEmail, 
-  login, 
+import {
+  register,
+  verifyEmail,
+  login,
   getUserById,
   updateProfile,
   changePassword,
@@ -51,12 +51,12 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
     if (userCart) {
       const userItems = userCart.items as any[];
       const mergedItems = [...userItems];
-      
+
       for (const guestItem of guestItems) {
         const existingIndex = mergedItems.findIndex(
           (item) => String(item.productId) === String(guestItem.productId)
         );
-        
+
         if (existingIndex !== -1) {
           mergedItems[existingIndex].quantity += guestItem.quantity;
           console.log(`🔄 Обновлено количество: ${guestItem.name} -> ${mergedItems[existingIndex].quantity}`);
@@ -65,7 +65,7 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
           console.log(`➕ Добавлен товар: ${guestItem.name}`);
         }
       }
-      
+
       await prisma.cart.update({
         where: { userId: userId },
         data: { items: mergedItems },
@@ -104,7 +104,7 @@ export const loginController = async (req: Request, res: Response) => {
     if (guestId) {
       console.log(`🔄 Перенос корзины при логине: guestId=${guestId} -> userId=${user.id}`);
       await mergeCart(user.id, guestId);
-      
+
       res.clearCookie('guestId', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -131,19 +131,21 @@ export const loginController = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// ОСТАЛЬНЫЕ КОНТРОЛЛЕРЫ
+// РЕГИСТРАЦИЯ
 // ============================================================
-
 export const registerController = async (req: Request, res: Response) => {
   try {
-    const { email, password, firstName, lastName } = req.body;
-    const result = await register(email, password, firstName, lastName);
+    const { email, password, firstName, lastName, middleName } = req.body; // ✅ middleName
+    const result = await register(email, password, firstName, lastName, middleName);
     res.status(201).json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };
 
+// ============================================================
+// ПОДТВЕРЖДЕНИЕ EMAIL
+// ============================================================
 export const verifyController = async (req: Request, res: Response) => {
   try {
     const { email, code } = req.body;
@@ -155,7 +157,7 @@ export const verifyController = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// ✅ НОВЫЙ КОНТРОЛЛЕР: ПОВТОРНАЯ ОТПРАВКА КОДА
+// ПОВТОРНАЯ ОТПРАВКА КОДА
 // ============================================================
 export const resendVerificationController = async (req: Request, res: Response) => {
   try {
@@ -165,7 +167,6 @@ export const resendVerificationController = async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Email обязателен' });
     }
 
-    // Находим пользователя
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       return res.status(404).json({ error: 'Пользователь не найден' });
@@ -175,11 +176,9 @@ export const resendVerificationController = async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Email уже подтверждён' });
     }
 
-    // Генерируем новый код
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     await redis.setex(`verify:${email}`, 600, code);
 
-    // Отправляем письмо
     await sendVerificationEmail(email, code);
 
     console.log(`📧 Код подтверждения отправлен повторно на ${email}`);
@@ -190,6 +189,9 @@ export const resendVerificationController = async (req: Request, res: Response) 
   }
 };
 
+// ============================================================
+// ВЫХОД
+// ============================================================
 export const logoutController = (req: Request, res: Response) => {
   res.clearCookie('token', {
     httpOnly: true,
@@ -200,6 +202,9 @@ export const logoutController = (req: Request, res: Response) => {
   res.json({ message: 'Выход выполнен' });
 };
 
+// ============================================================
+// ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
+// ============================================================
 export const meController = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
@@ -207,13 +212,14 @@ export const meController = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Не авторизован' });
     }
     const user = await getUserById(userId);
-    
-    res.json({ 
+
+    res.json({
       user: {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        middleName: user.middleName, // ✅ ОТЧЕСТВО
         phone: user.phone,
         address: user.address,
         role: user.role,
@@ -228,9 +234,8 @@ export const meController = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// ПРОФИЛЬ
+// ОБНОВЛЕНИЕ ПРОФИЛЯ
 // ============================================================
-
 export const updateProfileController = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
@@ -238,8 +243,14 @@ export const updateProfileController = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Не авторизован' });
     }
 
-    const { firstName, lastName, phone, address } = req.body;
-    const result = await updateProfile(userId, { firstName, lastName, phone, address });
+    const { firstName, lastName, middleName, phone, address } = req.body; // ✅ middleName
+    const result = await updateProfile(userId, {
+      firstName,
+      lastName,
+      middleName, // ✅ ОТЧЕСТВО
+      phone,
+      address
+    });
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -249,7 +260,6 @@ export const updateProfileController = async (req: Request, res: Response) => {
 // ============================================================
 // СМЕНА ПАРОЛЯ
 // ============================================================
-
 export const changePasswordController = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;

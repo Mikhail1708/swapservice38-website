@@ -9,6 +9,7 @@ interface User {
   email: string;
   firstName: string;
   lastName: string;
+  middleName?: string;
   phone?: string;
   address?: string;
   role: string;

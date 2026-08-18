@@ -1,13 +1,12 @@
-// frontend/app/(public)/cart/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Image, Link, useRouter } from '@/lib/next-shims';
-import { 
-  Trash2, 
-  Plus, 
-  Minus, 
-  ShoppingBag, 
+import {
+  Trash2,
+  Plus,
+  Minus,
+  ShoppingBag,
   ArrowLeft,
   Loader2,
   CreditCard,
@@ -24,17 +23,17 @@ import {
   Phone,
   Building2
 } from 'lucide-react';
-import { useAuth }  from '@/lib/hooks/useAuth';
-import { useCart }  from '@/lib/context/CartContext';
-import { fetchWithCsrf }  from '@/lib/csrf';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { useCart } from '@/lib/context/CartContext';
+import { fetchWithCsrf } from '@/lib/csrf';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
-import { 
-  validatePhone, 
-  cleanPhone, 
+import {
+  validatePhone,
+  cleanPhone,
   formatPhoneInput,
   normalizePhoneForServer
-}  from '@/lib/validation/phone';
+} from '@/lib/validation/phone';
 
 interface CartItem {
   productId: string;
@@ -44,27 +43,22 @@ interface CartItem {
   image?: string;
 }
 
-// ============================================================
-// ОСНОВНАЯ СТРАНИЦА КОРЗИНЫ
-// ============================================================
 export default function CartPage() {
   const { cart, isLoading, updateQuantity, clearCart, refetch: refetchCart } = useCart();
   const { user } = useAuth();
   const router = useRouter();
-  
-  // Состояние формы
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    middleName: '',
     phone: '',
     email: '',
     address: '',
     comment: '',
   });
 
-  // Способ доставки (только самовывоз и Почта/ТК)
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'post'>('pickup');
-  // Название транспортной компании
   const [tcName, setTcName] = useState('');
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -75,13 +69,14 @@ export default function CartPage() {
   const items = cart?.items || [];
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
 
-  // Заполняем данными пользователя
+  // ✅ ЗАПОЛНЯЕМ ДАННЫМИ ИЗ ПРОФИЛЯ — ВКЛЮЧАЯ ОТЧЕСТВО
   useEffect(() => {
     if (user) {
       setFormData(prev => ({
         ...prev,
         firstName: user.firstName || '',
         lastName: user.lastName || '',
+        middleName: user.middleName || '',
         phone: user.phone || '',
         email: user.email || '',
         address: user.address || '',
@@ -112,6 +107,9 @@ export default function CartPage() {
         if (!value.trim()) return 'Укажите фамилию';
         if (value.trim().length < 2) return 'Фамилия должна содержать минимум 2 символа';
         return '';
+      case 'middleName':
+        if (value.trim() && value.trim().length < 2) return 'Отчество должно содержать минимум 2 символа';
+        return '';
       case 'phone':
         if (!value.trim()) return 'Укажите телефон';
         const result = validatePhone(value);
@@ -136,14 +134,14 @@ export default function CartPage() {
 
   const handleFieldChange = (field: string, value: string) => {
     let formattedValue = value;
-    
+
     if (field === 'phone') {
       const formatted = formatPhoneInput(value);
       formattedValue = normalizePhoneForServer(formatted);
     }
-    
+
     setFormData(prev => ({ ...prev, [field]: formattedValue }));
-    
+
     if (touched[field]) {
       const error = validateField(field, formattedValue);
       setFormErrors(prev => ({ ...prev, [field]: error }));
@@ -159,23 +157,21 @@ export default function CartPage() {
   const validateForm = () => {
     const errors: Record<string, string> = {};
     const fields = ['firstName', 'lastName', 'phone', 'email'] as const;
-    
+
     fields.forEach(field => {
       const error = validateField(field, formData[field]);
       if (error) errors[field] = error;
     });
 
-    // Адрес обязателен только для Почты/ТК
     if (deliveryMethod === 'post') {
       const addressError = validateField('address', formData.address);
       if (addressError) errors.address = addressError;
     }
 
-    // Если Почта/ТК — проверить название компании
     if (deliveryMethod === 'post' && !tcName.trim()) {
       errors.tcName = 'Укажите название транспортной компании';
     }
-    
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -190,103 +186,105 @@ export default function CartPage() {
     }
   };
 
- const handleCheckout = async (e: React.FormEvent) => {
-  e.preventDefault();
-  
-  if (isCheckingOut) return;
-  if (!user) {
-    setOrderError('Для оформления заказа необходимо авторизоваться');
-    router.push('/login?redirect=/cart');
-    return;
-  }
-  if (!validateForm()) return;
-  if (items.length === 0) {
-    setOrderError('Корзина пуста');
-    return;
-  }
+  const handleCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  setIsCheckingOut(true);
-  setOrderError(null);
-
-  try {
-    const cleanedPhone = cleanPhone(formData.phone);
-    
-    let finalComment = formData.comment.trim();
-    if (deliveryMethod === 'post' && tcName.trim()) {
-      finalComment = `Транспортная компания: ${tcName.trim()}\n${finalComment}`.trim();
+    if (isCheckingOut) return;
+    if (!user) {
+      setOrderError('Для оформления заказа необходимо авторизоваться');
+      router.push('/login?redirect=/cart');
+      return;
+    }
+    if (!validateForm()) return;
+    if (items.length === 0) {
+      setOrderError('Корзина пуста');
+      return;
     }
 
-    const pickupAddress = 'г. Иркутск, ул. Новаторов 36';
+    setIsCheckingOut(true);
+    setOrderError(null);
 
-    const orderData = {
-      client: {
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        phone: cleanedPhone,
-        email: formData.email.trim(),
-        address: deliveryMethod === 'post' 
-          ? formData.address.trim() 
-          : pickupAddress,
-      },
-      items: items
-        .map((item: CartItem) => {
-          const productId = parseInt(item.productId);
-          if (isNaN(productId)) {
-            console.warn(`⚠️ Пропущен товар с некорректным ID: ${item.productId}`);
-            return null;
-          }
-          return {
-            productId,
-            quantity: item.quantity,
-            price: item.price,
-          };
-        })
-        .filter(Boolean),
-      deliveryMethod: deliveryMethod,
-      deliveryAddress: deliveryMethod === 'post' 
-        ? formData.address.trim() 
-        : pickupAddress,
-      comment: finalComment || null,
-      source: 'website',
-    };
-
-    const response = await fetchWithCsrf('/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(orderData),
-    });
-
-    let data;
-    const text = await response.text();
     try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error('Ошибка сервера: ' + text.substring(0, 100));
+      const cleanedPhone = cleanPhone(formData.phone);
+
+      let finalComment = formData.comment.trim();
+      if (deliveryMethod === 'post' && tcName.trim()) {
+        finalComment = `Транспортная компания: ${tcName.trim()}\n${finalComment}`.trim();
+      }
+
+      const pickupAddress = 'г. Иркутск, ул. Новаторов 36';
+
+      // ✅ ЗАПРОС С ОТЧЕСТВОМ
+      const orderData = {
+        client: {
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
+          middleName: formData.middleName.trim(), // ✅ ОТЧЕСТВО ПЕРЕДАЁТСЯ!
+          phone: cleanedPhone,
+          email: formData.email.trim(),
+          address: deliveryMethod === 'post'
+            ? formData.address.trim()
+            : pickupAddress,
+        },
+        items: items
+          .map((item: CartItem) => {
+            const productId = parseInt(item.productId);
+            if (isNaN(productId)) {
+              console.warn(`⚠️ Пропущен товар с некорректным ID: ${item.productId}`);
+              return null;
+            }
+            return {
+              productId,
+              quantity: item.quantity,
+              price: item.price,
+            };
+          })
+          .filter(Boolean),
+        deliveryMethod: deliveryMethod,
+        deliveryAddress: deliveryMethod === 'post'
+          ? formData.address.trim()
+          : pickupAddress,
+        comment: finalComment || null,
+        source: 'website',
+      };
+
+      const response = await fetchWithCsrf('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(orderData),
+      });
+
+      let data;
+      const text = await response.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Ошибка сервера: ' + text.substring(0, 100));
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Ошибка создания заказа');
+      }
+
+      await clearCart();
+      await refetchCart();
+
+      if (data.paymentUrl) {
+        router.push(data.paymentUrl);
+      } else if (data.order?.id) {
+        router.push(`/payment/${data.order.id}`);
+      } else if (data.orderId) {
+        router.push(`/payment/${data.orderId}`);
+      } else {
+        router.push('/payment/success');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Ошибка оформления заказа:', error);
+      setOrderError(error.message || 'Ошибка оформления заказа');
+    } finally {
+      setIsCheckingOut(false);
     }
-
-    if (!response.ok) {
-      throw new Error(data.error || data.message || 'Ошибка создания заказа');
-    }
-
-    await clearCart();
-    await refetchCart();
-
-    if (data.paymentUrl) {
-      router.push(data.paymentUrl);
-    } else if (data.order?.id) {
-      router.push(`/payment/${data.order.id}`);
-    } else if (data.orderId) {
-      router.push(`/payment/${data.orderId}`);
-    } else {
-      router.push('/payment/success');
-    }
-
-  } catch (error: any) {
-    console.error('❌ Ошибка оформления заказа:', error);
-    setOrderError(error.message || 'Ошибка оформления заказа');
-  } finally {
-    setIsCheckingOut(false);
-  }
-};
+  };
 
   const getFieldStatus = (field: string) => {
     if (!touched[field]) return 'idle';
@@ -294,7 +292,6 @@ export default function CartPage() {
     return 'success';
   };
 
-  // LOADING
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center pt-32">
@@ -303,7 +300,6 @@ export default function CartPage() {
     );
   }
 
-  // EMPTY CART
   if (items.length === 0) {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20">
@@ -314,10 +310,7 @@ export default function CartPage() {
             </div>
             <h2 className="text-2xl font-bold text-foreground">Корзина пуста</h2>
             <p className="text-muted-foreground mt-2">Добавьте товары в корзину</p>
-            <Link 
-              href="/catalog" 
-              className="inline-block mt-6 px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
-            >
+            <Link href="/catalog" className="inline-block mt-6 px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition">
               Перейти в каталог
             </Link>
           </div>
@@ -357,13 +350,12 @@ export default function CartPage() {
           <div className="lg:col-span-2 space-y-4">
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               {items.map((item: CartItem, index: number) => (
-                <div 
+                <div
                   key={item.productId}
                   className={`p-5 flex gap-5 hover:bg-muted/30 transition ${
                     index !== items.length - 1 ? 'border-b border-border' : ''
                   }`}
                 >
-                  {/* Изображение */}
                   <div className="w-24 h-24 bg-muted rounded-lg overflow-hidden flex-shrink-0">
                     <Image
                       src={item.image || '/images/logo/logo.png'}
@@ -374,17 +366,16 @@ export default function CartPage() {
                       unoptimized
                     />
                   </div>
-                  
-                  {/* Информация */}
+
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-foreground hover:text-muted-foreground transition line-clamp-2">
                       {item.name || 'Товар'}
                     </h3>
-                    
+
                     <div className="text-sm text-muted-foreground mt-1">
                       {item.price ? `${item.price.toLocaleString()} ₽` : 'Цена не указана'}
                     </div>
-                    
+
                     <div className="flex items-center gap-3 mt-3">
                       <div className="flex items-center border border-border rounded-lg bg-muted/50">
                         <button
@@ -404,7 +395,7 @@ export default function CartPage() {
                           <Plus className="w-4 h-4 text-foreground" />
                         </button>
                       </div>
-                      
+
                       <button
                         onClick={() => handleRemoveItem(item.productId)}
                         className="text-muted-foreground/50 hover:text-red-500 transition p-2 hover:bg-red-500/10 rounded-lg"
@@ -413,8 +404,7 @@ export default function CartPage() {
                       </button>
                     </div>
                   </div>
-                  
-                  {/* Сумма */}
+
                   <div className="text-right flex-shrink-0">
                     <span className="text-lg font-bold text-foreground">
                       {(item.price * item.quantity).toLocaleString()} ₽
@@ -441,7 +431,6 @@ export default function CartPage() {
               </Link>
             </div>
 
-            {/* Преимущества */}
             <div className="grid grid-cols-3 gap-4 mt-4">
               <div className="bg-card border border-border rounded-lg p-4 text-center">
                 <ShieldCheck className="w-6 h-6 mx-auto text-muted-foreground mb-2" />
@@ -472,16 +461,10 @@ export default function CartPage() {
                   <p className="text-foreground font-medium mb-2">Для оформления заказа</p>
                   <p className="text-sm text-muted-foreground mb-4">Войдите в аккаунт или зарегистрируйтесь</p>
                   <div className="flex flex-col gap-3">
-                    <Link 
-                      href={`/login?redirect=/cart`} 
-                      className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition"
-                    >
+                    <Link href={`/login?redirect=/cart`} className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition">
                       Войти
                     </Link>
-                    <Link 
-                      href={`/register?redirect=/cart`} 
-                      className="w-full py-3 border border-border text-foreground rounded-lg font-medium hover:bg-muted transition"
-                    >
+                    <Link href={`/register?redirect=/cart`} className="w-full py-3 border border-border text-foreground rounded-lg font-medium hover:bg-muted transition">
                       Зарегистрироваться
                     </Link>
                   </div>
@@ -500,8 +483,8 @@ export default function CartPage() {
                         onChange={(e) => handleFieldChange('firstName', e.target.value)}
                         onBlur={() => handleFieldBlur('firstName')}
                         className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
-                          getFieldStatus('firstName') === 'error' 
-                            ? 'border-red-500/50 focus:ring-red-500/20' 
+                          getFieldStatus('firstName') === 'error'
+                            ? 'border-red-500/50 focus:ring-red-500/20'
                             : getFieldStatus('firstName') === 'success'
                             ? 'border-green-500/50 focus:ring-green-500/20'
                             : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
@@ -525,8 +508,8 @@ export default function CartPage() {
                         onChange={(e) => handleFieldChange('lastName', e.target.value)}
                         onBlur={() => handleFieldBlur('lastName')}
                         className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
-                          getFieldStatus('lastName') === 'error' 
-                            ? 'border-red-500/50 focus:ring-red-500/20' 
+                          getFieldStatus('lastName') === 'error'
+                            ? 'border-red-500/50 focus:ring-red-500/20'
                             : getFieldStatus('lastName') === 'success'
                             ? 'border-green-500/50 focus:ring-green-500/20'
                             : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
@@ -540,6 +523,33 @@ export default function CartPage() {
                         </p>
                       )}
                     </div>
+                  </div>
+
+                  {/* Отчество — ДОБАВЛЕНО */}
+                  <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      Отчество
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.middleName}
+                      onChange={(e) => handleFieldChange('middleName', e.target.value)}
+                      onBlur={() => handleFieldBlur('middleName')}
+                      className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
+                        getFieldStatus('middleName') === 'error'
+                          ? 'border-red-500/50 focus:ring-red-500/20'
+                          : getFieldStatus('middleName') === 'success'
+                          ? 'border-green-500/50 focus:ring-green-500/20'
+                          : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
+                      }`}
+                      placeholder="Иванович"
+                    />
+                    {formErrors.middleName && (
+                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                        <X className="w-3 h-3" />
+                        {formErrors.middleName}
+                      </p>
+                    )}
                   </div>
 
                   {/* Телефон */}
@@ -567,8 +577,8 @@ export default function CartPage() {
                       onChange={(e) => handleFieldChange('email', e.target.value)}
                       onBlur={() => handleFieldBlur('email')}
                       className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition ${
-                        getFieldStatus('email') === 'error' 
-                          ? 'border-red-500/50 focus:ring-red-500/20' 
+                        getFieldStatus('email') === 'error'
+                          ? 'border-red-500/50 focus:ring-red-500/20'
                           : getFieldStatus('email') === 'success'
                           ? 'border-green-500/50 focus:ring-green-500/20'
                           : 'border-border focus:border-foreground/30 focus:ring-foreground/10'

@@ -4,32 +4,33 @@ import { useState, useEffect } from 'react';
 import { useRouter, Image, Link } from '@/lib/next-shims';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
-import { validatePhone }  from '@/lib/validation/phone';
-import { fetchWithCsrf }  from '@/lib/csrf';
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Loader2, 
-  Save, 
-  X, 
+import { validatePhone } from '@/lib/validation/phone';
+import { fetchWithCsrf } from '@/lib/csrf';
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Loader2,
+  Save,
+  X,
   AlertCircle,
-  Package, 
-  LogOut, 
+  Package,
+  LogOut,
   Lock,
   ChevronRight,
   CheckCircle
 } from 'lucide-react';
-import { useAuth }  from '@/lib/hooks/useAuth';
+import { useAuth } from '@/lib/hooks/useAuth';
 
 export default function ProfilePage() {
   const { user, isLoading: authLoading, logout, refresh } = useAuth();
   const router = useRouter();
-  
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    middleName: '',
     phone: '',
     address: '',
   });
@@ -39,11 +40,13 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  // ✅ ЗАГРУЗКА ДАННЫХ ПОЛЬЗОВАТЕЛЯ — ВКЛЮЧАЯ ОТЧЕСТВО
   useEffect(() => {
     if (user) {
       setFormData({
         firstName: user.firstName || '',
         lastName: user.lastName || '',
+        middleName: user.middleName || '',
         phone: user.phone || '',
         address: user.address || '',
       });
@@ -61,10 +64,15 @@ export default function ProfilePage() {
     setLoading(true);
 
     try {
-      // ✅ ИСПОЛЬЗУЕМ fetchWithCsrf ВМЕСТО ОБЫЧНОГО fetch
       const response = await fetchWithCsrf('/api/auth/profile', {
         method: 'PUT',
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
+          middleName: formData.middleName.trim(), // ✅ ОТЧЕСТВО УХОДИТ В ЗАПРОС
+          phone: formData.phone,
+          address: formData.address.trim(),
+        }),
       });
 
       const data = await response.json();
@@ -108,16 +116,10 @@ export default function ProfilePage() {
             <h2 className="text-2xl font-bold text-foreground">Требуется авторизация</h2>
             <p className="text-muted-foreground mt-2">Войдите в аккаунт, чтобы просмотреть профиль</p>
             <div className="flex flex-wrap justify-center gap-4 mt-6">
-              <Link 
-                href="/login?redirect=/profile" 
-                className="px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
-              >
+              <Link href="/login?redirect=/profile" className="px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition">
                 Войти
               </Link>
-              <Link 
-                href="/register" 
-                className="px-8 py-3 border border-border text-foreground rounded-lg hover:bg-muted transition"
-              >
+              <Link href="/register" className="px-8 py-3 border border-border text-foreground rounded-lg hover:bg-muted transition">
                 Зарегистрироваться
               </Link>
             </div>
@@ -147,7 +149,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">
-                    {user.firstName} {user.lastName}
+                    {user.firstName} {user.lastName} {user.middleName}
                   </p>
                   <p className="text-sm text-muted-foreground">{user.email}</p>
                   {user.isVerified && (
@@ -198,7 +200,7 @@ export default function ProfilePage() {
               <h2 className="text-xl font-bold text-foreground mb-6">Личные данные</h2>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                       Имя
@@ -223,6 +225,19 @@ export default function ProfilePage() {
                       onBlur={() => handleFieldBlur('lastName')}
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
                       placeholder="Фамилия"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      Отчество
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.middleName}
+                      onChange={(e) => setFormData({ ...formData, middleName: e.target.value })}
+                      onBlur={() => handleFieldBlur('middleName')}
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
+                      placeholder="Иванович"
                     />
                   </div>
                 </div>

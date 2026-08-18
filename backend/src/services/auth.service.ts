@@ -10,8 +10,16 @@ const prisma = new PrismaClient();
 // Генерация 6-значного кода
 const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// Регистрация
-export const register = async (email: string, password: string, firstName?: string, lastName?: string) => {
+// ============================================================
+// РЕГИСТРАЦИЯ
+// ============================================================
+export const register = async (
+  email: string,
+  password: string,
+  firstName?: string,
+  lastName?: string,
+  middleName?: string
+) => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     throw new Error('Пользователь с таким email уже зарегистрирован');
@@ -25,6 +33,7 @@ export const register = async (email: string, password: string, firstName?: stri
       passwordHash,
       firstName,
       lastName,
+      middleName, // ✅ ОТЧЕСТВО
       isVerified: false,
       role: 'user',
     },
@@ -38,7 +47,9 @@ export const register = async (email: string, password: string, firstName?: stri
   return { message: 'Код отправлен на почту' };
 };
 
-// Подтверждение email
+// ============================================================
+// ПОДТВЕРЖДЕНИЕ EMAIL
+// ============================================================
 export const verifyEmail = async (email: string, code: string) => {
   const stored = await redis.get(`verify:${email}`);
   if (!stored || stored !== code) {
@@ -55,7 +66,9 @@ export const verifyEmail = async (email: string, code: string) => {
   return { message: 'Email подтверждён' };
 };
 
-// Логин
+// ============================================================
+// ЛОГИН
+// ============================================================
 export const login = async (email: string, password: string) => {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
@@ -76,20 +89,24 @@ export const login = async (email: string, password: string) => {
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 
-  return { 
-    token, 
-    user: { 
-      id: user.id, 
-      email: user.email, 
-      firstName: user.firstName, 
-      lastName: user.lastName, 
+  return {
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      middleName: user.middleName, // ✅ ОТЧЕСТВО
       role: user.role,
       phone: user.phone,
       address: user.address,
-    } 
+    },
   };
 };
 
+// ============================================================
+// ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЯ ПО ID
+// ============================================================
 export const getUserById = async (id: string) => {
   const user = await prisma.user.findUnique({
     where: { id },
@@ -98,6 +115,7 @@ export const getUserById = async (id: string) => {
       email: true,
       firstName: true,
       lastName: true,
+      middleName: true, // ✅ ОТЧЕСТВО
       phone: true,
       address: true,
       role: true,
@@ -116,8 +134,19 @@ export const getUserById = async (id: string) => {
   return user;
 };
 
-// Обновление профиля
-export const updateProfile = async (userId: string, data: { firstName?: string; lastName?: string; phone?: string; address?: string }) => {
+// ============================================================
+// ОБНОВЛЕНИЕ ПРОФИЛЯ
+// ============================================================
+export const updateProfile = async (
+  userId: string,
+  data: {
+    firstName?: string;
+    lastName?: string;
+    middleName?: string;
+    phone?: string;
+    address?: string;
+  }
+) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw new Error('Пользователь не найден');
@@ -128,6 +157,7 @@ export const updateProfile = async (userId: string, data: { firstName?: string; 
     data: {
       firstName: data.firstName,
       lastName: data.lastName,
+      middleName: data.middleName, // ✅ ОТЧЕСТВО
       phone: data.phone,
       address: data.address,
     },
@@ -136,6 +166,7 @@ export const updateProfile = async (userId: string, data: { firstName?: string; 
       email: true,
       firstName: true,
       lastName: true,
+      middleName: true, // ✅ ОТЧЕСТВО
       phone: true,
       address: true,
       role: true,
@@ -148,8 +179,14 @@ export const updateProfile = async (userId: string, data: { firstName?: string; 
   return { user: updated, message: 'Профиль обновлён' };
 };
 
-// Смена пароля с текущим паролем
-export const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
+// ============================================================
+// СМЕНА ПАРОЛЯ С ТЕКУЩИМ ПАРОЛЕМ
+// ============================================================
+export const changePassword = async (
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw new Error('Пользователь не найден');
@@ -173,7 +210,9 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   return { message: 'Пароль успешно изменён' };
 };
 
-// Запрос на смену пароля через почту (для авторизованных)
+// ============================================================
+// ЗАПРОС НА СМЕНУ ПАРОЛЯ ЧЕРЕЗ ПОЧТУ (для авторизованных)
+// ============================================================
 export const requestPasswordChange = async (userId: string, email: string) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -196,8 +235,14 @@ export const requestPasswordChange = async (userId: string, email: string) => {
   return { message: 'Код подтверждения отправлен на почту' };
 };
 
-// Подтверждение смены пароля (для авторизованных)
-export const confirmPasswordChange = async (userId: string, code: string, newPassword: string) => {
+// ============================================================
+// ПОДТВЕРЖДЕНИЕ СМЕНЫ ПАРОЛЯ (для авторизованных)
+// ============================================================
+export const confirmPasswordChange = async (
+  userId: string,
+  code: string,
+  newPassword: string
+) => {
   const stored = await redis.get(`change-password:${userId}`);
   if (!stored || stored !== code) {
     throw new Error('Неверный или просроченный код');
@@ -218,7 +263,7 @@ export const confirmPasswordChange = async (userId: string, code: string, newPas
 };
 
 // ============================================================
-// ✅ ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ — НЕ ТРЕБУЮТ АВТОРИЗАЦИИ)
+// ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ — НЕ ТРЕБУЮТ АВТОРИЗАЦИИ)
 // ============================================================
 
 // 1. Запрос кода восстановления
@@ -250,7 +295,11 @@ export const verifyResetCode = async (email: string, code: string) => {
 };
 
 // 3. Установка нового пароля
-export const confirmResetPassword = async (email: string, code: string, newPassword: string) => {
+export const confirmResetPassword = async (
+  email: string,
+  code: string,
+  newPassword: string
+) => {
   const stored = await redis.get(`reset:${email}`);
   if (!stored || stored !== code) {
     throw new Error('Неверный или просроченный код');
@@ -270,7 +319,9 @@ export const confirmResetPassword = async (email: string, code: string, newPassw
   return { message: 'Пароль успешно изменён' };
 };
 
-// Генерация JWT токена (используется для OAuth)
+// ============================================================
+// ГЕНЕРАЦИЯ JWT ТОКЕНА (используется для OAuth)
+// ============================================================
 export const generateToken = (userId: string): string => {
   return jwt.sign(
     { id: userId },
