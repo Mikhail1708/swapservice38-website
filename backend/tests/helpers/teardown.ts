@@ -2,35 +2,8 @@
 
 module.exports = async () => {
   console.log('🧹 Завершение тестов...');
-  
-  // Останавливаем интервал CSRF
-  try {
-    const { stopCleanupInterval } = require('../../src/middleware/csrf.middleware');
-    if (stopCleanupInterval) {
-      stopCleanupInterval();
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  // Закрываем Redis
-  try {
-    const redis = require('../../src/config/redis').default;
-    if (redis && redis.quit) {
-      await redis.quit();
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  // Закрываем Prisma
-  try {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-    await prisma.$disconnect();
-  } catch (e) {
-    // ignore
-  }
-
-  console.log('✅ Тесты завершены, ресурсы освобождены');
+  // Global teardown runs in a separate module context. Importing application
+  // Redis/Prisma clients here creates new real connections instead of closing
+  // the mocked clients used by tests, so teardown must not initialize them.
+  console.log('✅ Тесты завершены');
 };

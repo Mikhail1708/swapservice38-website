@@ -26,7 +26,7 @@ import {
   confirmResetPasswordController,
   resendVerificationController,
 } from '../controllers/auth.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 import * as oauthService from '../services/oauth.service';
 import { log } from '../config/logger';
 
@@ -41,21 +41,21 @@ router.post('/verify', validate(verifySchema), verifyController);
 router.post('/resend-verification', validate(resetPasswordRequestSchema), resendVerificationController);
 router.post('/login', validate(loginSchema), loginController);
 router.post('/logout', logoutController);
-router.get('/me', authMiddleware, meController);
+router.get('/me', requireAuth, meController);
 
 // ============================================================
 // ПРОФИЛЬ (С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.put('/profile', authMiddleware, validate(updateProfileSchema), updateProfileController);
+router.put('/profile', requireAuth, validate(updateProfileSchema), updateProfileController);
 
 // ============================================================
 // СМЕНА ПАРОЛЯ (ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ, С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/change-password', authMiddleware, validate(changePasswordSchema), changePasswordController);
-router.post('/request-password-change', authMiddleware, requestPasswordChangeController);
-router.post('/confirm-password-change', authMiddleware, confirmPasswordChangeController);
+router.post('/change-password', requireAuth, validate(changePasswordSchema), changePasswordController);
+router.post('/request-password-change', requireAuth, requestPasswordChangeController);
+router.post('/confirm-password-change', requireAuth, confirmPasswordChangeController);
 
 // ============================================================
 // ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ, С ВАЛИДАЦИЕЙ)

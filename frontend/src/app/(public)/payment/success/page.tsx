@@ -10,6 +10,7 @@ export default function PaymentSuccessPage() {
   const router = useRouter();
   const orderId = searchParams.get('orderId');
   const paymentId = searchParams.get('paymentId');
+  const isMockPayment = searchParams.get('mock') === '1';
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<any>(null);
@@ -28,6 +29,37 @@ export default function PaymentSuccessPage() {
 
         const csrfToken = await getCsrfToken();
 
+        let confirmedPaymentId = paymentId;
+        const currentOrderResponse = await fetch(`/api/orders/${orderId}`, {
+          credentials: 'include',
+        });
+        if (currentOrderResponse.ok) {
+          const currentOrderData = await currentOrderResponse.json();
+          const currentOrder = currentOrderData.order || currentOrderData;
+          setOrder(currentOrder);
+          confirmedPaymentId ||= currentOrder.paymentId;
+        }
+
+        if (!confirmedPaymentId) {
+          throw new Error('Платёж не связан с заказом');
+        }
+
+        if (isMockPayment) {
+          const mockResponse = await fetch('/api/payment/mock/complete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken,
+            },
+            body: JSON.stringify({ orderId, paymentId: confirmedPaymentId }),
+            credentials: 'include',
+          });
+          if (!mockResponse.ok) {
+            const mockError = await mockResponse.json();
+            throw new Error(mockError.error || 'Не удалось завершить тестовый платёж');
+          }
+        }
+
         const response = await fetch('/api/payment/confirm', {
           method: 'POST',
           headers: {
@@ -36,7 +68,7 @@ export default function PaymentSuccessPage() {
           },
           body: JSON.stringify({ 
             orderId, 
-            paymentId,
+            paymentId: confirmedPaymentId,
             _csrf: csrfToken,
           }),
           credentials: 'include',
@@ -53,7 +85,7 @@ export default function PaymentSuccessPage() {
 
         console.log('✅ Оплата обработана:', data);
 
-        const orderResponse = await fetch(`/api/orders/details?id=${orderId}`, {
+        const orderResponse = await fetch(`/api/orders/${orderId}`, {
           credentials: 'include',
         });
 
@@ -73,7 +105,7 @@ export default function PaymentSuccessPage() {
     };
 
     processPayment();
-  }, [orderId, paymentId]);
+  }, [isMockPayment, orderId, paymentId]);
 
   if (loading) {
     return (

@@ -70,34 +70,54 @@ describe('CSRF Middleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('should skip CSRF for public paths (products)', async () => {
+    it('should protect state-changing product paths', async () => {
       const req = createRequest('/api/products', {}, {}, {}, 'POST') as Request;
       const res = createResponse() as Response;
 
       await csrfMiddleware(req, res, mockNext);
 
-      expect(mockNext).toHaveBeenCalled();
-      expect(res.status).not.toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
     });
 
-    it('should skip CSRF for public paths (cart/add)', async () => {
+    it('should protect cart mutations', async () => {
       const req = createRequest('/api/cart/add', {}, {}, {}, 'POST') as Request;
       const res = createResponse() as Response;
 
       await csrfMiddleware(req, res, mockNext);
 
-      expect(mockNext).toHaveBeenCalled();
-      expect(res.status).not.toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
     });
 
-    it('should skip CSRF for public paths (orders)', async () => {
+    it('should protect order mutations', async () => {
       const req = createRequest('/api/orders', {}, {}, {}, 'POST') as Request;
       const res = createResponse() as Response;
 
       await csrfMiddleware(req, res, mockNext);
 
-      expect(mockNext).toHaveBeenCalled();
-      expect(res.status).not.toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should protect authenticated password changes', async () => {
+      const req = createRequest('/api/auth/request-password-change', {}, {}, {}, 'POST') as Request;
+      const res = createResponse() as Response;
+
+      await csrfMiddleware(req, res, mockNext);
+
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should not exempt paths that only start like a public route', async () => {
+      const req = createRequest('/api/auth/login/extra', {}, {}, {}, 'POST') as Request;
+      const res = createResponse() as Response;
+
+      await csrfMiddleware(req, res, mockNext);
+
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
     });
 
     it('should return 403 if CSRF token is missing on protected path', async () => {

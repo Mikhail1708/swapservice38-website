@@ -1,6 +1,7 @@
 // backend/src/routes/upload.routes.ts
 import { Router } from 'express';
 import { requireAdmin } from '../middleware/role.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -53,6 +54,7 @@ const upload = multer({
 // ============================================================
 router.post(
   '/',
+  requireAuth,
   requireAdmin, // ✅ ТОЛЬКО ADMIN ИЛИ MANAGER
   upload.single('file'),
   (req, res) => {
@@ -96,7 +98,7 @@ router.post(
 // ============================================================
 router.use((error: any, req: any, res: any, next: any) => {
   if (error instanceof multer.MulterError) {
-    if (error.code === 'FILE_TOO_LARGE') {
+    if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         error: 'Файл слишком большой. Максимальный размер 10MB',
         code: 'FILE_TOO_LARGE',

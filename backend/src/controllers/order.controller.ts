@@ -1,7 +1,10 @@
 // frontend/backend/src/controllers/order.controller.ts (САЙТ, порт 5001)
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { addOrderToCRMQueue } from '../queues/crm.queue';
+import {
+  sendOrderCreatedToCustomer,
+  sendOrderNotificationToManager,
+} from '../services/email.service';
 
 const prisma = new PrismaClient();
 
@@ -155,10 +158,20 @@ export const createOrderController = async (req: Request, res: Response): Promis
     }
 
     const {
+      client,
       deliveryMethod,
       deliveryAddress,
+      deliveryProvider,
+      contactMethod,
       comment,
     } = req.body;
+
+    const allowedContactMethods = new Set(['phone', 'whatsapp', 'telegram', 'email']);
+    const normalizedContactMethod = allowedContactMethods.has(contactMethod) ? contactMethod : 'phone';
+    if (!client?.firstName || !client?.lastName || !client?.phone || !client?.email) {
+      res.status(400).json({ error: 'Укажите имя, фамилию, телефон и email покупателя' });
+      return;
+    }
 
     const cart = await getCartWithTotal(userId);
 
@@ -175,71 +188,23 @@ export const createOrderController = async (req: Request, res: Response): Promis
     const localOrder = await prisma.order.create({
       data: {
         userId: userId,
+        customerFirstName: String(client.firstName).trim(),
+        customerLastName: String(client.lastName).trim(),
+        customerMiddleName: client.middleName ? String(client.middleName).trim() : null,
+        customerPhone: String(client.phone).trim(),
+        customerEmail: String(client.email).trim().toLowerCase(),
+        contactMethod: normalizedContactMethod,
         items: cart.items as any,
         total: total,
         status: 'pending',
         deliveryMethod: deliveryMethod || 'pickup',
         deliveryAddress: deliveryAddress || null,
+        deliveryProvider: deliveryMethod === 'post' ? (deliveryProvider || null) : null,
         comment: comment || null,
       }
     });
 
     console.log('✅ Локальный заказ создан (pending):', localOrder.id);
-
-    // ✅ ОТПРАВЛЯЕМ В CRM — БЕРЁМ ФИО ИЗ БД
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          firstName: true,
-          lastName: true,
-          middleName: true, // ✅ ОТЧЕСТВО ИЗ БД
-          phone: true,
-          email: true,
-          address: true,
-        }
-      });
-
-      if (!user) {
-        console.error('❌ Пользователь не найден в БД');
-        return;
-      }
-
-      // Формируем полное ФИО для CRM
-      const fullName = [user.lastName, user.firstName, user.middleName]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || 'Клиент';
-
-      const crmOrderData = {
-        items: cart.items.map((item: CartItem) => ({
-          productId: parseInt(item.productId),
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        client: {
-          // ✅ ПЕРЕДАЁМ ВСЁ — И ОТЧЕСТВО ТОЖЕ
-          name: fullName,
-          firstName: user.firstName || '',
-          lastName: user.lastName || '',
-          middleName: user.middleName || '', // ✅ ОТЧЕСТВО
-          phone: user.phone || '',
-          email: user.email || '',
-          address: deliveryAddress || '',
-        },
-        deliveryMethod: deliveryMethod || 'pickup',
-        deliveryAddress: deliveryAddress || 'г. Иркутск, ул. Новаторов 36',
-        comment: comment || null,
-        source: 'website',
-      };
-
-      console.log('📤 Отправка в CRM:', JSON.stringify(crmOrderData, null, 2));
-
-      const job = await addOrderToCRMQueue(localOrder.id, crmOrderData);
-      console.log(`📥 Заказ ${localOrder.id} добавлен в очередь CRM (jobId: ${job.id})`);
-    } catch (error) {
-      console.error('❌ Ошибка отправки заказа в CRM:', error);
-    }
 
     if (cart.id) {
       await prisma.cart.update({
@@ -248,6 +213,43 @@ export const createOrderController = async (req: Request, res: Response): Promis
       });
       console.log('🧹 Корзина очищена');
     }
+
+    const customerName = [
+      localOrder.customerFirstName,
+      localOrder.customerMiddleName,
+      localOrder.customerLastName,
+    ].filter(Boolean).join(' ') || 'Клиент';
+    const emailItems = cart.items.map((item: CartItem) => ({
+      name: item.name || 'Товар',
+      quantity: item.quantity,
+      price: item.price,
+      total: item.price * item.quantity,
+    }));
+
+    const emailResults = await Promise.allSettled([
+      sendOrderCreatedToCustomer({
+        orderId: localOrder.id,
+        customerName,
+        customerEmail: localOrder.customerEmail || '',
+        total: localOrder.total,
+      }),
+      sendOrderNotificationToManager({
+        orderId: localOrder.id,
+        documentNumber: localOrder.id.slice(0, 8),
+        customerName,
+        customerEmail: localOrder.customerEmail || '',
+        customerPhone: localOrder.customerPhone || '',
+        total: localOrder.total,
+        items: emailItems,
+        deliveryAddress: localOrder.deliveryAddress || '',
+        comment: localOrder.comment || '',
+      }),
+    ]);
+    emailResults.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error(`❌ Не удалось поставить уведомление о заказе ${localOrder.id} в очередь:`, result.reason);
+      }
+    });
 
     res.status(201).json({
       success: true,

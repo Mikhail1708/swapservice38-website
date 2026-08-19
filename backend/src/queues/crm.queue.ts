@@ -3,6 +3,8 @@ import Queue from 'bull';
 import axios from 'axios';
 import { log } from '../config/logger';
 import { PrismaClient } from '@prisma/client';
+import { getInternalApiKey } from '../utils/internalApiKey';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -31,6 +33,7 @@ interface CreateOrderJob {
 interface UpdateOrderJob {
   type: 'updateOrder';
   data: {
+    orderId: string;
     crmOrderId: string;
     orderData: any;
   };
@@ -61,7 +64,7 @@ crmQueue.process(async (job) => {
 
     // Если это последняя попытка — сохраняем как failed
     if (job.attemptsMade + 1 >= job.opts.attempts!) {
-      await markOrderAsFailed(data);
+      await markOrderAsFailed(type, data);
     }
 
     throw error;
@@ -83,12 +86,24 @@ const processCreateOrder = async (data: any) => {
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': process.env.INTERNAL_API_KEY || 'swapservice38_internal_secret',
+        'X-API-Key': getInternalApiKey(),
       },
     }
   );
 
   const crmResult = response.data;
+
+  const crmStatusMap: Record<string, string> = {
+    confirmed: 'confirmed',
+    assembling: 'assembling',
+    shipped: 'shipped',
+    delivered: 'delivered',
+    cancelled: 'cancelled',
+  };
+  const syncedStatus = crmStatusMap[crmResult.orderStatus] || 'paid';
+  const syncedVersion = Number.isInteger(crmResult.statusVersion)
+    ? crmResult.statusVersion
+    : 0;
 
   // ✅ Обновляем заказ в БД — сохраняем crmOrderId, НО НЕ МЕНЯЕМ СТАТУС
   await prisma.order.update({
@@ -96,7 +111,10 @@ const processCreateOrder = async (data: any) => {
     data: {
       crmOrderId: crmResult.orderId ? String(crmResult.orderId) : null,
       orderNumber: crmResult.documentNumber || null,
-      // status ОСТАЁТСЯ pending — вебхук обновит его!
+      // CRM creates website orders as confirmed. Persist its initial state and
+      // version so subsequent webhooks continue from the same source of truth.
+      status: syncedStatus,
+      crmStatusVersion: syncedVersion,
     },
   });
 
@@ -117,13 +135,13 @@ const processUpdateOrder = async (data: any) => {
   log.info(`📤 Обновление заказа ${crmOrderId} в CRM`);
 
   const response = await axios.put(
-    `${CRM_API_URL}/api/sale-documents/${crmOrderId}/full`,
+    `${CRM_API_URL}/api/sale-documents/internal/${crmOrderId}/full`,
     orderData,
     {
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': process.env.INTERNAL_API_KEY || 'swapservice38_internal_secret',
+        'X-API-Key': getInternalApiKey(),
       },
     }
   );
@@ -135,9 +153,9 @@ const processUpdateOrder = async (data: any) => {
 // ============================================================
 // МАРКИРОВКА ЗАКАЗА КАК FAILED
 // ============================================================
-const markOrderAsFailed = async (data: any) => {
+const markOrderAsFailed = async (type: CRMJob['type'], data: any) => {
   try {
-    if (data.orderId) {
+    if (type === 'createOrder' && data.orderId) {
       await prisma.order.update({
         where: { id: data.orderId },
         data: {
@@ -156,18 +174,34 @@ const markOrderAsFailed = async (data: any) => {
 // ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ЗАДАЧ В ОЧЕРЕДЬ
 // ============================================================
 export const addOrderToCRMQueue = async (orderId: string, orderData: any) => {
+  const jobId = `crm-create-${orderId}`;
+  const existingJob = await crmQueue.getJob(jobId);
+  if (existingJob) {
+    if (await existingJob.isFailed()) await existingJob.retry();
+    return existingJob;
+  }
+
+  const originalSource = typeof orderData?.source === 'string' ? orderData.source : 'website';
+  const normalizedOrderData = {
+    ...orderData,
+    externalOrderId: orderId,
+    source: originalSource.startsWith('website') ? 'website' : originalSource,
+    ...(originalSource !== 'website' ? { sourceDetail: originalSource } : {}),
+  };
+
   const job = await crmQueue.add(
     {
       type: 'createOrder',
-      data: { orderId, orderData },
+      data: { orderId, orderData: normalizedOrderData },
     },
     {
+      jobId,
       attempts: 5,
       backoff: {
         type: 'exponential',
         delay: 5000,
       },
-      removeOnComplete: true,
+      removeOnComplete: 10000,
       removeOnFail: false,
     }
   );
@@ -176,19 +210,42 @@ export const addOrderToCRMQueue = async (orderId: string, orderData: any) => {
   return job;
 };
 
-export const addUpdateToCRMQueue = async (crmOrderId: string, orderData: any) => {
+const stableSerialize = (value: any): string => {
+  if (value === undefined) return '"__undefined__"';
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+};
+
+export const addUpdateToCRMQueue = async (orderId: string, crmOrderId: string, orderData: any) => {
+  const normalizedOrderData = { ...orderData, externalOrderId: orderId };
+  const fingerprint = crypto
+    .createHash('sha256')
+    .update(stableSerialize(normalizedOrderData))
+    .digest('hex')
+    .slice(0, 16);
+  const jobId = `crm-update-${orderId}-${fingerprint}`;
+  const existingJob = await crmQueue.getJob(jobId);
+  if (existingJob) {
+    if (await existingJob.isFailed()) await existingJob.retry();
+    return existingJob;
+  }
+
   const job = await crmQueue.add(
     {
       type: 'updateOrder',
-      data: { crmOrderId, orderData },
+      data: { orderId, crmOrderId, orderData: normalizedOrderData },
     },
     {
+      jobId,
       attempts: 3,
       backoff: {
         type: 'exponential',
         delay: 3000,
       },
-      removeOnComplete: true,
+      removeOnComplete: 10000,
       removeOnFail: false,
     }
   );

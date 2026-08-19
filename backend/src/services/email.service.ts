@@ -100,17 +100,47 @@ emailQueue.process(async (job) => {
   }
 });
 
+emailQueue.on('failed', async (job) => {
+  const attempts = Number(job.opts.attempts || 1);
+  if (job.attemptsMade >= attempts && typeof job.id === 'string' && job.id.startsWith('order:')) {
+    await redis.del(job.id).catch(() => undefined);
+    console.warn(`⚠️ Уведомление ${job.id} исчерпало попытки; защита от дублей снята для повторной отправки`);
+  }
+});
+
 // ============================================================
 // ПУБЛИЧНАЯ ФУНКЦИЯ ОТПРАВКИ
 // ============================================================
-export const sendEmail = (to: string, subject: string, html: string) => {
-  emailQueue.add({ to, subject, html }, {
+export const sendEmail = (to: string, subject: string, html: string, jobId?: string) => {
+  return emailQueue.add({ to, subject, html }, {
+    ...(jobId ? { jobId } : {}),
     attempts: 3,
     backoff: {
       type: 'exponential',
       delay: 5000,
     },
   });
+};
+
+const enqueueNotificationOnce = async (
+  notificationKey: string,
+  to: string,
+  subject: string,
+  html: string,
+): Promise<void> => {
+  const isNew = await redis.setnx(notificationKey, 'true');
+  if (!isNew) {
+    console.log(`ℹ️ Уведомление ${notificationKey} уже поставлено в очередь, пропускаем`);
+    return;
+  }
+
+  try {
+    await redis.expire(notificationKey, 7 * 24 * 60 * 60);
+    await sendEmail(to, subject, html, notificationKey);
+  } catch (error) {
+    await redis.del(notificationKey).catch(() => undefined);
+    throw error;
+  }
 };
 
 // ============================================================
@@ -349,14 +379,6 @@ export const sendOrderConfirmationToCustomer = async (data: {
 
   const notificationKey = `order:notified:customer:${data.orderId}`;
 
-  // ✅ Атомарная проверка через setnx
-  const isNew = await redis.setnx(notificationKey, 'true');
-  if (!isNew) {
-    console.log(`ℹ️ Уведомление клиенту для заказа ${data.orderId} уже отправлено (setnx), пропускаем`);
-    return;
-  }
-  await redis.expire(notificationKey, 7 * 24 * 60 * 60);
-
   const formattedPhone = formatPhone(data.customerPhone);
 
   const itemsHtml = data.items.map((item, index) => `
@@ -434,7 +456,8 @@ export const sendOrderConfirmationToCustomer = async (data: {
     </p>
   `;
 
-  await sendEmail(
+  await enqueueNotificationOnce(
+    notificationKey,
     data.customerEmail,
     `Подтверждение заказа #${data.documentNumber}`,
     createEmailTemplate(content)
@@ -457,14 +480,6 @@ export const sendOrderNotificationToManager = async (data: {
 }) => {
   const managerEmail = process.env.MANAGER_EMAIL || 'swapservice38@yandex.ru';
   const notificationKey = `order:notified:manager:${data.orderId}`;
-
-  // ✅ Атомарная проверка через setnx
-  const isNew = await redis.setnx(notificationKey, 'true');
-  if (!isNew) {
-    console.log(`ℹ️ Уведомление менеджеру для заказа ${data.orderId} уже отправлено (setnx), пропускаем`);
-    return;
-  }
-  await redis.expire(notificationKey, 7 * 24 * 60 * 60);
 
   const formattedPhone = formatPhone(data.customerPhone);
 
@@ -543,9 +558,91 @@ export const sendOrderNotificationToManager = async (data: {
     </p>
   `;
 
-  await sendEmail(
+  await enqueueNotificationOnce(
+    notificationKey,
     managerEmail,
     `Новый заказ #${data.documentNumber}`,
     createEmailTemplate(content)
+  );
+};
+
+// ============================================================
+// ЗАКАЗ СФОРМИРОВАН
+// ============================================================
+export const sendOrderCreatedToCustomer = async (data: {
+  orderId: string;
+  customerName: string;
+  customerEmail: string;
+  total: number;
+}) => {
+  if (!data.customerEmail) {
+    console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, письмо о формировании пропущено`);
+    return;
+  }
+
+  const content = `
+    <h2>Заказ сформирован</h2>
+    <p>Здравствуйте, <strong>${data.customerName || 'Клиент'}</strong>!</p>
+    <p>Ваш заказ принят и сохранён. После оплаты мы подтвердим его и начнём обработку.</p>
+    <div class="highlight">
+      <p><strong>Номер заказа:</strong> #${data.orderId.slice(0, 8)}</p>
+      <p><strong>Сумма:</strong> ${data.total.toLocaleString()} ₽</p>
+      <p><strong>Статус:</strong> Сформирован, ожидает оплаты</p>
+    </div>
+  `;
+
+  await enqueueNotificationOnce(
+    `order:created:customer:${data.orderId}`,
+    data.customerEmail,
+    `Заказ #${data.orderId.slice(0, 8)} сформирован`,
+    createEmailTemplate(content),
+  );
+};
+
+// ============================================================
+// НОВЫЙ СТАТУС ЗАКАЗА
+// ============================================================
+const orderStatusLabels: Record<string, string> = {
+  confirmed: 'Подтверждён',
+  assembling: 'Собирается',
+  shipped: 'Отправлен',
+  cancelled: 'Отменён',
+};
+
+export const sendOrderStatusUpdateToCustomer = async (data: {
+  orderId: string;
+  documentNumber: string;
+  customerName: string;
+  customerEmail: string;
+  status: string;
+  version: number;
+}) => {
+  if (!data.customerEmail) {
+    console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, уведомление о статусе пропущено`);
+    return;
+  }
+
+  const statusLabel = orderStatusLabels[data.status];
+  if (!statusLabel) {
+    console.warn(`⚠️ Неизвестный статус ${data.status}, письмо не отправлено`);
+    return;
+  }
+
+  const content = `
+    <h2>Новый статус заказа</h2>
+    <p>Здравствуйте, <strong>${data.customerName || 'Клиент'}</strong>!</p>
+    <p>Статус заказа <strong>#${data.documentNumber}</strong> изменён.</p>
+    <div class="status-box"><p><strong>${statusLabel}</strong></p></div>
+    <p style="margin-top: 20px; font-size: 14px;">
+      Следить за заказом можно в
+      <a href="${process.env.CLIENT_URL || 'http://localhost:3001'}/profile/orders">личном кабинете</a>.
+    </p>
+  `;
+
+  await enqueueNotificationOnce(
+    `order:status:${data.orderId}:${data.status}:${data.version}`,
+    data.customerEmail,
+    `Заказ #${data.documentNumber}: ${statusLabel}`,
+    createEmailTemplate(content),
   );
 };

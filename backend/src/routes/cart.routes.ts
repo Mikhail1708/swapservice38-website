@@ -8,7 +8,7 @@ import {
   updateCart,
   clearCart,
 } from '../controllers/cart.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { optionalAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -23,9 +23,9 @@ const updateCartSchema = z.object({
   quantity: z.number().int().min(0),
 });
 
-router.get('/', authMiddleware, getCart);
-router.post('/add', authMiddleware, validate(addToCartSchema), addToCart);
-router.put('/update', authMiddleware, validate(updateCartSchema), updateCart);
-router.delete('/clear', authMiddleware, clearCart);
+router.get('/', optionalAuth, getCart);
+router.post('/add', optionalAuth, validate(addToCartSchema), addToCart);
+router.put('/update', optionalAuth, validate(updateCartSchema), updateCart);
+router.delete('/clear', optionalAuth, clearCart);
 
 export default router;

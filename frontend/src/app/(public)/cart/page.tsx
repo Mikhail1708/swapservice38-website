@@ -59,6 +59,7 @@ export default function CartPage() {
   });
 
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'post'>('pickup');
+  const [contactMethod, setContactMethod] = useState<'phone' | 'whatsapp' | 'telegram' | 'email'>('phone');
   const [tcName, setTcName] = useState('');
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -226,25 +227,13 @@ export default function CartPage() {
             ? formData.address.trim()
             : pickupAddress,
         },
-        items: items
-          .map((item: CartItem) => {
-            const productId = parseInt(item.productId);
-            if (isNaN(productId)) {
-              console.warn(`⚠️ Пропущен товар с некорректным ID: ${item.productId}`);
-              return null;
-            }
-            return {
-              productId,
-              quantity: item.quantity,
-              price: item.price,
-            };
-          })
-          .filter(Boolean),
         deliveryMethod: deliveryMethod,
+        deliveryProvider: deliveryMethod === 'post' ? tcName.trim() : null,
         deliveryAddress: deliveryMethod === 'post'
           ? formData.address.trim()
           : pickupAddress,
         comment: finalComment || null,
+        contactMethod,
         source: 'website',
       };
 
@@ -265,11 +254,12 @@ export default function CartPage() {
         throw new Error(data.error || data.message || 'Ошибка создания заказа');
       }
 
-      await clearCart();
-      await refetchCart();
-
       if (data.paymentUrl) {
-        router.push(data.paymentUrl);
+        if (/^https?:\/\//i.test(data.paymentUrl)) {
+          window.location.assign(data.paymentUrl);
+        } else {
+          router.push(data.paymentUrl);
+        }
       } else if (data.order?.id) {
         router.push(`/payment/${data.order.id}`);
       } else if (data.orderId) {
@@ -277,6 +267,10 @@ export default function CartPage() {
       } else {
         router.push('/payment/success');
       }
+
+      // Backend already clears the persisted cart when it creates the order.
+      // Refresh local cache in the background so navigation cannot hang here.
+      void refetchCart();
 
     } catch (error: any) {
       console.error('❌ Ошибка оформления заказа:', error);
@@ -679,6 +673,37 @@ export default function CartPage() {
                   {/* Комментарий */}
                   <div>
                     <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <Phone className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
+                      Предпочтительный способ связи
+                    </label>
+                    <select
+                      value={contactMethod}
+                      onChange={(event) => setContactMethod(event.target.value as typeof contactMethod)}
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/10"
+                    >
+                      <option value="phone">Телефонный звонок</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="telegram">Telegram</option>
+                      <option value="email">Email</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+                      <MessageSquare className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
+                      Комментарий к заказу или контакту
+                    </label>
+                    <textarea
+                      value={formData.comment}
+                      onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
+                      className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground/10 transition resize-none"
+                      rows={2}
+                      placeholder="Например: написать после 18:00, Telegram @username"
+                    />
+                  </div>
+
+                  {false && <div>
+                    <label className="block text-sm text-muted-foreground font-medium mb-1.5">
                       <MessageSquare className="w-4 h-4 inline mr-1 text-muted-foreground/50" />
                       Как удобнее с вами связаться?
                     </label>
@@ -689,7 +714,7 @@ export default function CartPage() {
                       rows={2}
                       placeholder="Telegram, WhatsApp, Viber, звонок..."
                     />
-                  </div>
+                  </div>}
 
                   {/* Итог */}
                   <div className="border-t border-border pt-4 mt-4 space-y-2">

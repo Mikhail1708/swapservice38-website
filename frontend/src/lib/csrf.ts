@@ -6,7 +6,6 @@ const TOKEN_TTL = 4 * 60 * 1000; // 4 минуты
 
 export const getCsrfToken = async (): Promise<string> => {
   if (csrfToken && (Date.now() - lastFetchTime) < TOKEN_TTL) {
-    console.log('✅ CSRF токен из кэша:', csrfToken.substring(0, 10) + '...');
     return csrfToken;
   }
 
@@ -21,16 +20,17 @@ export const getCsrfToken = async (): Promise<string> => {
       throw new Error(`Ошибка получения CSRF токена: ${response.status}`);
     }
 
-    const data = await response.json();
-    if (!data.csrfToken) {
+    const data: unknown = await response.json();
+    const receivedToken = typeof data === 'object' && data !== null && 'csrfToken' in data
+      ? (data as { csrfToken?: unknown }).csrfToken
+      : undefined;
+    if (typeof receivedToken !== 'string' || !receivedToken) {
       throw new Error('CSRF токен не получен');
     }
 
-    csrfToken = data.csrfToken;
+    csrfToken = receivedToken;
     lastFetchTime = Date.now();
-    
-    console.log('✅ CSRF токен получен:', csrfToken.substring(0, 10) + '...');
-    return csrfToken;
+    return receivedToken;
   } catch (error) {
     console.error('❌ Ошибка получения CSRF токена:', error);
     throw error;
@@ -49,18 +49,16 @@ export const fetchWithCsrf = async (
   const token = await getCsrfToken();
 
   // ✅ БАЗОВЫЕ ЗАГОЛОВКИ
-  const headers: HeadersInit = {
-    'X-CSRF-Token': token,
-    'CSRF-Token': token,
-    ...options.headers,
-  };
+  const headers = new Headers(options.headers);
+  headers.set('X-CSRF-Token', token);
+  headers.set('CSRF-Token', token);
 
   // ✅ ПРОВЕРЯЕМ — ЭТО FormData?
   const isFormData = options.body instanceof FormData;
   
   // ✅ ДЛЯ FormData НЕ ДОБАВЛЯЕМ Content-Type
   if (!isFormData) {
-    headers['Content-Type'] = 'application/json';
+    headers.set('Content-Type', 'application/json');
   }
 
   let finalBody = options.body;

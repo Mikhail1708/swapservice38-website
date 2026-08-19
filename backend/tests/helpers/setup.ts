@@ -99,6 +99,8 @@ jest.mock('@services/email.service', () => ({
   sendPasswordChangeEmail: jest.fn().mockResolvedValue(true),
   sendOrderConfirmationToCustomer: jest.fn().mockResolvedValue(true),
   sendOrderNotificationToManager: jest.fn().mockResolvedValue(true),
+  sendOrderCreatedToCustomer: jest.fn().mockResolvedValue(true),
+  sendOrderStatusUpdateToCustomer: jest.fn().mockResolvedValue(true),
   sendEmail: jest.fn().mockResolvedValue(true),
 }));
 
@@ -162,6 +164,7 @@ process.env.JWT_SECRET = 'test_secret_123';
 process.env.JWT_EXPIRES_IN = '7d';
 process.env.CRM_API_URL = 'http://localhost:5000';
 process.env.CLIENT_URL = 'http://localhost:3001';
+process.env.PAYMENT_PROVIDER = 'yookassa';
 process.env.YOO_KASSA_SHOP_ID = 'test-shop';
 process.env.YOO_KASSA_SECRET_KEY = 'test-secret';
 process.env.INTERNAL_API_KEY = 'test-internal-key';

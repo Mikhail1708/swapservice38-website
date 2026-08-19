@@ -6,8 +6,9 @@ import {
   paymentWebhookController,
   getPaymentStatusController,
   resendPaymentController,
+  completeMockPaymentController,
 } from '../controllers/payment.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -15,15 +16,19 @@ const router = Router();
 router.post('/webhook', paymentWebhookController);
 
 // ✅ ТОЛЬКО АВТОРИЗОВАННЫЕ
-router.post('/create', authMiddleware, createPaymentController);
+router.post('/create', requireAuth, createPaymentController);
 
 // ✅ ПОДТВЕРЖДЕНИЕ ОПЛАТЫ (СО СТРАНИЦЫ УСПЕХА)
-router.post('/confirm', authMiddleware, confirmPaymentController);
+router.post('/confirm', requireAuth, confirmPaymentController);
+
+if (process.env.NODE_ENV !== 'production' && process.env.PAYMENT_PROVIDER === 'mock') {
+  router.post('/mock/complete', requireAuth, completeMockPaymentController);
+}
 
 // ✅ ПРОВЕРКА СТАТУСА
 router.get('/status/:paymentId', getPaymentStatusController);
 
 // ✅ ПРИНУДИТЕЛЬНАЯ ОТПРАВКА В CRM (ДЛЯ АДМИНОВ)
-router.post('/resend', authMiddleware, resendPaymentController);
+router.post('/resend', requireAuth, resendPaymentController);
 
 export default router;

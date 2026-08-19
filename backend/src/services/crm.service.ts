@@ -1,6 +1,7 @@
 // backend/src/services/crm.service.ts
 import axios from 'axios';
 import redis from '../config/redis';
+import { getInternalApiKey } from '../utils/internalApiKey';
 
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 console.log('🔗 CRM_API_URL:', process.env.CRM_API_URL || 'http://localhost:5000');
@@ -80,24 +81,19 @@ export const createOrderInCRM = async (orderData: {
   source?: string;
 }) => {
   try {
-    const url = 'http://localhost:5000/api/sale-documents/public';
-    console.log('🌐 URL запроса в CRM (жестко задан):', url);
-    console.log('🌐 URL запроса в CRM:', url);
-    console.log('📤 Отправка заказа в CRM:', JSON.stringify(orderData, null, 2));
+    const url = `${CRM_API_URL}/api/sale-documents/public`;
     
     const response = await axios.post(url, orderData, {
       timeout: 15000,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-API-Key': getInternalApiKey(),
       }
     });
-    
-    console.log('✅ Заказ создан в CRM:', response.data);
     return response.data;
   } catch (error) {
     console.error('❌ Ошибка создания заказа в CRM:', error);
     if (axios.isAxiosError(error) && error.response) {
-      console.error('📦 Ответ CRM:', error.response.data);
       console.error('📦 Статус CRM:', error.response.status);
       throw new Error(error.response.data?.message || 'Ошибка создания заказа в CRM');
     }

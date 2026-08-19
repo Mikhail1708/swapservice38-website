@@ -1,6 +1,6 @@
 // backend/tests/unit/middleware/auth.middleware.test.ts
 import { Request, Response, NextFunction } from 'express';
-import { authMiddleware } from '../../../src/middleware/auth.middleware';
+import { authMiddleware, requireAuth } from '../../../src/middleware/auth.middleware';
 import jwt from 'jsonwebtoken';
 
 jest.mock('jsonwebtoken');
@@ -87,6 +87,50 @@ describe('Auth Middleware (Сайт)', () => {
     await authMiddleware(req as Request, res as Response, mockNext);
 
     expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('should reject a protected request without a token', async () => {
+    const req = createRequest('/api/auth/me');
+    const res = createResponse();
+
+    await requireAuth(req as Request, res as Response, mockNext);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockNext).not.toHaveBeenCalled();
+  });
+
+  it('should reject an invalid token instead of falling through', async () => {
+    (jwt.verify as jest.Mock).mockImplementation(() => { throw new Error('invalid'); });
+    const req = createRequest('/api/auth/me', {}, { authorization: 'Bearer invalid-token' });
+    const res = createResponse();
+
+    await requireAuth(req as Request, res as Response, mockNext);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockNext).not.toHaveBeenCalled();
+  });
+
+  it('should fail closed when JWT_SECRET is missing', async () => {
+    delete process.env.JWT_SECRET;
+    const req = createRequest('/api/auth/me', { token: 'some-token' });
+    const res = createResponse();
+
+    await requireAuth(req as Request, res as Response, mockNext);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(mockNext).not.toHaveBeenCalled();
+  });
+
+  it('should accept a protected request with a valid token', async () => {
+    (jwt.verify as jest.Mock).mockReturnValue({ id: '1' });
+    const req = createRequest('/api/auth/me', { token: 'valid-token' });
+    const res = createResponse();
+
+    await requireAuth(req as Request, res as Response, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect((req as any).user).toEqual(expect.objectContaining({ id: '1' }));
     expect(res.status).not.toHaveBeenCalled();
   });
 });

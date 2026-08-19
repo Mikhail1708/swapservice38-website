@@ -1,13 +1,19 @@
 // backend/src/services/payment.service.ts
+import 'dotenv/config';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { safeRedis } from '../config/redis';
 import { 
   sendOrderConfirmationToCustomer, 
-  sendOrderNotificationToManager 
+  sendOrderNotificationToManager,
+  sendOrderStatusUpdateToCustomer,
 } from './email.service';
 import { addOrderToCRMQueue } from '../queues/crm.queue';
 import { log } from '../config/logger';
+import { getInternalApiKey } from '../utils/internalApiKey';
+import { randomUUID } from 'crypto';
+import { assertOrderStatusTransition } from '../utils/orderStatus';
+import { buildCrmOrderPayload } from './crmOrderPayload.service';
 
 const prisma = new PrismaClient();
 
@@ -16,10 +22,32 @@ const YOO_KASSA_SHOP_ID = process.env.YOO_KASSA_SHOP_ID || '';
 const YOO_KASSA_SECRET_KEY = process.env.YOO_KASSA_SECRET_KEY || '';
 const YOO_KASSA_API_URL = 'https://api.yookassa.ru/v3';
 
-// ✅ ПРОВЕРКА: ЕСЛИ КЛЮЧИ НЕ НАСТРОЕНЫ — ТЕСТОВЫЙ РЕЖИМ
-const isTestMode = !YOO_KASSA_SHOP_ID || !YOO_KASSA_SECRET_KEY || YOO_KASSA_SECRET_KEY.startsWith('test_');
+type PaymentProvider = 'mock' | 'yookassa';
+type MockPayment = {
+  id: string;
+  status: 'pending' | 'succeeded';
+  amount: { value: string; currency: 'RUB' };
+  metadata: { orderId: string; crmOrderId: string; orderNumber: string };
+};
 
-log.info(`💳 ЮKassa режим: ${isTestMode ? 'ТЕСТОВЫЙ' : 'БОЕВОЙ'}`);
+const mockPayments = new Map<string, MockPayment>();
+
+export const getPaymentProvider = (): PaymentProvider => {
+  const provider = process.env.PAYMENT_PROVIDER;
+  if (provider !== 'mock' && provider !== 'yookassa') {
+    throw new Error('PAYMENT_PROVIDER must be explicitly set to "mock" or "yookassa"');
+  }
+  if (process.env.NODE_ENV === 'production' && provider === 'mock') {
+    throw new Error('Mock payment provider is forbidden in production');
+  }
+  return provider;
+};
+
+const assertYooKassaCredentials = () => {
+  if (!YOO_KASSA_SHOP_ID || !YOO_KASSA_SECRET_KEY) {
+    throw new Error('YooKassa credentials are not configured');
+  }
+};
 
 // ============================================================
 // ОЧИСТКА ТЕЛЕФОНА
@@ -61,37 +89,58 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       throw new Error('Заказ уже оплачен');
     }
 
+    if (order.paymentId) {
+      const existingPayment = await getPaymentStatus(order.paymentId);
+      if (existingPayment?.status === 'pending' || existingPayment?.status === 'succeeded') {
+        const mockReturnUrl = `${process.env.CLIENT_URL || 'http://localhost:3001'}`
+          + `/payment/success?orderId=${orderId}&paymentId=${order.paymentId}&mock=1`;
+        return {
+          paymentId: order.paymentId,
+          paymentUrl: existingPayment?.confirmation?.confirmation_url
+            || (getPaymentProvider() === 'mock' ? mockReturnUrl : returnUrl),
+          status: existingPayment.status,
+          idempotent: true,
+        };
+      }
+    }
+
     log.info('💳 Создание платежа', { orderId, total: order.total });
 
-    // ============================================================
-    // 2. ТЕСТОВЫЙ РЕЖИМ
-    // ============================================================
-    if (isTestMode) {
-      log.info('⚠️ ЮKassa в тестовом режиме');
-      
-      const testPaymentId = `test_${Date.now()}`;
-      
+    if (getPaymentProvider() === 'mock') {
+      const mockPayment: MockPayment = {
+        id: `mock_${randomUUID()}`,
+        status: 'pending',
+        amount: { value: order.total.toFixed(2), currency: 'RUB' },
+        metadata: {
+          orderId: order.id,
+          crmOrderId: order.crmOrderId || '',
+          orderNumber: order.orderNumber || '',
+        },
+      };
       await prisma.order.update({
         where: { id: orderId },
-        data: { paymentId: testPaymentId },
+        data: { paymentId: mockPayment.id },
       });
-      
+      mockPayments.set(mockPayment.id, mockPayment);
+
       return {
-        paymentId: testPaymentId,
-        paymentUrl: `${process.env.CLIENT_URL || 'http://localhost:3001'}/payment/success?orderId=${orderId}`,
-        status: 'pending',
+        paymentId: mockPayment.id,
+        paymentUrl: `${process.env.CLIENT_URL || 'http://localhost:3001'}`
+          + `/payment/success?orderId=${orderId}&paymentId=${mockPayment.id}&mock=1`,
+        status: mockPayment.status,
       };
     }
 
     // ============================================================
     // 3. БОЕВОЙ РЕЖИМ
     // ============================================================
+    assertYooKassaCredentials();
     const auth = Buffer.from(`${YOO_KASSA_SHOP_ID}:${YOO_KASSA_SECRET_KEY}`).toString('base64');
 
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Basic ${auth}`,
-      'Idempotence-Key': `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      'Idempotence-Key': `order-${order.id}`,
     };
 
     const items = (order.items as any[]).map((item: any) => ({
@@ -138,8 +187,8 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       },
       receipt: {
         customer: {
-          email: order.guestEmail || undefined,
-          phone: order.guestPhone || undefined,
+          email: order.customerEmail || order.guestEmail || undefined,
+          phone: order.customerPhone || order.guestPhone || undefined,
         },
         items: items,
       },
@@ -232,6 +281,17 @@ export const handlePaymentSuccess = async (orderId: string) => {
   // ✅ ПОЛУЧАЕМ ЗАКАЗ
   const order = await prisma.order.findUnique({
     where: { id: orderId },
+    include: {
+      user: {
+        select: {
+          firstName: true,
+          lastName: true,
+          middleName: true,
+          phone: true,
+          email: true,
+        },
+      },
+    },
   });
 
   if (!order) {
@@ -247,9 +307,18 @@ export const handlePaymentSuccess = async (orderId: string) => {
     total: order.total,
   });
 
-  // ✅ ЕСЛИ УЖЕ ОПЛАЧЕН И ЕСТЬ crmOrderId — ПРОПУСКАЕМ
-  if (order.status === 'paid' && order.crmOrderId) {
-    log.info(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM, пропускаем`);
+  if (order.status !== 'pending' && order.status !== 'crm_failed') {
+    log.info(`ℹ️ Оплата заказа ${orderId} уже обработана, пропускаем`);
+    await safeRedis.del(lockKey);
+    return { success: true, orderId, status: 'paid', alreadyProcessed: true };
+  }
+
+  assertOrderStatusTransition(order.status, 'paid');
+  const claimed = await prisma.order.updateMany({
+    where: { id: orderId, status: order.status },
+    data: { status: 'paid', updatedAt: new Date() },
+  });
+  if (claimed.count !== 1) {
     await safeRedis.del(lockKey);
     return { success: true, orderId, status: 'paid', alreadyProcessed: true };
   }
@@ -259,7 +328,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
   // ✅ 1. ОТПРАВЛЯЕМ ЗАКАЗ В CRM ЧЕРЕЗ ОЧЕРЕДЬ
   if (!order.crmOrderId) {
     try {
-      const phone = cleanPhone(order.guestPhone || '');
+      const phone = cleanPhone(order.customerPhone || order.guestPhone || order.user?.phone || '');
       
       const orderData = {
         items: (order.items as any[]).map((item: any) => ({
@@ -268,10 +337,11 @@ export const handlePaymentSuccess = async (orderId: string) => {
           price: item.price || 0,
         })),
         client: {
-          firstName: order.guestName || 'Клиент',
-          lastName: '',
+          firstName: order.user?.firstName || 'Клиент',
+          lastName: order.user?.lastName || '',
+          middleName: order.user?.middleName || '',
           phone: phone || '+79999999999',
-          email: order.guestEmail || '',
+          email: order.customerEmail || order.guestEmail || order.user?.email || '',
           city: '',
           address: order.deliveryAddress || '',
         },
@@ -282,31 +352,22 @@ export const handlePaymentSuccess = async (orderId: string) => {
       };
 
       // ✅ ДОБАВЛЯЕМ В ОЧЕРЕДЬ, А НЕ ОТПРАВЛЯЕМ ПРЯМО
-      await addOrderToCRMQueue(orderId, orderData);
+      await addOrderToCRMQueue(orderId, buildCrmOrderPayload(order));
       log.info(`✅ Заказ ${orderId} добавлен в очередь CRM`);
     } catch (error: any) {
       log.error(`❌ Ошибка добавления заказа ${orderId} в очередь`, { error: error.message });
-      // Заказ уже помечен как paid, очередь попытается отправить позже
+      await prisma.order.updateMany({
+        where: { id: orderId, status: 'paid' },
+        data: { status: 'crm_failed', updatedAt: new Date() },
+      });
+      await safeRedis.del(lockKey);
+      throw new Error('Оплата подтверждена, но синхронизация с CRM не запущена');
     }
   } else {
     log.info(`ℹ️ Заказ ${orderId} уже имеет crmOrderId: ${order.crmOrderId}, пропускаем отправку в CRM`);
   }
 
-  // ✅ 2. ОБНОВЛЯЕМ СТАТУС ЗАКАЗА
-  try {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'paid',
-        updatedAt: new Date(),
-      },
-    });
-    log.info(`✅ Статус заказа ${orderId} обновлён на "paid"`);
-  } catch (error) {
-    log.error(`❌ Ошибка обновления статуса заказа ${orderId}`, { error });
-  }
-
-  // ✅ 3. ОЧИЩАЕМ КОРЗИНУ
+  // ✅ 2. ОЧИЩАЕМ КОРЗИНУ
   if (order.userId) {
     try {
       await prisma.cart.update({
@@ -319,14 +380,14 @@ export const handlePaymentSuccess = async (orderId: string) => {
     }
   }
 
-  // ✅ 4. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
+  // ✅ 3. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
   try {
     const emailData = {
       orderId: order.id,
       documentNumber: order.orderNumber || order.id.slice(0, 8),
-      customerName: order.guestName || 'Клиент',
-      customerEmail: order.guestEmail || '',
-      customerPhone: order.guestPhone || '',
+      customerName: [order.customerFirstName, order.customerMiddleName, order.customerLastName].filter(Boolean).join(' ') || order.guestName || [order.user?.firstName, order.user?.middleName, order.user?.lastName].filter(Boolean).join(' ') || 'Клиент',
+      customerEmail: order.customerEmail || order.guestEmail || order.user?.email || '',
+      customerPhone: order.customerPhone || order.guestPhone || order.user?.phone || '',
       total: order.total,
       items: (order.items as any[]).map((item: any) => ({
         name: item.name || 'Товар',
@@ -341,7 +402,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
 
     await sendOrderConfirmationToCustomer(emailData);
     await sendOrderNotificationToManager(emailData);
-    log.info(`✅ Уведомления отправлены для заказа ${orderId}`);
+    log.info(`✅ Уведомления поставлены в очередь для заказа ${orderId}`);
   } catch (emailError) {
     log.error(`❌ Ошибка отправки email для заказа ${orderId}`, { error: emailError });
   }
@@ -392,11 +453,28 @@ export const handlePaymentWebhook = async (event: any) => {
   if (status === 'canceled') {
     log.info(`❌ Webhook: заказ ${orderId} отменён`);
     try {
-      await prisma.order.update({
+      const cancelledOrder = await prisma.order.update({
         where: { id: orderId },
         data: { status: 'cancelled' },
+        include: {
+          user: {
+            select: { firstName: true, lastName: true, middleName: true, email: true },
+          },
+        },
       });
       log.info(`✅ Статус заказа ${orderId} обновлён на "cancelled"`);
+      try {
+        await sendOrderStatusUpdateToCustomer({
+          orderId: cancelledOrder.id,
+          documentNumber: cancelledOrder.orderNumber || cancelledOrder.id.slice(0, 8),
+          customerName: [cancelledOrder.customerFirstName, cancelledOrder.customerMiddleName, cancelledOrder.customerLastName].filter(Boolean).join(' ') || cancelledOrder.guestName || [cancelledOrder.user?.firstName, cancelledOrder.user?.middleName, cancelledOrder.user?.lastName].filter(Boolean).join(' ') || 'Клиент',
+          customerEmail: cancelledOrder.customerEmail || cancelledOrder.guestEmail || cancelledOrder.user?.email || '',
+          status: 'cancelled',
+          version: cancelledOrder.crmStatusVersion,
+        });
+      } catch (emailError) {
+        log.error(`❌ Не удалось поставить письмо об отмене заказа ${orderId} в очередь`, { error: emailError });
+      }
     } catch (error) {
       log.error(`❌ Ошибка обновления статуса заказа ${orderId}`, { error });
     }
@@ -411,12 +489,14 @@ export const handlePaymentWebhook = async (event: any) => {
 // ПОЛУЧЕНИЕ СТАТУСА ПЛАТЕЖА
 // ============================================================
 export const getPaymentStatus = async (paymentId: string) => {
-  if (isTestMode || paymentId.startsWith('test_')) {
-    log.debug('ℹ️ Тестовый платеж, возвращаем статус "pending"');
-    return { status: 'pending' };
+  if (getPaymentProvider() === 'mock') {
+    const payment = mockPayments.get(paymentId);
+    if (!payment) throw new Error('Mock payment not found');
+    return { ...payment, amount: { ...payment.amount }, metadata: { ...payment.metadata } };
   }
 
   try {
+    assertYooKassaCredentials();
     const auth = Buffer.from(`${YOO_KASSA_SHOP_ID}:${YOO_KASSA_SECRET_KEY}`).toString('base64');
     const headers = {
       'Content-Type': 'application/json',
@@ -434,27 +514,23 @@ export const getPaymentStatus = async (paymentId: string) => {
   }
 };
 
-// ============================================================
-// ПРОВЕРКА ПОДПИСИ WEBHOOK
-// ============================================================
-export const verifyWebhookSignature = (body: string, signature: string | null): boolean => {
-  if (!signature) return false;
-  if (isTestMode) {
-    log.debug('ℹ️ Тестовый режим: проверка подписи пропущена');
-    return true;
+export const completeMockPayment = (paymentId: string, orderId: string) => {
+  if (process.env.NODE_ENV === 'production' || getPaymentProvider() !== 'mock') {
+    throw new Error('Mock payment completion is unavailable');
   }
-  
-  try {
-    const crypto = require('crypto');
-    const hash = crypto
-      .createHmac('sha256', YOO_KASSA_SECRET_KEY)
-      .update(body)
-      .digest('base64');
-    return hash === signature;
-  } catch (error) {
-    log.error('❌ Ошибка проверки подписи', { error });
-    return false;
+
+  const payment = mockPayments.get(paymentId);
+  if (!payment || payment.metadata.orderId !== orderId) {
+    throw new Error('Mock payment not found for this order');
   }
+
+  payment.status = 'succeeded';
+  return { ...payment, amount: { ...payment.amount }, metadata: { ...payment.metadata } };
+};
+
+export const resetMockPaymentsForTests = () => {
+  if (process.env.NODE_ENV !== 'test') throw new Error('Test helper is unavailable');
+  mockPayments.clear();
 };
 
 // ============================================================
@@ -465,6 +541,11 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
+    include: {
+      user: {
+        select: { firstName: true, lastName: true, middleName: true, phone: true, email: true },
+      },
+    },
   });
 
   if (!order) {
@@ -480,26 +561,28 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
   }
 
   try {
-    const phone = cleanPhone(order.guestPhone || '');
+    const phone = cleanPhone(order.customerPhone || order.guestPhone || order.user?.phone || '');
     
     const orderData = {
+      externalOrderId: orderId,
       items: (order.items as any[]).map((item: any) => ({
         productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
         quantity: item.quantity || 1,
         price: item.price || 0,
       })),
       client: {
-        firstName: order.guestName || 'Клиент',
-        lastName: '',
+        firstName: order.customerFirstName || order.guestName || order.user?.firstName || 'Клиент',
+        lastName: order.customerLastName || order.user?.lastName || '',
         phone: phone || '+79999999999',
-        email: order.guestEmail || '',
+        email: order.customerEmail || order.guestEmail || order.user?.email || '',
         city: '',
         address: order.deliveryAddress || '',
       },
       deliveryMethod: order.deliveryMethod || 'pickup',
       deliveryAddress: order.deliveryAddress || '',
       comment: order.comment || '',
-      source: 'website_resend'
+      source: 'website',
+      sourceDetail: 'website_resend'
     };
 
     log.info(`📤 Принудительная отправка заказа ${orderId} в CRM...`);
@@ -507,8 +590,11 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
     const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
     const crmResponse = await axios.post(
       `${CRM_API_URL}/api/sale-documents/public`,
-      orderData,
-      { timeout: 15000 }
+      { ...buildCrmOrderPayload(order), sourceDetail: 'website_resend' },
+      {
+        timeout: 15000,
+        headers: { 'X-API-Key': getInternalApiKey() },
+      }
     );
     
     const crmResult = crmResponse.data;
@@ -533,9 +619,9 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
       const emailData = {
         orderId: order.id,
         documentNumber: crmResult?.documentNumber || order.orderNumber || order.id.slice(0, 8),
-        customerName: order.guestName || 'Клиент',
-        customerEmail: order.guestEmail || '',
-        customerPhone: order.guestPhone || '',
+        customerName: [order.customerFirstName, order.customerMiddleName, order.customerLastName].filter(Boolean).join(' ') || order.guestName || 'Клиент',
+        customerEmail: order.customerEmail || order.guestEmail || '',
+        customerPhone: order.customerPhone || order.guestPhone || '',
         total: order.total,
         items: (order.items as any[]).map((item: any) => ({
           name: item.name || 'Товар',
@@ -550,7 +636,7 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
 
       await sendOrderConfirmationToCustomer(emailData);
       await sendOrderNotificationToManager(emailData);
-      log.info(`✅ Уведомления отправлены для заказа ${orderId}`);
+      log.info(`✅ Уведомления поставлены в очередь для заказа ${orderId}`);
     } catch (emailError) {
       log.error(`❌ Ошибка отправки email для заказа ${orderId}`, { error: emailError });
     }

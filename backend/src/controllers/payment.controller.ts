@@ -5,9 +5,10 @@ import {
   createPayment, 
   handlePaymentSuccess, 
   handlePaymentWebhook, 
-  verifyWebhookSignature, 
   getPaymentStatus,
-  resendOrderToCRM
+  resendOrderToCRM,
+  completeMockPayment,
+  getPaymentProvider,
 } from '../services/payment.service';
 
 const prisma = new PrismaClient();
@@ -94,8 +95,8 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
 
     console.log(`💳 Подтверждение оплаты заказа ${orderId} для пользователя ${userId}`);
 
-    if (!orderId) {
-      res.status(400).json({ error: 'Не указан ID заказа' });
+    if (!orderId || !paymentId) {
+      res.status(400).json({ error: 'Не указаны ID заказа или платежа' });
       return;
     }
 
@@ -117,6 +118,11 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
       return;
     }
 
+    if (!order.paymentId || order.paymentId !== paymentId) {
+      res.status(409).json({ error: 'Платёж не связан с указанным заказом' });
+      return;
+    }
+
     // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОБРАБОТАН — ВОЗВРАЩАЕМ УСПЕХ
     if (order.status === 'paid' && order.crmOrderId) {
       console.log(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM`);
@@ -131,7 +137,32 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
       return;
     }
 
-    // ✅ ВЫЗЫВАЕМ handlePaymentSuccess
+    // Redirect на страницу успеха не является подтверждением оплаты.
+    // Перепроверяем платёж непосредственно в YooKassa.
+    const payment = await getPaymentStatus(order.paymentId);
+    const paymentAmountValue = payment?.amount?.value;
+    const hasValidPaymentAmount = typeof paymentAmountValue === 'string'
+      && /^\d+(?:\.\d{1,2})?$/.test(paymentAmountValue);
+    const paymentAmountCents = hasValidPaymentAmount
+      ? Math.round(Number(paymentAmountValue) * 100)
+      : NaN;
+    const orderAmountCents = Math.round(order.total * 100);
+
+    if (
+      payment?.id !== order.paymentId ||
+      payment?.status !== 'succeeded' ||
+      payment?.amount?.currency !== 'RUB' ||
+      !Number.isSafeInteger(paymentAmountCents) ||
+      paymentAmountCents !== orderAmountCents ||
+      payment?.metadata?.orderId !== order.id
+    ) {
+      res.status(409).json({
+        error: 'Платёж не подтверждён или его данные не соответствуют заказу',
+        status: payment?.status || 'unknown',
+      });
+      return;
+    }
+
     const result = await handlePaymentSuccess(orderId);
 
     res.json(result);
@@ -146,21 +177,55 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
 // ============================================================
 export const paymentWebhookController = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const signature = req.headers['x-yookassa-signature'] as string || null;
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body
+      : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+    const body = rawBody.toString('utf8');
 
     console.log('📥 Получен webhook от ЮKassa');
 
-    if (process.env.NODE_ENV === 'production') {
-      if (!verifyWebhookSignature(body, signature)) {
-        console.error('❌ Неверная подпись webhook');
-        res.status(403).json({ error: 'Invalid signature' });
+    const event = JSON.parse(body);
+    const notifiedPaymentId = event?.object?.id;
+    if (typeof notifiedPaymentId !== 'string' || !notifiedPaymentId) {
+      res.status(400).json({ error: 'Invalid payment notification' });
+      return;
+    }
+
+    // YooKassa does not sign these notifications with a shared-secret HMAC.
+    // Treat the notification as a hint and fetch the authoritative payment.
+    const payment = await getPaymentStatus(notifiedPaymentId);
+    const orderId = payment?.metadata?.orderId;
+    if (payment?.id !== notifiedPaymentId || typeof orderId !== 'string' || !orderId) {
+      res.status(400).json({ error: 'Invalid payment data' });
+      return;
+    }
+
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || !order.paymentId || order.paymentId !== payment.id) {
+      res.status(409).json({ error: 'Payment is not linked to the order' });
+      return;
+    }
+
+    if (payment.status === 'succeeded') {
+      const paymentAmountValue = payment?.amount?.value;
+      const hasValidPaymentAmount = typeof paymentAmountValue === 'string'
+        && /^\d+(?:\.\d{1,2})?$/.test(paymentAmountValue);
+      const paymentAmountCents = hasValidPaymentAmount
+        ? Math.round(Number(paymentAmountValue) * 100)
+        : NaN;
+      const orderAmountCents = Math.round(order.total * 100);
+
+      if (
+        payment?.amount?.currency !== 'RUB' ||
+        !Number.isSafeInteger(paymentAmountCents) ||
+        paymentAmountCents !== orderAmountCents
+      ) {
+        res.status(409).json({ error: 'Payment amount does not match the order' });
         return;
       }
     }
 
-    const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const result = await handlePaymentWebhook(event);
+    const result = await handlePaymentWebhook({ ...event, object: payment });
     
     res.json(result);
   } catch (error: any) {
@@ -229,5 +294,32 @@ export const resendPaymentController = async (req: Request, res: Response): Prom
   } catch (error: any) {
     console.error('❌ Ошибка принудительной отправки:', error);
     res.status(500).json({ error: error.message || 'Ошибка принудительной отправки' });
+  }
+};
+
+export const completeMockPaymentController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (process.env.NODE_ENV === 'production' || getPaymentProvider() !== 'mock') {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+
+    const { orderId, paymentId } = req.body;
+    const userId = (req as any).user?.id;
+    if (!orderId || !paymentId) {
+      res.status(400).json({ error: 'Не указаны ID заказа или платежа' });
+      return;
+    }
+
+    const order = await prisma.order.findFirst({ where: { id: orderId, userId } });
+    if (!order || order.paymentId !== paymentId) {
+      res.status(404).json({ error: 'Платёж не найден' });
+      return;
+    }
+
+    const payment = completeMockPayment(paymentId, orderId);
+    res.json({ success: true, payment });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Ошибка mock-платежа' });
   }
 };

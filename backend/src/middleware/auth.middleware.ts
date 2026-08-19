@@ -1,79 +1,88 @@
-// frontend/backend/src/middleware/auth.middleware.ts
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  console.log('🔐 Auth middleware (сайт)');
-  console.log('🍪 Cookies:', req.cookies);
-  console.log('📝 Headers Authorization:', req.headers.authorization);
-  
-  let token = req.cookies?.token;
-  
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-      console.log('🔑 Токен из Authorization header');
-    }
-  }
+type AuthFailure = 'missing' | 'invalid' | 'not_found' | 'blocked' | 'misconfigured';
 
-  // ✅ ЕСЛИ ТОКЕНА НЕТ — ПРОПУСКАЕМ (НЕ ВОЗВРАЩАЕМ 401!)
-  if (!token) {
-    console.log('ℹ️ Токен не найден, пропускаем (гость)');
-    return next(); // ← ВАЖНО! НЕ БЛОКИРУЕМ ГОСТЕЙ
-  }
+const findUser = (id: string) => prisma.user.findUnique({
+  where: { id },
+  select: {
+    id: true,
+    email: true,
+    firstName: true,
+    lastName: true,
+    phone: true,
+    address: true,
+    role: true,
+    isVerified: true,
+    blockedAt: true,
+  },
+});
 
-  console.log('🔑 Токен найден:', token.substring(0, 20) + '...');
+type AuthResult =
+  | { authenticated: true; user: NonNullable<Awaited<ReturnType<typeof findUser>>> }
+  | { authenticated: false; reason: AuthFailure };
+
+const getToken = (req: Request): string | undefined => {
+  const cookieToken = req.cookies?.token;
+  if (typeof cookieToken === 'string' && cookieToken.length > 0) return cookieToken;
+
+  const authorization = req.headers.authorization;
+  if (typeof authorization !== 'string') return undefined;
+
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || undefined;
+};
+
+const authenticate = async (req: Request): Promise<AuthResult> => {
+  const token = getToken(req);
+  if (!token) return { authenticated: false, reason: 'missing' };
+
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return { authenticated: false, reason: 'misconfigured' };
 
   try {
-    const JWT_SECRET = process.env.JWT_SECRET;
-    if (!JWT_SECRET) {
-      console.error('❌ JWT_SECRET не настроен!');
-      return next();
+    const decoded = jwt.verify(token, secret) as JwtPayload;
+    if (decoded.id === undefined || decoded.id === null) {
+      return { authenticated: false, reason: 'invalid' };
     }
 
-    console.log('🔑 Проверка токена с секретом:', JWT_SECRET.substring(0, 10) + '...');
-    
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number };
-    console.log('✅ Токен валиден, userId:', decoded.id);
+    const user = await findUser(String(decoded.id));
+    if (!user) return { authenticated: false, reason: 'not_found' };
+    if (user.blockedAt) return { authenticated: false, reason: 'blocked' };
 
-    const userId = String(decoded.id);
-    console.log('🔄 Приведённый userId:', userId);
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        address: true,
-        role: true,
-        isVerified: true,
-        blockedAt: true,
-      }
-    });
-
-    if (!user) {
-      console.log('❌ Пользователь не найден в БД');
-      return next();
-    }
-
-    if (user.blockedAt) {
-      console.log('❌ Пользователь заблокирован');
-      return next();
-    }
-
-    console.log('✅ Пользователь найден:', user.email);
-    (req as any).user = user;
-    next();
-  } catch (error: any) {
-    console.error('❌ Ошибка верификации токена:', error.message);
-    // ✅ ДАЖЕ ПРИ ОШИБКЕ — ПРОПУСКАЕМ (НЕ БЛОКИРУЕМ ГОСТЕЙ)
-    next();
+    return { authenticated: true, user };
+  } catch {
+    return { authenticated: false, reason: 'invalid' };
   }
 };
+
+/** Adds req.user when possible, but deliberately permits guests. */
+export const optionalAuth = async (req: Request, _res: Response, next: NextFunction) => {
+  const result = await authenticate(req);
+  if (result.authenticated) (req as any).user = result.user;
+  next();
+};
+
+/** Requires a valid, existing and non-blocked user session. */
+export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
+  const result = await authenticate(req);
+
+  if (result.authenticated) {
+    (req as any).user = result.user;
+    return next();
+  }
+
+  if ('reason' in result && result.reason === 'misconfigured') {
+    return res.status(500).json({ error: 'Authentication is not configured' });
+  }
+  if ('reason' in result && result.reason === 'blocked') {
+    return res.status(403).json({ error: 'User account is blocked' });
+  }
+  return res.status(401).json({ error: 'Authentication required' });
+};
+
+// Backwards compatibility for routes that deliberately support guests.
+export const authMiddleware = optionalAuth;

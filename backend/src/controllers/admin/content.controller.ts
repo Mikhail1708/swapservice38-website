@@ -1,6 +1,7 @@
 // backend/src/controllers/admin/content.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { sanitizeArticleHtml } from '../../utils/sanitizeArticleHtml';
 import redis from '@config/redis';
 
 const prisma = new PrismaClient();
@@ -182,7 +183,9 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (!title || !content) {
+    const sanitizedContent = typeof content === 'string' ? sanitizeArticleHtml(content).trim() : '';
+
+    if (!title || !sanitizedContent) {
       res.status(400).json({ error: 'Заголовок и содержание обязательны' });
       return;
     }
@@ -205,7 +208,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       data: {
         slug,
         title,
-        content,
+        content: sanitizedContent,
         description: description || title,
         imageUrl: imageUrl || images?.[0]?.url || '',
         isPublished: isPublished || false,
@@ -305,8 +308,17 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
 
     console.log(`📝 Обновление статьи: ${id}`);
 
+    const sanitizedContent = typeof content === 'string'
+      ? sanitizeArticleHtml(content).trim()
+      : undefined;
+
+    if (content !== undefined && !sanitizedContent) {
+      res.status(400).json({ error: 'Article content cannot be empty after sanitization' });
+      return;
+    }
+
     const data: any = { 
-      content, 
+      content: sanitizedContent,
       description: description || title,
       imageUrl: imageUrl || images?.[0]?.url || '',
       isPublished, 

@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import redis from '@config/redis';
+import { sanitizeArticleHtml } from '../utils/sanitizeArticleHtml';
 
 const prisma = new PrismaClient();
 
@@ -214,7 +215,9 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (!title || !content) {
+    const sanitizedContent = typeof content === 'string' ? sanitizeArticleHtml(content).trim() : '';
+
+    if (!title || !sanitizedContent) {
       res.status(400).json({ error: 'Заголовок и содержание обязательны' });
       return;
     }
@@ -230,7 +233,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       data: {
         slug,
         title,
-        content,
+        content: sanitizedContent,
         description: description || title,
         imageUrl: imageUrl || images?.[0]?.url || '',
         isPublished: isPublished || false,
@@ -308,8 +311,17 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    const sanitizedContent = typeof content === 'string'
+      ? sanitizeArticleHtml(content).trim()
+      : undefined;
+
+    if (content !== undefined && !sanitizedContent) {
+      res.status(400).json({ error: 'Article content cannot be empty after sanitization' });
+      return;
+    }
+
     const data: any = { 
-      content, 
+      content: sanitizedContent,
       description, 
       imageUrl, 
       isPublished, 

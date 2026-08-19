@@ -4,7 +4,6 @@ import {
   handlePaymentSuccess, 
   handlePaymentWebhook,
   getPaymentStatus,
-  verifyWebhookSignature,
   resendOrderToCRM
 } from '../../../src/services/payment.service';
 import { PrismaClient } from '@prisma/client';
@@ -19,6 +18,7 @@ jest.mock('@prisma/client', () => {
     order: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     cart: {
       update: jest.fn(),
@@ -52,6 +52,7 @@ describe('Payment Service', () => {
     process.env.YOO_KASSA_SECRET_KEY = 'test-secret';
     process.env.CLIENT_URL = 'http://localhost:3001';
     process.env.CRM_API_URL = 'http://localhost:5000';
+    process.env.PAYMENT_PROVIDER = 'mock';
     
     // ✅ ПРАВИЛЬНЫЙ МОК ДЛЯ REDIS
     mockRedis.get = jest.fn().mockResolvedValue(null);
@@ -80,7 +81,7 @@ describe('Payment Service', () => {
         const result = await createPayment('order-1', 'http://localhost:3001/success');
 
         expect(result).toHaveProperty('paymentId');
-        expect(result.paymentId).toMatch(/^test_/);
+        expect(result.paymentId).toMatch(/^mock_/);
         expect(result).toHaveProperty('paymentUrl');
         expect(result).toHaveProperty('status', 'pending');
       });
@@ -111,6 +112,7 @@ describe('Payment Service', () => {
   // ============================================================
   describe('Production Mode', () => {
     beforeEach(() => {
+      process.env.PAYMENT_PROVIDER = 'yookassa';
       process.env.YOO_KASSA_SHOP_ID = 'real-shop-id';
       process.env.YOO_KASSA_SECRET_KEY = 'real-secret-key';
     });
@@ -275,6 +277,7 @@ describe('Payment Service', () => {
 
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
       (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'paid' });
+      (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
       (mockPrisma.cart.update as jest.Mock).mockResolvedValue({});
       mockRedis.get = jest.fn().mockResolvedValue(null);
       mockRedis.setex = jest.fn().mockResolvedValue(undefined);
@@ -357,7 +360,9 @@ describe('Payment Service', () => {
         status: 'paid',
         crmOrderId: 'crm-123',
       });
-      mockRedis.get = jest.fn().mockResolvedValue('true');
+      mockRedis.get = jest.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce('true');
 
       const result = await handlePaymentWebhook(event);
 
@@ -387,6 +392,7 @@ describe('Payment Service', () => {
     it('should process payment success and update order', async () => {
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
       (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'paid' });
+      (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
       (mockPrisma.cart.update as jest.Mock).mockResolvedValue({});
       mockRedis.get = jest.fn().mockResolvedValue(null);
       mockRedis.setex = jest.fn().mockResolvedValue(undefined);
@@ -396,7 +402,7 @@ describe('Payment Service', () => {
 
       expect(result).toHaveProperty('success', true);
       expect(result).toHaveProperty('status', 'paid');
-      expect(mockPrisma.order.update).toHaveBeenCalled();
+      expect(mockPrisma.order.updateMany).toHaveBeenCalled();
       expect(mockPrisma.cart.update).toHaveBeenCalled();
     });
 
@@ -436,27 +442,6 @@ describe('Payment Service', () => {
       const result = await handlePaymentSuccess('order-1');
 
       expect(result).toHaveProperty('alreadyProcessed', true);
-    });
-  });
-
-  // ============================================================
-  // VERIFY WEBHOOK SIGNATURE
-  // ============================================================
-  describe('verifyWebhookSignature', () => {
-    it('should return true for test mode', () => {
-      const result = verifyWebhookSignature('test-body', 'test-signature');
-      expect(result).toBe(true);
-    });
-
-    it('should return false if signature missing', () => {
-      const result = verifyWebhookSignature('test-body', null);
-      expect(result).toBe(false);
-    });
-
-    it('should return false if signature invalid', () => {
-      process.env.YOO_KASSA_SECRET_KEY = 'real-secret';
-      const result = verifyWebhookSignature('test-body', 'invalid-signature');
-      expect(result).toBe(false);
     });
   });
 

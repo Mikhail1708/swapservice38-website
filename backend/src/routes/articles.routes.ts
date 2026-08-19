@@ -7,7 +7,8 @@ import {
   updateArticle,
   deleteArticle,
 } from '../controllers/articles.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
+import { requireAdmin } from '../middleware/role.middleware';
 
 const router = Router();
 
@@ -16,8 +17,8 @@ router.get('/', getArticles);
 router.get('/:id', getArticleById);
 
 // Требуют авторизации (admin/manager)
-router.post('/', authMiddleware, createArticle);
-router.put('/:id', authMiddleware, updateArticle);
-router.delete('/:id', authMiddleware, deleteArticle);
+router.post('/', requireAuth, requireAdmin, createArticle);
+router.put('/:id', requireAuth, requireAdmin, updateArticle);
+router.delete('/:id', requireAuth, requireAdmin, deleteArticle);
 
 export default router;

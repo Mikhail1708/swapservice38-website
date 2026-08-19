@@ -7,15 +7,15 @@ import {
   getUserOrdersController,
   deleteOrderController,
 } from '../controllers/order.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 
 // ✅ ДОБАВЛЯЕМ ТИП
 const router: Router = Router();
 
 // ✅ ВСЕ РОУТЫ С ВАЛИДАЦИЕЙ
-router.post('/', authMiddleware, validate(createOrderSchema), createOrderController);
-router.get('/', authMiddleware, getUserOrdersController);
-router.get('/:id', authMiddleware, getOrderController);
-router.delete('/:id', authMiddleware, deleteOrderController);
+router.post('/', requireAuth, validate(createOrderSchema), createOrderController);
+router.get('/', requireAuth, getUserOrdersController);
+router.get('/:id', requireAuth, getOrderController);
+router.delete('/:id', requireAuth, deleteOrderController);
 
 export default router;

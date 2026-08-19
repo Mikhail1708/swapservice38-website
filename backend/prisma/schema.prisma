@@ -11,34 +11,33 @@ datasource db {
 // ПОЛЬЗОВАТЕЛИ
 // ============================================================
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  passwordHash  String?
-  firstName     String?
-  lastName      String?
-  middleName    String?
-  phone         String?
-  address       String?
-  isVerified    Boolean  @default(false)
-  role          String   @default("user") // user, manager, admin
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  firstName    String?
+  lastName     String?
+  middleName   String?
+  phone        String?
+  address      String?
+  isVerified   Boolean  @default(false)
+  role         String   @default("user") // user, manager, admin
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // OAuth
-  yandexId      String?  @unique
-  maxId         String?  @unique
+  yandexId String? @unique
+  maxId    String? @unique
 
   // Блокировка
   blockedAt     DateTime?
   blockedReason String?
 
   // Связи
-  orders        Order[]
-  sessions      Session[]
-  articles      Article[]
-  comments      Comment[]
-  likes         Like[]
-  
+  orders   Order[]
+  sessions Session[]
+  articles Article[]
+  comments Comment[]
+  likes    Like[]
 }
 
 // ============================================================
@@ -60,24 +59,24 @@ model Article {
   id          String   @id @default(cuid())
   slug        String   @unique
   title       String
-  description String?   // Краткое описание для карточки
-  content     String   // HTML контент статьи
-  imageUrl    String?   // Главное изображение
+  description String? // Краткое описание для карточки
+  content     String // HTML контент статьи
+  imageUrl    String? // Главное изображение
   views       Int      @default(0)
   likesCount  Int      @default(0)
-  readTime    Int?     // Время чтения в минутах
+  readTime    Int? // Время чтения в минутах
   isPublished Boolean  @default(false)
   type        String   @default("swap") // swap | service
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Связи
-  authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
-  tags        ArticleTagRelation[]
-  images      ArticleImage[]
-  comments    Comment[]
-  likes       Like[]
+  authorId String
+  author   User                 @relation(fields: [authorId], references: [id])
+  tags     ArticleTagRelation[]
+  images   ArticleImage[]
+  comments Comment[]
+  likes    Like[]
 }
 
 // ============================================================
@@ -89,15 +88,15 @@ model ArticleTag {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  articles  ArticleTagRelation[]
+  articles ArticleTagRelation[]
 }
 
 model ArticleTagRelation {
-  id         String   @id @default(cuid())
-  articleId  String
-  tagId      String
-  article    Article  @relation(fields: [articleId], references: [id])
-  tag        ArticleTag @relation(fields: [tagId], references: [id])
+  id        String     @id @default(cuid())
+  articleId String
+  tagId     String
+  article   Article    @relation(fields: [articleId], references: [id])
+  tag       ArticleTag @relation(fields: [tagId], references: [id])
 
   @@unique([articleId, tagId])
 }
@@ -128,17 +127,17 @@ model Comment {
 
   // Связи
   authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User    @relation(fields: [authorId], references: [id])
   articleId String
-  article   Article  @relation(fields: [articleId], references: [id])
-  
+  article   Article @relation(fields: [articleId], references: [id])
+
   // ВЛОЖЕННОСТЬ
-  parentId  String?
-  parent    Comment? @relation("CommentHierarchy", fields: [parentId], references: [id])
-  replies   Comment[] @relation("CommentHierarchy")
+  parentId String?
+  parent   Comment?  @relation("CommentHierarchy", fields: [parentId], references: [id])
+  replies  Comment[] @relation("CommentHierarchy")
 
   likesCount Int     @default(0)
-  isHidden  Boolean  @default(false)
+  isHidden   Boolean @default(false)
 }
 
 // ============================================================
@@ -159,22 +158,32 @@ model Like {
 // ЗАКАЗЫ
 // ============================================================
 model Order {
-  id             String   @id @default(cuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id])
-  guestEmail     String?
-  guestPhone     String?
-  items          Json
-  total          Float
-  status         String   @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled
-  deliveryMethod String
-  deliveryAddress String?
-  comment        String?
-  crmOrderId     String?
-  orderNumber    String?
-  paymentId      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  guestName        String?
+  guestMiddleName  String?
+  guestEmail       String?
+  guestPhone       String?
+  customerFirstName  String?
+  customerLastName   String?
+  customerMiddleName String?
+  customerPhone      String?
+  customerEmail      String?
+  contactMethod      String   @default("phone")
+  items            Json
+  total            Float
+  status           String   @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled
+  deliveryMethod   String
+  deliveryAddress  String?
+  deliveryProvider String?
+  comment          String?
+  crmOrderId       String?  @unique
+  orderNumber      String?  @unique
+  paymentId        String?  @unique
+  crmStatusVersion Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 // ============================================================
@@ -189,8 +198,6 @@ model Service {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  
 }
 
 // ============================================================
@@ -207,14 +214,15 @@ model Cart {
   @@unique([userId])
   @@unique([guestId])
 }
+
 // ============================================================
 // НАСТРОЙКИ САЙТА
 // ============================================================
 model Setting {
-  id              String   @id @default(cuid())
-  key             String   @unique
-  value           String   @default("")
-  description     String?
-  updatedAt       DateTime @updatedAt
-  createdAt       DateTime @default(now())
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @default("")
+  description String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
 }

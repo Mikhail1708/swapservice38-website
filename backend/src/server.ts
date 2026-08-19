@@ -1,9 +1,9 @@
 // backend/src/server.ts
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import fs from 'fs';
 import path from 'path';
@@ -29,7 +29,39 @@ import csrfRoutes from './routes/csrf.routes';
 import servicesRoutes from './routes/services.routes';
 import uploadRoutes from './routes/upload.routes'; // ✅ ДОБАВЛЯЕМ
 
-dotenv.config();
+if (process.env.PAYMENT_PROVIDER !== 'mock' && process.env.PAYMENT_PROVIDER !== 'yookassa') {
+  throw new Error('PAYMENT_PROVIDER must be explicitly set to "mock" or "yookassa"');
+}
+if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_PROVIDER === 'mock') {
+  throw new Error('Mock payment provider is forbidden in production');
+}
+
+const requiredProductionSecrets = [
+  'JWT_SECRET',
+  'INTERNAL_API_KEY',
+  'WEBHOOK_SECRET',
+  'PAYMENT_PROVIDER',
+] as const;
+
+if (process.env.NODE_ENV === 'production') {
+  const paymentProvider = process.env.PAYMENT_PROVIDER;
+  const paymentSecrets = paymentProvider === 'yookassa'
+    ? ['YOO_KASSA_SHOP_ID', 'YOO_KASSA_SECRET_KEY'] as const
+    : [];
+  const missingSecrets = [...requiredProductionSecrets, ...paymentSecrets]
+    .filter((name) => !process.env[name]?.trim());
+  const usesTestPaymentKey = process.env.YOO_KASSA_SECRET_KEY?.startsWith('test_');
+  const invalidProvider = paymentProvider !== 'yookassa';
+  if (missingSecrets.length > 0 || usesTestPaymentKey || invalidProvider) {
+    throw new Error(
+      `Production security configuration is invalid: ${[
+        ...missingSecrets,
+        ...(usesTestPaymentKey ? ['YOO_KASSA_SECRET_KEY(test key)'] : []),
+        ...(invalidProvider ? ['PAYMENT_PROVIDER(mock or invalid)'] : []),
+      ].join(', ')}`
+    );
+  }
+}
 
 const app = express();
 const port = process.env.PORT || 5001;
@@ -108,11 +140,6 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
-// 4. АУТЕНТИФИКАЦИЯ
-// ============================================================
-import { authMiddleware } from './middleware/auth.middleware';
-
-// ============================================================
 // 5. SWAGGER / OPENAPI ДОКУМЕНТАЦИЯ
 // ============================================================
 try {
@@ -157,30 +184,23 @@ app.get('/api/health', (req, res) => {
 // ============================================================
 // 8. ЗАЩИЩЁННЫЕ РОУТЫ (С АВТОРИЗАЦИЕЙ)
 // ============================================================
-app.use('/api/orders', authMiddleware);
 app.use('/api/orders', orderRoutes);
 
-app.use('/api/payment', authMiddleware);
 app.use('/api/payment', paymentRoutes);
 
-app.use('/api/admin', authMiddleware);
 app.use('/api/admin', adminRoutes);
 
-app.use('/api/articles', authMiddleware);
 app.use('/api/articles', articlesRoutes);
 
-app.use('/api/comments', authMiddleware);
 app.use('/api/comments', commentsRoutes);
 
-app.use('/api/likes', authMiddleware);
 app.use('/api/likes', likesRoutes);
 
 // ============================================================
 // 9. UPLOAD — ЗАЩИЩЁННЫЙ РОУТ (С АВТОРИЗАЦИЕЙ И CSRF)
 // ============================================================
 // ✅ Роут загрузки файлов — ТОЛЬКО ДЛЯ АВТОРИЗОВАННЫХ
-// CSRF уже проверен выше, authMiddleware проверяет JWT
-app.use('/api/upload', authMiddleware);
+// CSRF уже проверен выше, uploadRoutes применяет requireAuth и проверку роли
 app.use('/api/upload', uploadRoutes);
 
 // ============================================================

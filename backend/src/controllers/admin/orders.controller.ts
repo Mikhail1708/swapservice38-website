@@ -5,11 +5,15 @@ import axios from 'axios';
 import bcrypt from 'bcrypt';
 import { log } from '../../config/logger';
 import { AppError, NotFoundError, UnauthorizedError, ForbiddenError } from '../../middleware/error.middleware';
-import { addOrderToCRMQueue, retryFailedOrders } from '../../queues/crm.queue';
+import { addOrderToCRMQueue, addUpdateToCRMQueue, retryFailedOrders } from '../../queues/crm.queue';
+import {
+  assertOrderStatusTransition,
+  InvalidOrderStatusTransitionError,
+} from '../../utils/orderStatus';
+import { buildCrmOrderPayload } from '../../services/crmOrderPayload.service';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'swapservice38_internal_secret';
 
 // ============================================================
 // GET /api/admin/orders — список заказов
@@ -29,6 +33,10 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
         { guestName: { contains: search as string, mode: 'insensitive' } },
         { guestPhone: { contains: search as string, mode: 'insensitive' } },
         { guestEmail: { contains: search as string, mode: 'insensitive' } },
+        { customerFirstName: { contains: search as string, mode: 'insensitive' } },
+        { customerLastName: { contains: search as string, mode: 'insensitive' } },
+        { customerPhone: { contains: search as string, mode: 'insensitive' } },
+        { customerEmail: { contains: search as string, mode: 'insensitive' } },
       ];
     }
 
@@ -53,7 +61,10 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
     res.json({
       orders: orders.map((o: any) => ({
         ...o,
-        customerName: o.guestName || 'Гость',
+        guestName: o.guestName || [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || 'Гость',
+        guestPhone: o.guestPhone || o.customerPhone,
+        guestEmail: o.guestEmail || o.customerEmail,
+        customerName: [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || o.guestName || 'Гость',
       })),
       total,
       page: pageNum,
@@ -78,7 +89,14 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
       throw new NotFoundError('Заказ не найден');
     }
     
-    res.json({ order });
+    res.json({
+      order: {
+        ...order,
+        guestName: order.guestName || [order.customerLastName, order.customerFirstName, order.customerMiddleName].filter(Boolean).join(' '),
+        guestPhone: order.guestPhone || order.customerPhone,
+        guestEmail: order.guestEmail || order.customerEmail,
+      },
+    });
   } catch (error: any) {
     if (error instanceof AppError) throw error;
     log.error('❌ Get order error', { error: error.message });
@@ -93,7 +111,14 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
+    const existingOrder = await prisma.order.findUnique({ where: { id } });
+    if (!existingOrder) {
+      throw new NotFoundError('Заказ не найден');
+    }
+
+    assertOrderStatusTransition(existingOrder.status, status);
+
     const order = await prisma.order.update({
       where: { id },
       data: { status },
@@ -102,6 +127,10 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     log.info(`📝 Статус заказа ${id} обновлён на ${status}`);
     res.json({ success: true, order });
   } catch (error: any) {
+    if (error instanceof AppError) throw error;
+    if (error instanceof InvalidOrderStatusTransitionError) {
+      throw new AppError(error.message, 400);
+    }
     log.error('❌ Update order status error', { error: error.message });
     throw new AppError('Ошибка обновления статуса', 500);
   }
@@ -118,6 +147,8 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
       guestPhone,
       guestEmail,
       deliveryAddress,
+      deliveryProvider,
+      contactMethod,
       comment,
       deliveryMethod,
       items,
@@ -127,6 +158,11 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
 
     const order = await prisma.order.findUnique({
       where: { id },
+      include: {
+        user: {
+          select: { firstName: true, lastName: true, middleName: true, phone: true, email: true },
+        },
+      },
     });
 
     if (!order) {
@@ -137,25 +173,6 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
       throw new AppError('Заказ ещё не синхронизирован с CRM, редактирование недоступно', 400);
     }
 
-    try {
-      const crmPayload: any = {
-        clientData: {
-          name: guestName !== undefined ? guestName : order.guestName || '',
-          phone: guestPhone !== undefined ? guestPhone : order.guestPhone || '',
-          email: guestEmail !== undefined ? guestEmail : order.guestEmail || '',
-          address: deliveryAddress !== undefined ? deliveryAddress : order.deliveryAddress || '',
-        },
-        description: comment !== undefined ? comment : order.comment || '',
-        deliveryMethod: deliveryMethod || order.deliveryMethod || 'courier',
-        items: items || order.items,
-      };
-
-      await addOrderToCRMQueue(order.id, crmPayload);
-      log.info(`📤 Обновление заказа ${id} добавлено в очередь CRM`);
-    } catch (crmError: any) {
-      log.error('❌ Ошибка обновления в CRM', { error: crmError.message });
-    }
-
     const updatedOrder = await prisma.order.update({
       where: { id },
       data: {
@@ -163,12 +180,34 @@ export const updateOrder = async (req: Request, res: Response): Promise<void> =>
         guestPhone: guestPhone !== undefined ? guestPhone : order.guestPhone,
         guestEmail: guestEmail !== undefined ? guestEmail : order.guestEmail,
         deliveryAddress: deliveryAddress !== undefined ? deliveryAddress : order.deliveryAddress,
+        deliveryProvider: deliveryProvider !== undefined ? deliveryProvider : order.deliveryProvider,
+        contactMethod: contactMethod !== undefined ? contactMethod : order.contactMethod,
         comment: comment !== undefined ? comment : order.comment,
         deliveryMethod: deliveryMethod || order.deliveryMethod,
         items: items || order.items,
         updatedAt: new Date(),
       },
     });
+
+    try {
+      const completePayload = buildCrmOrderPayload({ ...updatedOrder, user: order.user });
+      const crmPayload: any = {
+        clientData: {
+          ...completePayload.client,
+        },
+        description: completePayload.comment,
+        deliveryMethod: completePayload.deliveryMethod,
+        deliveryAddress: completePayload.deliveryAddress,
+        deliveryProvider: completePayload.deliveryProvider,
+        contactMethod: completePayload.contactMethod,
+        items: completePayload.items,
+      };
+
+      await addUpdateToCRMQueue(updatedOrder.id, order.crmOrderId, crmPayload);
+      log.info(`📤 Обновление заказа ${id} добавлено в очередь CRM`);
+    } catch (crmError: any) {
+      log.error('❌ Ошибка постановки обновления в очередь CRM', { error: crmError.message });
+    }
 
     log.info(`✅ Заказ ${id} обновлён`);
     res.json({ success: true, order: updatedOrder });
@@ -456,8 +495,9 @@ export const retryOrderToCRM = async (req: Request, res: Response): Promise<void
       source: 'website_retry'
     };
 
-    await addOrderToCRMQueue(id, orderData);
+    await addOrderToCRMQueue(id, { ...buildCrmOrderPayload(order), sourceDetail: 'website_retry' });
 
+    assertOrderStatusTransition(order.status, 'paid');
     await prisma.order.update({
       where: { id },
       data: {

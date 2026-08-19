@@ -1,17 +1,23 @@
 // backend/src/services/oauth.service.ts
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { mergeCart } from '../controllers/auth.controller';
 
 const prisma = new PrismaClient();
+
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is not configured');
+  return secret;
+};
 
 // Генерация JWT
 const generateToken = (userId: string): string => {
   return jwt.sign(
     { id: userId },
-    process.env.JWT_SECRET || 'fallback_secret',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    getJwtSecret(),
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'] }
   );
 };
 
@@ -58,7 +64,6 @@ export async function handleYandexCallback(code: string, guestId?: string) {
 
   try {
     // 1. Получаем токен доступа
-    console.log('🔄 Requesting Yandex token...');
     const tokenResponse = await axios.post(
       YANDEX_CONFIG.tokenUrl,
       new URLSearchParams({
@@ -73,7 +78,6 @@ export async function handleYandexCallback(code: string, guestId?: string) {
     );
 
     const { access_token } = tokenResponse.data;
-    console.log('✅ Yandex token received');
 
     // 2. Получаем данные пользователя
     console.log('🔄 Requesting Yandex user info...');
@@ -127,7 +131,6 @@ export async function handleYandexCallback(code: string, guestId?: string) {
 
     // 5. Генерируем JWT
     const token = generateToken(user.id);
-    console.log('🎫 JWT generated for user:', user.id);
 
     return { user, token };
   } catch (error: any) {
@@ -161,7 +164,6 @@ export async function handleMaxCallback(code: string, guestId?: string) {
 
   try {
     // 1. Получаем токен доступа
-    console.log('🔄 Requesting MAX token...');
     const tokenResponse = await axios.post(
       MAX_CONFIG.tokenUrl,
       {
@@ -179,7 +181,6 @@ export async function handleMaxCallback(code: string, guestId?: string) {
     );
 
     const { access_token } = tokenResponse.data;
-    console.log('✅ MAX token received');
 
     // 2. Получаем данные пользователя
     console.log('🔄 Requesting MAX user info...');
@@ -257,7 +258,6 @@ export async function handleMaxCallback(code: string, guestId?: string) {
 
     // 5. Генерируем JWT
     const token = generateToken(user.id);
-    console.log('🎫 JWT generated for user:', user.id);
 
     return { user, token };
   } catch (error: any) {

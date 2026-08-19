@@ -1,11 +1,20 @@
 // backend/src/services/auth.service.ts
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import redis from '@config/redis';
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeEmail } from './email.service';
 
 const prisma = new PrismaClient();
+
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is not configured');
+  return secret;
+};
+
+const jwtExpiresIn = (): SignOptions['expiresIn'] =>
+  (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
 
 // Генерация 6-значного кода
 const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -85,8 +94,8 @@ export const login = async (email: string, password: string) => {
 
   const token = jwt.sign(
     { id: user.id, email: user.email, role: user.role },
-    process.env.JWT_SECRET!,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    getJwtSecret(),
+    { expiresIn: jwtExpiresIn() }
   );
 
   return {
@@ -325,7 +334,7 @@ export const confirmResetPassword = async (
 export const generateToken = (userId: string): string => {
   return jwt.sign(
     { id: userId },
-    process.env.JWT_SECRET || 'fallback_secret',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    getJwtSecret(),
+    { expiresIn: jwtExpiresIn() }
   );
 };

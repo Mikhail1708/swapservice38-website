@@ -175,10 +175,13 @@ describe('Order Schemas', () => {
       }
     });
 
-    it('should reject empty items', () => {
+    it('should ignore client-supplied items because the server cart is authoritative', () => {
       const data = { ...validOrder, items: [] };
       const result = createOrderSchema.safeParse(data);
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).not.toHaveProperty('items');
+      }
     });
 
     it('should reject missing client', () => {

@@ -1,6 +1,7 @@
 // backend/src/services/order.service.ts (САЙТ)
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { getInternalApiKey } from '../utils/internalApiKey';
 
 const prisma = new PrismaClient();
 
@@ -53,21 +54,19 @@ export const createOrderInCRM = async (orderData: any) => {
   const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
   const url = `${CRM_API_URL}/api/sale-documents/public`;
   
-  console.log('🌐 Отправка в CRM:', url);
-  
   try {
     const response = await axios.post(url, orderData, {
       timeout: 15000,
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': getInternalApiKey(),
+      }
     });
-    
-    console.log('✅ Ответ CRM:', response.data);
     return response.data;
   } catch (error: any) {
     console.error('❌ Ошибка создания заказа в CRM:', error.message);
     if (axios.isAxiosError(error) && error.response) {
       console.error('📦 Статус:', error.response.status);
-      console.error('📦 Ответ:', error.response.data);
       throw new Error(error.response.data?.message || 'Ошибка создания заказа в CRM');
     }
     throw new Error('Ошибка создания заказа в CRM');

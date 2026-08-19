@@ -9,7 +9,7 @@ const tokenStore = new Map<string, { token: string; expiresAt: number }>();
 const TOKEN_TTL = 5 * 60 * 1000; // 5 минут
 
 // Очистка просроченных токенов
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of tokenStore) {
     if (now > entry.expiresAt) {
@@ -17,6 +17,7 @@ setInterval(() => {
     }
   }
 }, 60000);
+cleanupInterval.unref();
 
 // ============================================================
 // ГЕНЕРАЦИЯ ТОКЕНА
@@ -35,32 +36,23 @@ const getSessionId = (req: Request): string => {
 // ============================================================
 // ПУБЛИЧНЫЕ ПУТИ (БЕЗ CSRF)
 // ============================================================
-const PUBLIC_PATHS = [
+const PUBLIC_PATHS = new Set([
   '/api/webhooks',
   '/api/payment/webhook',
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/verify',
   '/api/auth/reset-password',
-  '/api/auth/request-password-change',
-  '/api/auth/confirm-password-change',
   '/api/auth/yandex',
   '/api/auth/yandex/callback',
   '/api/auth/max',
   '/api/auth/max/callback',
-  '/api/products',
-  '/api/products/categories',
-  '/api/health',
-  '/api/csrf-token',
-  '/api/cart',        // ← БЕЗ ЗВЁЗДОЧКИ
-  '/api/cart/add',    // ← ЯВНО
-  '/api/cart/update', // ← ЯВНО
-  '/api/cart/clear',  // ← ЯВНО
-  '/api/orders',      // ← ЯВНО
-];
+]);
 
 const isPublicPath = (path: string): boolean => {
-  return PUBLIC_PATHS.some(p => path.startsWith(p));
+  return PUBLIC_PATHS.has(path) ||
+    path === '/api/webhooks' ||
+    path.startsWith('/api/webhooks/');
 };
 
 // ============================================================
@@ -84,11 +76,6 @@ export const csrfMiddleware = (req: Request, res: Response, next: NextFunction) 
                 req.headers['csrf-token'] || 
                 req.headers['X-CSRF-Token'] ||
                 req.body?._csrf;
-
-  console.log('🔍 CSRF токен:', {
-    header: token ? token.substring(0, 10) + '...' : undefined,
-    body: req.body?._csrf ? req.body._csrf.substring(0, 10) + '...' : undefined,
-  });
 
   if (!token) {
     console.error('❌ CSRF токен отсутствует');
@@ -160,7 +147,6 @@ export const getCsrfToken = (req: Request, res: Response) => {
       });
     }
 
-    console.log('✅ CSRF токен сгенерирован:', token.substring(0, 10) + '...');
     res.json({ csrfToken: token });
   } catch (error) {
     console.error('❌ Ошибка генерации CSRF токена:', error);

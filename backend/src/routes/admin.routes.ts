@@ -1,6 +1,6 @@
 // backend/src/routes/admin.routes.ts
 import { Router } from 'express';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 import { requireAdmin } from '../middleware/role.middleware';
 import { log } from '../config/logger';
 
@@ -63,7 +63,7 @@ import { getCRMQueueStats, retryFailedOrders } from '../queues/crm.queue';
 const router = Router();
 
 // Все маршруты требуют авторизации
-router.use(authMiddleware);
+router.use(requireAuth);
 router.use(requireAdmin);
 
 // ===== DASHBOARD =====
