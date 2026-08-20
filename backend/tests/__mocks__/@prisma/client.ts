@@ -17,9 +17,26 @@ const mockPrisma = {
     findMany: jest.fn().mockResolvedValue([]),
     findFirst: jest.fn().mockResolvedValue({ id: 'order-id', status: 'pending' }), // ✅ ДОБАВЛЯЕМ
     update: jest.fn().mockResolvedValue({ id: 'order-id', status: 'paid' }),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     delete: jest.fn().mockResolvedValue({ id: 'order-id' }),
     deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     count: jest.fn().mockResolvedValue(0),
+  },
+  paymentAttempt: {
+    create: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
+    update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
+  outboxEvent: {
+    create: jest.fn(),
+    upsert: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
+    update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
   cart: {
     create: jest.fn().mockResolvedValue({ id: 'cart-id', items: [] }),
@@ -67,9 +84,14 @@ const mockPrisma = {
     findFirst: jest.fn().mockResolvedValue(null), // ✅ ДОБАВЛЯЕМ
     upsert: jest.fn().mockResolvedValue({ key: 'test', value: 'test' }),
   },
-  $transaction: jest.fn().mockImplementation((callback) => callback(mockPrisma)),
+  $transaction: jest.fn().mockImplementation((operation) => (
+    Array.isArray(operation) ? Promise.all(operation) : operation(mockPrisma)
+  )),
   $disconnect: jest.fn().mockResolvedValue(undefined),
 };
 
 export const PrismaClient = jest.fn(() => mockPrisma);
+export const Prisma = {
+  TransactionIsolationLevel: { Serializable: 'Serializable', ReadCommitted: 'ReadCommitted' },
+};
 export default mockPrisma;

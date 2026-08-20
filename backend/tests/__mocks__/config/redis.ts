@@ -22,6 +22,7 @@ const mockRedisClient = {
   exec: jest.fn().mockResolvedValue([]),
   multi: jest.fn().mockReturnThis(),
   call: jest.fn().mockResolvedValue('OK'),
+  eval: jest.fn().mockResolvedValue(1),
 };
 
 // Безопасные хелперы

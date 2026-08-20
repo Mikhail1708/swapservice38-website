@@ -17,6 +17,7 @@ import {
 } from '../services/auth.service';
 import { sendVerificationEmail } from '../services/email.service';
 import redis from '@config/redis';
+import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
 
@@ -310,12 +311,15 @@ export const confirmPasswordChangeController = async (req: Request, res: Respons
 // ============================================================
 
 export const requestPasswordResetController = async (req: Request, res: Response) => {
+  const genericResponse = { message: 'Если аккаунт существует, код для восстановления отправлен на почту' };
   try {
     const { email } = req.body;
-    const result = await requestPasswordReset(email);
-    res.json(result);
+    await requestPasswordReset(email);
+    res.json(genericResponse);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // Do not expose account existence or provider failures through this public endpoint.
+    log.error('Password reset request failed', { error: error.message });
+    res.json(genericResponse);
   }
 };
 

@@ -197,4 +197,32 @@ describe('Auth Controller', () => {
       expect(res.json).toHaveBeenCalled();
     });
   });
+
+  describe('requestPasswordResetController', () => {
+    const genericResponse = {
+      message: 'Если аккаунт существует, код для восстановления отправлен на почту',
+    };
+
+    it('returns the generic response on success', async () => {
+      const req = mockRequest({ email: 'user@example.com' });
+      const res = mockResponse();
+      (authService.requestPasswordReset as jest.Mock).mockResolvedValue(genericResponse);
+
+      await requestPasswordResetController(req as Request, res as Response);
+
+      expect(res.json).toHaveBeenCalledWith(genericResponse);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('returns the same generic response when the service fails', async () => {
+      const req = mockRequest({ email: 'user@example.com' });
+      const res = mockResponse();
+      (authService.requestPasswordReset as jest.Mock).mockRejectedValue(new Error('SMTP unavailable'));
+
+      await requestPasswordResetController(req as Request, res as Response);
+
+      expect(res.json).toHaveBeenCalledWith(genericResponse);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+  });
 });

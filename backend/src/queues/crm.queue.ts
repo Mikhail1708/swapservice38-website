@@ -64,7 +64,7 @@ crmQueue.process(async (job) => {
 
     // Если это последняя попытка — сохраняем как failed
     if (job.attemptsMade + 1 >= job.opts.attempts!) {
-      await markOrderAsFailed(type, data);
+      await markOrderAsFailed(type, data, error);
     }
 
     throw error;
@@ -74,13 +74,14 @@ crmQueue.process(async (job) => {
 // ============================================================
 // ОБРАБОТЧИК: СОЗДАНИЕ ЗАКАЗА
 // ============================================================
-const processCreateOrder = async (data: any) => {
+export const processCreateOrder = async (data: any) => {
   const { orderId, orderData } = data;
+  const isReservedContract = orderData?.contractVersion === 1 && typeof orderData?.reservationId === 'string';
 
   log.info(`📤 Отправка заказа ${orderId} в CRM (попытка)`);
 
   const response = await axios.post(
-    `${CRM_API_URL}/api/sale-documents/public`,
+    `${CRM_API_URL}/api/sale-documents/${isReservedContract ? `internal/v1/reservations/${encodeURIComponent(orderData.reservationId)}/consume` : 'public'}`,
     orderData,
     {
       timeout: 15000,
@@ -106,17 +107,32 @@ const processCreateOrder = async (data: any) => {
     : 0;
 
   // ✅ Обновляем заказ в БД — сохраняем crmOrderId, НО НЕ МЕНЯЕМ СТАТУС
-  await prisma.order.update({
-    where: { id: orderId },
-    data: {
-      crmOrderId: crmResult.orderId ? String(crmResult.orderId) : null,
-      orderNumber: crmResult.documentNumber || null,
-      // CRM creates website orders as confirmed. Persist its initial state and
-      // version so subsequent webhooks continue from the same source of truth.
-      status: syncedStatus,
-      crmStatusVersion: syncedVersion,
-    },
-  });
+  await prisma.$transaction([
+    prisma.order.update({
+      where: { id: orderId },
+      data: {
+        crmOrderId: crmResult.orderId ? String(crmResult.orderId) : null,
+        orderNumber: crmResult.documentNumber || null,
+        // CRM creates website orders as confirmed. Persist its initial state and
+        // version so subsequent webhooks continue from the same source of truth.
+        status: syncedStatus,
+        crmStatusVersion: syncedVersion,
+      },
+    }),
+    prisma.outboxEvent.updateMany({
+      where: {
+        aggregateId: orderId,
+        type: 'crm_order_create_requested',
+        processedAt: null,
+      },
+      data: {
+        status: 'completed',
+        processedAt: new Date(),
+        lockedAt: null,
+        lastError: null,
+      },
+    }),
+  ]);
 
   log.info(`✅ Заказ ${orderId} отправлен в CRM`, {
     crmOrderId: crmResult.orderId,
@@ -153,9 +169,70 @@ const processUpdateOrder = async (data: any) => {
 // ============================================================
 // МАРКИРОВКА ЗАКАЗА КАК FAILED
 // ============================================================
-const markOrderAsFailed = async (type: CRMJob['type'], data: any) => {
+export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?: any) => {
   try {
     if (type === 'createOrder' && data.orderId) {
+      const reservationExpired = cause?.response?.data?.code === 'RESERVATION_EXPIRED';
+      const reservedContract = data.orderData?.contractVersion === 1
+        && typeof data.orderData?.reservationId === 'string';
+      if (reservedContract) {
+        const attempt = await prisma.paymentAttempt.findUnique({ where: { orderId: data.orderId } });
+        if (!attempt?.providerPaymentId) throw new Error('Reserved order has no linked payment attempt');
+        const providerError = {
+          status: cause?.response?.status || null,
+          code: cause?.response?.data?.code || null,
+          message: String(cause?.response?.data?.message || cause?.message || 'CRM reservation consume failed').slice(0, 1000),
+        };
+        await prisma.$transaction([
+          prisma.paymentAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              status: 'compensation_required',
+              lastError: reservationExpired
+                ? 'Reservation expired before CRM consumption'
+                : `CRM reservation reconciliation required: ${providerError.message}`,
+            },
+          }),
+          prisma.order.updateMany({
+            where: { id: data.orderId, status: 'paid' },
+            data: { status: 'crm_failed', updatedAt: new Date() },
+          }),
+          prisma.outboxEvent.updateMany({
+            where: { aggregateId: data.orderId, type: 'crm_order_create_requested', processedAt: null },
+            data: {
+              status: 'completed', processedAt: new Date(), lockedAt: null,
+              lastError: 'Reservation expired; automatic refund requested',
+            },
+          }),
+          prisma.outboxEvent.upsert({
+            where: {
+              deduplicationKey: reservationExpired
+                ? `payment-refund:${attempt.providerPaymentId}`
+                : `payment-reconciliation:${attempt.providerPaymentId}`,
+            },
+            create: {
+              aggregateId: data.orderId,
+              type: reservationExpired ? 'payment_refund_requested' : 'payment_reconciliation_required',
+              deduplicationKey: reservationExpired
+                ? `payment-refund:${attempt.providerPaymentId}`
+                : `payment-reconciliation:${attempt.providerPaymentId}`,
+              payload: {
+                orderId: data.orderId,
+                paymentId: attempt.providerPaymentId,
+                amountMinor: attempt.amountMinor,
+                currency: attempt.currency,
+                reservationId: data.orderData.reservationId,
+                ...(reservationExpired ? {} : { providerError }),
+              },
+            },
+            update: {},
+          }),
+        ]);
+        log.error(reservationExpired
+          ? `Reservation expired for paid order ${data.orderId}; durable refund requested`
+          : `Reserved paid order ${data.orderId} requires durable payment reconciliation`);
+        return;
+      }
       await prisma.order.update({
         where: { id: data.orderId },
         data: {

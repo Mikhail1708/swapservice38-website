@@ -13,6 +13,7 @@ import redis from './config/redis';
 import csrfMiddleware from './middleware/csrf.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { log } from './config/logger';
+import { startCrmOutboxDispatcher, stopCrmOutboxDispatcher } from './services/crmOutbox.service';
 
 // Routes
 import authRoutes from './routes/auth.routes';
@@ -65,6 +66,14 @@ if (process.env.NODE_ENV === 'production') {
 
 const app = express();
 const port = process.env.PORT || 5001;
+
+// Trust only an explicit number of reverse-proxy hops. The default (0) uses
+// the direct socket address and cannot be bypassed with X-Forwarded-For.
+const configuredProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS || '0', 10);
+const trustProxyHops = Number.isSafeInteger(configuredProxyHops) && configuredProxyHops > 0
+  ? Math.min(configuredProxyHops, 10)
+  : 0;
+app.set('trust proxy', trustProxyHops);
 
 // ============================================================
 // 1. CORS
@@ -230,6 +239,9 @@ app.use(errorHandler);
 // 13. ЗАПУСК (ТОЛЬКО ЕСЛИ НЕ В ТЕСТАХ!)
 // ============================================================
 if (require.main === module) {
+  startCrmOutboxDispatcher();
+  process.once('SIGTERM', stopCrmOutboxDispatcher);
+  process.once('SIGINT', stopCrmOutboxDispatcher);
   app.listen(port, () => {
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log.info(`🚀 Site Backend running on port ${port}`);

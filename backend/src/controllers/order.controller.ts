@@ -5,8 +5,17 @@ import {
   sendOrderCreatedToCustomer,
   sendOrderNotificationToManager,
 } from '../services/email.service';
+import {
+  CheckoutInventoryError,
+  validateCheckoutItems,
+} from '../services/checkoutInventory.service';
+import { noStartedPaymentWhere } from '../utils/paymentSafety';
 
 const prisma = new PrismaClient();
+
+const isSerializableConflict = (error: unknown): boolean => (
+  typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034'
+);
 
 interface CartItem {
   productId: string;
@@ -182,44 +191,72 @@ export const createOrderController = async (req: Request, res: Response): Promis
     }
 
     console.log('🛒 Корзина:', cart.items.length, 'товаров');
-    const total = cart.items.reduce((sum: number, item: CartItem) => sum + (item.price * item.quantity), 0);
+    const validatedCart = await validateCheckoutItems(cart.items);
 
-    // ✅ СОЗДАЁМ ЗАКАЗ ЛОКАЛЬНО (только userId)
-    const localOrder = await prisma.order.create({
-      data: {
-        userId: userId,
-        customerFirstName: String(client.firstName).trim(),
-        customerLastName: String(client.lastName).trim(),
-        customerMiddleName: client.middleName ? String(client.middleName).trim() : null,
-        customerPhone: String(client.phone).trim(),
-        customerEmail: String(client.email).trim().toLowerCase(),
-        contactMethod: normalizedContactMethod,
-        items: cart.items as any,
-        total: total,
-        status: 'pending',
-        deliveryMethod: deliveryMethod || 'pickup',
-        deliveryAddress: deliveryAddress || null,
-        deliveryProvider: deliveryMethod === 'post' ? (deliveryProvider || null) : null,
-        comment: comment || null,
+    // Создание заказа и очистка корзины атомарны. Serializable не позволяет
+    // двум параллельным checkout-запросам создать заказы из одного snapshot.
+    let localOrder: any;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        localOrder = await prisma.$transaction(async (tx) => {
+          const currentCart = await tx.cart.findUnique({ where: { id: cart.id } });
+          const currentItems = safeItems(currentCart?.items);
+          if (!currentCart || JSON.stringify(currentItems) !== JSON.stringify(cart.items)) {
+            throw new CheckoutInventoryError(
+              'Корзина изменилась во время оформления. Повторите попытку',
+              409,
+              'CART_CHANGED',
+            );
+          }
+
+          const order = await tx.order.create({
+            data: {
+              userId: userId,
+              customerFirstName: String(client.firstName).trim(),
+              customerLastName: String(client.lastName).trim(),
+              customerMiddleName: client.middleName ? String(client.middleName).trim() : null,
+              customerPhone: String(client.phone).trim(),
+              customerEmail: String(client.email).trim().toLowerCase(),
+              contactMethod: normalizedContactMethod,
+              items: validatedCart.items as any,
+              total: validatedCart.total,
+              status: 'pending',
+              deliveryMethod: deliveryMethod || 'pickup',
+              deliveryAddress: deliveryAddress || null,
+              deliveryProvider: deliveryMethod === 'post' ? (deliveryProvider || null) : null,
+              comment: comment || null,
+            },
+          });
+
+          await tx.cart.update({
+            where: { id: cart.id },
+            data: { items: [] },
+          });
+          return order;
+        }, { isolationLevel: 'Serializable' });
+        break;
+      } catch (error) {
+        if (!isSerializableConflict(error)) throw error;
+        if (attempt === 2) {
+          throw new CheckoutInventoryError(
+            'Корзина уже оформляется другим запросом. Повторите попытку',
+            409,
+            'CHECKOUT_CONFLICT',
+          );
+        }
       }
-    });
+    }
 
     console.log('✅ Локальный заказ создан (pending):', localOrder.id);
 
-    if (cart.id) {
-      await prisma.cart.update({
-        where: { id: cart.id },
-        data: { items: [] },
-      });
-      console.log('🧹 Корзина очищена');
-    }
+    console.log('🧹 Корзина очищена');
 
     const customerName = [
       localOrder.customerFirstName,
       localOrder.customerMiddleName,
       localOrder.customerLastName,
     ].filter(Boolean).join(' ') || 'Клиент';
-    const emailItems = cart.items.map((item: CartItem) => ({
+    const emailItems = validatedCart.items.map((item: CartItem) => ({
       name: item.name || 'Товар',
       quantity: item.quantity,
       price: item.price,
@@ -263,9 +300,16 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
   } catch (error: any) {
     console.error('❌ Ошибка создания заказа:', error);
-    res.status(400).json({
-      error: error.message || 'Ошибка создания заказа'
-    });
+    if (error instanceof CheckoutInventoryError) {
+      res.status(error.status).json({
+        error: error.message,
+        code: error.code,
+        ...(error.details || {}),
+      });
+      return;
+    }
+
+    res.status(400).json({ error: error.message || 'Ошибка создания заказа' });
   }
 };
 
@@ -380,9 +424,20 @@ export const deleteOrderController = async (req: Request, res: Response): Promis
       return;
     }
 
-    await prisma.order.delete({
-      where: { id: id },
+    const deleted = await prisma.order.deleteMany({
+      where: {
+        id,
+        userId,
+        status: 'pending',
+        crmOrderId: null,
+        ...noStartedPaymentWhere,
+        createdAt: { gte: new Date(now.getTime() - 12 * 60 * 60 * 1000) },
+      },
     });
+    if (deleted.count !== 1) {
+      res.status(409).json({ error: 'Нельзя удалить заказ после начала оплаты' });
+      return;
+    }
 
     res.json({
       success: true,

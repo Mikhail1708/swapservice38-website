@@ -23,6 +23,7 @@ jest.mock('@config/redis', () => {
     exec: jest.fn().mockResolvedValue([]),
     multi: jest.fn().mockReturnThis(),
     call: jest.fn().mockResolvedValue('OK'),
+    eval: jest.fn().mockResolvedValue(1),
     status: 'ready',
     connecting: false,
     connected: true,

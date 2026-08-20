@@ -4,6 +4,11 @@ import bcrypt from 'bcrypt';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import redis from '@config/redis';
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeEmail } from './email.service';
+import {
+  checkPasswordResetCode,
+  generatePasswordResetCode,
+  issuePasswordResetCode,
+} from './passwordResetSecurity.service';
 
 const prisma = new PrismaClient();
 
@@ -278,25 +283,21 @@ export const confirmPasswordChange = async (
 // 1. Запрос кода восстановления
 export const requestPasswordReset = async (email: string) => {
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    throw new Error('Пользователь с таким email не найден');
+  const response = { message: 'Если аккаунт существует, код для восстановления отправлен на почту' };
+  if (!user?.passwordHash) return response;
+
+  const code = generatePasswordResetCode();
+  const issueResult = await issuePasswordResetCode(email, code);
+  if (issueResult === 'issued') {
+    await sendPasswordResetEmail(email, code);
   }
-
-  if (!user.passwordHash) {
-    throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
-  }
-
-  const code = generateCode();
-  await redis.setex(`reset:${email}`, 900, code);
-
-  await sendPasswordResetEmail(email, code);
-  return { message: 'Код для восстановления отправлен на почту' };
+  return response;
 };
 
 // 2. Проверка кода восстановления
 export const verifyResetCode = async (email: string, code: string) => {
-  const stored = await redis.get(`reset:${email}`);
-  if (!stored || stored !== code) {
+  const result = await checkPasswordResetCode(email, code, false);
+  if (result !== 'valid') {
     throw new Error('Неверный или просроченный код');
   }
 
@@ -309,13 +310,13 @@ export const confirmResetPassword = async (
   code: string,
   newPassword: string
 ) => {
-  const stored = await redis.get(`reset:${email}`);
-  if (!stored || stored !== code) {
-    throw new Error('Неверный или просроченный код');
-  }
-
   if (newPassword.length < 8) {
     throw new Error('Пароль должен быть минимум 8 символов');
+  }
+
+  const result = await checkPasswordResetCode(email, code, true);
+  if (result !== 'valid') {
+    throw new Error('Неверный или просроченный код');
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -323,8 +324,6 @@ export const confirmResetPassword = async (
     where: { email },
     data: { passwordHash },
   });
-
-  await redis.del(`reset:${email}`);
   return { message: 'Пароль успешно изменён' };
 };
 

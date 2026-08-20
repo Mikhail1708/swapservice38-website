@@ -235,6 +235,22 @@ export const deleteUser = async (req: Request, res: Response) => {
 
     const articleIds = userArticles.map(a => a.id);
 
+    const protectedOrder = await prisma.order.findFirst({
+      where: {
+        userId: id,
+        OR: [
+          { paymentId: { not: null } },
+          { paymentAttempts: { some: {} } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (protectedOrder) {
+      return res.status(409).json({
+        error: 'Нельзя удалить пользователя с заказами, по которым начата оплата',
+      });
+    }
+
     // ✅ УДАЛЯЕМ ВСЕ СВЯЗАННЫЕ ДАННЫЕ В ПРАВИЛЬНОМ ПОРЯДКЕ
     await prisma.$transaction([
       // 1. Удаляем связи статей с тегами

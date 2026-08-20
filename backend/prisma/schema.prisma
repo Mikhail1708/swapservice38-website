@@ -158,32 +158,78 @@ model Like {
 // ЗАКАЗЫ
 // ============================================================
 model Order {
-  id               String   @id @default(cuid())
-  userId           String
-  user             User     @relation(fields: [userId], references: [id])
-  guestName        String?
-  guestMiddleName  String?
-  guestEmail       String?
-  guestPhone       String?
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id])
+  guestName          String?
+  guestMiddleName    String?
+  guestEmail         String?
+  guestPhone         String?
   customerFirstName  String?
   customerLastName   String?
   customerMiddleName String?
   customerPhone      String?
   customerEmail      String?
-  contactMethod      String   @default("phone")
-  items            Json
-  total            Float
-  status           String   @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled
-  deliveryMethod   String
-  deliveryAddress  String?
-  deliveryProvider String?
-  comment          String?
-  crmOrderId       String?  @unique
-  orderNumber      String?  @unique
-  paymentId        String?  @unique
-  crmStatusVersion Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  contactMethod      String           @default("phone")
+  items              Json
+  total              Float
+  status             String           @default("pending") // pending | paid | confirmed | assembling | shipped | delivered | cancelled
+  deliveryMethod     String
+  deliveryAddress    String?
+  deliveryProvider   String?
+  comment            String?
+  crmOrderId         String?          @unique
+  orderNumber        String?          @unique
+  paymentId          String?          @unique
+  crmStatusVersion   Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  paymentAttempts    PaymentAttempt[]
+}
+
+// Durable record created before any external payment-provider call. It keeps an
+// order non-deletable while the outcome of that call is pending or unknown.
+model PaymentAttempt {
+  id                       String    @id @default(cuid())
+  orderId                  String    @unique
+  order                    Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider                 String
+  idempotencyKey           String    @unique
+  providerPaymentId        String?   @unique
+  reservationId            String?   @unique
+  reservationExpiresAt     DateTime?
+  amountMinor              Int
+  currency                 String    @default("RUB")
+  status                   String    @default("initiating")
+  providerRequestStartedAt DateTime?
+  providerConfirmedAt      DateTime?
+  lastCheckedAt            DateTime?
+  lastError                String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+// Transactional outbox for side effects that must follow a committed payment.
+// aggregateId intentionally has no FK so a dispatched event remains auditable.
+model OutboxEvent {
+  id               String    @id @default(cuid())
+  aggregateId      String
+  type             String
+  deduplicationKey String    @unique
+  payload          Json
+  status           String    @default("pending")
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now())
+  lockedAt         DateTime?
+  processedAt      DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([aggregateId, type])
 }
 
 // ============================================================

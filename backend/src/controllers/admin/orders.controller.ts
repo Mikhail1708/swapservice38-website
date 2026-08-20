@@ -11,6 +11,7 @@ import {
   InvalidOrderStatusTransitionError,
 } from '../../utils/orderStatus';
 import { buildCrmOrderPayload } from '../../services/crmOrderPayload.service';
+import { noStartedPaymentWhere } from '../../utils/paymentSafety';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -249,9 +250,12 @@ export const deleteOrder = async (req: Request, res: Response): Promise<void> =>
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);
     }
 
-    await prisma.order.delete({
-      where: { id },
+    const deleted = await prisma.order.deleteMany({
+      where: { id, ...noStartedPaymentWhere },
     });
+    if (deleted.count !== 1) {
+      throw new AppError('Нельзя удалить заказ после начала оплаты', 409);
+    }
 
     log.info(`🗑️ Заказ ${id} удалён`);
     res.json({ success: true, message: 'Заказ удалён' });
@@ -292,6 +296,7 @@ export const massDeleteOrders = async (req: Request, res: Response): Promise<voi
         status: {
           in: allowedStatuses,
         },
+        ...noStartedPaymentWhere,
       },
     });
     
@@ -360,6 +365,7 @@ export const massDeleteOrdersWithPassword = async (req: Request, res: Response):
         status: {
           in: allowedStatuses,
         },
+        ...noStartedPaymentWhere,
       },
     });
     
@@ -433,9 +439,12 @@ export const deleteOrderWithPassword = async (req: Request, res: Response): Prom
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);
     }
 
-    await prisma.order.delete({
-      where: { id },
+    const deleted = await prisma.order.deleteMany({
+      where: { id, ...noStartedPaymentWhere },
     });
+    if (deleted.count !== 1) {
+      throw new AppError('Нельзя удалить заказ после начала оплаты', 409);
+    }
 
     log.info(`🗑️ Заказ ${id} удалён пользователем ${userId}`);
     res.json({
@@ -495,7 +504,19 @@ export const retryOrderToCRM = async (req: Request, res: Response): Promise<void
       source: 'website_retry'
     };
 
-    await addOrderToCRMQueue(id, { ...buildCrmOrderPayload(order), sourceDetail: 'website_retry' });
+    const attempt = await prisma.paymentAttempt.findUnique({ where: { orderId: id } });
+    const retryPayload = attempt?.reservationId && order.paymentId
+      ? {
+          ...buildCrmOrderPayload(order),
+          reservationId: attempt.reservationId,
+          paymentId: order.paymentId,
+          paidAmountMinor: attempt.amountMinor,
+          currency: attempt.currency,
+          contractVersion: 1,
+          sourceDetail: 'website_retry',
+        }
+      : { ...buildCrmOrderPayload(order), sourceDetail: 'website_retry' };
+    await addOrderToCRMQueue(id, retryPayload);
 
     assertOrderStatusTransition(order.status, 'paid');
     await prisma.order.update({

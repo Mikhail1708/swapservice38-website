@@ -27,6 +27,10 @@ import {
   resendVerificationController,
 } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
+import {
+  passwordResetAttemptLimiter,
+  passwordResetRequestLimiter,
+} from '../middleware/passwordResetLimiter.middleware';
 import * as oauthService from '../services/oauth.service';
 import { log } from '../config/logger';
 
@@ -61,9 +65,9 @@ router.post('/confirm-password-change', requireAuth, confirmPasswordChangeContro
 // ВОССТАНОВЛЕНИЕ ПАРОЛЯ (ПУБЛИЧНЫЕ ЭНДПОИНТЫ, С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/reset-password/request', validate(resetPasswordRequestSchema), requestPasswordResetController);
-router.post('/reset-password/verify', validate(resetPasswordVerifySchema), verifyResetCodeController);
-router.post('/reset-password/confirm', validate(resetPasswordConfirmSchema), confirmResetPasswordController);
+router.post('/reset-password/request', passwordResetRequestLimiter, validate(resetPasswordRequestSchema), requestPasswordResetController);
+router.post('/reset-password/verify', passwordResetAttemptLimiter, validate(resetPasswordVerifySchema), verifyResetCodeController);
+router.post('/reset-password/confirm', passwordResetAttemptLimiter, validate(resetPasswordConfirmSchema), confirmResetPasswordController);
 
 // ============================================================
 // OAuth: ЯНДЕКС (БЕЗ ВАЛИДАЦИИ — ПЕРЕНАПРАВЛЕНИЕ)

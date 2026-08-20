@@ -1,10 +1,13 @@
 import { Request, Response } from 'express';
+import axios from 'axios';
 import {
   completeMockPaymentController,
   confirmPaymentController,
   createPaymentController,
 } from '../../src/controllers/payment.controller';
 import { resetMockPaymentsForTests } from '../../src/services/payment.service';
+
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 let storedOrder: any;
 
@@ -26,6 +29,8 @@ jest.mock('@prisma/client', () => {
       }),
     },
     cart: { update: jest.fn().mockResolvedValue({}) },
+    paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
+    $transaction: jest.fn((callback: any) => callback(prisma)),
   };
   return { PrismaClient: jest.fn(() => prisma) };
 });
@@ -47,6 +52,26 @@ jest.mock('../../src/queues/crm.queue', () => ({
 jest.mock('../../src/services/email.service', () => ({
   sendOrderConfirmationToCustomer: jest.fn().mockResolvedValue(true),
   sendOrderNotificationToManager: jest.fn().mockResolvedValue(true),
+}));
+jest.mock('../../src/services/paymentAttempt.service', () => ({
+  PaymentPreparationError: class PaymentPreparationError extends Error {},
+  getOrCreatePaymentAttempt: jest.fn(async (order: any) => ({
+    id: 'attempt-1', amountMinor: Math.round(order.total * 100), currency: 'RUB',
+    idempotencyKey: 'attempt-key', reservationId: 'reservation-1', providerPaymentId: null,
+  })),
+  ensureCrmReservation: jest.fn(async (_order: any, attempt: any) => attempt),
+  markProviderRequestStarted: jest.fn().mockResolvedValue({}),
+  bindProviderPaymentToOrder: jest.fn(async (_attemptId: string, _orderId: string, paymentId: string) => {
+    storedOrder = { ...storedOrder, paymentId };
+  }),
+  markProviderOutcomeUnknown: jest.fn().mockResolvedValue({}),
+  markPaymentAttemptCanceled: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../src/services/crmOutbox.service', () => ({
+  ensureCrmCreateOutboxEvent: jest.fn().mockResolvedValue({ id: 'event-1' }),
+  dispatchCrmOutboxEvent: jest.fn().mockResolvedValue(true),
+  ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
+  dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
 }));
 
 const response = () => ({
@@ -81,6 +106,16 @@ describe('local mock payment flow', () => {
       guestEmail: 'customer@example.com',
       guestPhone: '+79990000000',
     };
+    mockedAxios.get.mockResolvedValue({
+      data: {
+        id: 1,
+        name: 'Product',
+        price: 1250.5,
+        stock: 5,
+        sku: 'SKU-1',
+        images: [],
+      },
+    });
   });
 
   it('moves pending to succeeded explicitly and confirms through authoritative status', async () => {
@@ -135,9 +170,10 @@ describe('local mock payment flow', () => {
     } as unknown as Request, repeatedConfirmRes);
     expect(repeatedConfirmRes.body).toMatchObject({ alreadyProcessed: true });
 
-    const crmQueue = jest.requireMock('../../src/queues/crm.queue');
+    const crmOutbox = jest.requireMock('../../src/services/crmOutbox.service');
     const email = jest.requireMock('../../src/services/email.service');
-    expect(crmQueue.addOrderToCRMQueue).toHaveBeenCalledTimes(1);
+    expect(crmOutbox.ensureCrmCreateOutboxEvent).toHaveBeenCalledTimes(1);
+    expect(crmOutbox.dispatchCrmOutboxEvent).toHaveBeenCalledTimes(1);
     expect(email.sendOrderConfirmationToCustomer).toHaveBeenCalledTimes(1);
     expect(email.sendOrderNotificationToManager).toHaveBeenCalledTimes(1);
   });

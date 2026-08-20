@@ -10,8 +10,28 @@ import {
   completeMockPayment,
   getPaymentProvider,
 } from '../services/payment.service';
+import { CheckoutInventoryError } from '../services/checkoutInventory.service';
+import { PaymentPreparationError } from '../services/paymentAttempt.service';
 
 const prisma = new PrismaClient();
+
+const matchesDurablePaymentAttempt = (order: any, payment: any, amountMinor: number): boolean => {
+  const attempt = order.paymentAttempts?.[0];
+  if (!attempt) return true; // Backward-compatible handling for pre-migration payments.
+  return attempt.providerPaymentId === payment?.id
+    && attempt.amountMinor === amountMinor
+    && attempt.currency === payment?.amount?.currency
+    && (!attempt.reservationId || payment?.metadata?.reservationId === attempt.reservationId);
+};
+
+const matchesUnboundPaymentAttempt = (attempt: any, payment: any, amountMinor: number): boolean => (
+  attempt
+  && !attempt.providerPaymentId
+  && attempt.amountMinor === amountMinor
+  && attempt.currency === payment?.amount?.currency
+  && typeof attempt.reservationId === 'string'
+  && payment?.metadata?.reservationId === attempt.reservationId
+);
 
 // ============================================================
 // POST /api/payment/create — СОЗДАНИЕ ПЛАТЕЖА
@@ -40,6 +60,7 @@ export const createPaymentController = async (req: Request, res: Response): Prom
         id: orderId,
         userId: userId,
       },
+      include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
 
     if (!order) {
@@ -81,6 +102,18 @@ export const createPaymentController = async (req: Request, res: Response): Prom
     });
   } catch (error: any) {
     console.error('❌ Ошибка создания платежа:', error);
+    if (error instanceof CheckoutInventoryError) {
+      res.status(error.status).json({
+        error: error.message,
+        code: error.code,
+        ...(error.details || {}),
+      });
+      return;
+    }
+    if (error instanceof PaymentPreparationError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
     res.status(400).json({ error: error.message || 'Ошибка создания платежа' });
   }
 };
@@ -111,6 +144,7 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
         id: orderId,
         userId: userId,
       },
+      include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
 
     if (!order) {
@@ -154,7 +188,8 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
       payment?.amount?.currency !== 'RUB' ||
       !Number.isSafeInteger(paymentAmountCents) ||
       paymentAmountCents !== orderAmountCents ||
-      payment?.metadata?.orderId !== order.id
+      payment?.metadata?.orderId !== order.id ||
+      !matchesDurablePaymentAttempt(order, payment, paymentAmountCents)
     ) {
       res.status(409).json({
         error: 'Платёж не подтверждён или его данные не соответствуют заказу',
@@ -200,25 +235,69 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
       return;
     }
 
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
-    if (!order || !order.paymentId || order.paymentId !== payment.id) {
+    let order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    if (!order) {
+      res.status(409).json({ error: 'Payment is not linked to the order' });
+      return;
+    }
+
+    const paymentAmountValue = payment?.amount?.value;
+    const hasValidPaymentAmount = typeof paymentAmountValue === 'string'
+      && /^\d+(?:\.\d{1,2})?$/.test(paymentAmountValue);
+    const paymentAmountCents = hasValidPaymentAmount
+      ? Math.round(Number(paymentAmountValue) * 100)
+      : NaN;
+
+    // Recover the exact crash window after YooKassa created the payment but
+    // before its id was bound locally. The provider response is authoritative,
+    // and the immutable reservation/amount facts prevent cross-order binding.
+    const unboundAttempt = order.paymentAttempts?.[0];
+    if (
+      !order.paymentId
+      && matchesUnboundPaymentAttempt(unboundAttempt, payment, paymentAmountCents)
+    ) {
+      const linked = await prisma.$transaction(async tx => {
+        const attemptResult = await tx.paymentAttempt.updateMany({
+          where: { id: unboundAttempt.id, providerPaymentId: null },
+          data: {
+            providerPaymentId: payment.id,
+            status: payment.status === 'succeeded' ? 'succeeded' : payment.status === 'canceled' ? 'canceled' : 'pending',
+            lastCheckedAt: new Date(),
+          },
+        });
+        if (attemptResult.count !== 1) return false;
+        const orderResult = await tx.order.updateMany({
+          where: { id: order!.id, paymentId: null },
+          data: { paymentId: payment.id },
+        });
+        if (orderResult.count !== 1) throw new Error('Concurrent payment binding conflict');
+        return true;
+      });
+      if (linked) {
+        order = {
+          ...order,
+          paymentId: payment.id,
+          paymentAttempts: [{ ...unboundAttempt, providerPaymentId: payment.id }],
+        };
+      }
+    }
+
+    if (!order.paymentId || order.paymentId !== payment.id) {
       res.status(409).json({ error: 'Payment is not linked to the order' });
       return;
     }
 
     if (payment.status === 'succeeded') {
-      const paymentAmountValue = payment?.amount?.value;
-      const hasValidPaymentAmount = typeof paymentAmountValue === 'string'
-        && /^\d+(?:\.\d{1,2})?$/.test(paymentAmountValue);
-      const paymentAmountCents = hasValidPaymentAmount
-        ? Math.round(Number(paymentAmountValue) * 100)
-        : NaN;
       const orderAmountCents = Math.round(order.total * 100);
 
       if (
         payment?.amount?.currency !== 'RUB' ||
         !Number.isSafeInteger(paymentAmountCents) ||
-        paymentAmountCents !== orderAmountCents
+        paymentAmountCents !== orderAmountCents ||
+        !matchesDurablePaymentAttempt(order, payment, paymentAmountCents)
       ) {
         res.status(409).json({ error: 'Payment amount does not match the order' });
         return;

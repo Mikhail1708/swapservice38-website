@@ -9,6 +9,12 @@ import {
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { safeRedis } from '../../../src/config/redis';
+import {
+  assertCheckoutSnapshotStillCurrent,
+  CheckoutInventoryError,
+} from '../../../src/services/checkoutInventory.service';
+import { ensureCrmCreateOutboxEvent } from '../../../src/services/crmOutbox.service';
+import { ensureCrmReservation } from '../../../src/services/paymentAttempt.service';
 
 // ============================================================
 // МОКИ
@@ -23,7 +29,10 @@ jest.mock('@prisma/client', () => {
     cart: {
       update: jest.fn(),
     },
+    paymentAttempt: { update: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
+    $transaction: jest.fn(),
   };
+  mockPrisma.$transaction.mockImplementation((callback: any) => callback(mockPrisma));
   return {
     PrismaClient: jest.fn(() => mockPrisma),
   };
@@ -40,10 +49,35 @@ jest.mock('../../../src/services/email.service', () => ({
   sendOrderConfirmationToCustomer: jest.fn().mockResolvedValue(true),
   sendOrderNotificationToManager: jest.fn().mockResolvedValue(true),
 }));
+jest.mock('../../../src/services/checkoutInventory.service', () => {
+  const actual = jest.requireActual('../../../src/services/checkoutInventory.service');
+  return { ...actual, assertCheckoutSnapshotStillCurrent: jest.fn() };
+});
+jest.mock('../../../src/services/paymentAttempt.service', () => ({
+  PaymentPreparationError: class PaymentPreparationError extends Error {},
+  getOrCreatePaymentAttempt: jest.fn(async (order: any) => ({
+    id: 'attempt-1', amountMinor: Math.round(order.total * 100), currency: 'RUB',
+    idempotencyKey: 'attempt-key', reservationId: 'reservation-1', providerPaymentId: null,
+  })),
+  ensureCrmReservation: jest.fn(async (_order: any, attempt: any) => attempt),
+  markProviderRequestStarted: jest.fn().mockResolvedValue({}),
+  bindProviderPaymentToOrder: jest.fn().mockResolvedValue([]),
+  markProviderOutcomeUnknown: jest.fn().mockResolvedValue({}),
+  markPaymentAttemptCanceled: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../../src/services/crmOutbox.service', () => ({
+  ensureCrmCreateOutboxEvent: jest.fn().mockResolvedValue({ id: 'event-1' }),
+  dispatchCrmOutboxEvent: jest.fn().mockResolvedValue(true),
+  ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
+  dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
+}));
 
 const mockAxios = axios as jest.Mocked<typeof axios>;
 const mockPrisma = new PrismaClient() as jest.Mocked<PrismaClient>;
 const mockRedis = safeRedis as jest.Mocked<typeof safeRedis>;
+const mockedAssertCheckoutSnapshotStillCurrent = assertCheckoutSnapshotStillCurrent as jest.Mock;
+const mockedEnsureCrmCreateOutboxEvent = ensureCrmCreateOutboxEvent as jest.Mock;
+const mockedEnsureCrmReservation = ensureCrmReservation as jest.Mock;
 
 describe('Payment Service', () => {
   beforeEach(() => {
@@ -53,6 +87,7 @@ describe('Payment Service', () => {
     process.env.CLIENT_URL = 'http://localhost:3001';
     process.env.CRM_API_URL = 'http://localhost:5000';
     process.env.PAYMENT_PROVIDER = 'mock';
+    mockedAssertCheckoutSnapshotStillCurrent.mockResolvedValue(undefined);
     
     // ✅ ПРАВИЛЬНЫЙ МОК ДЛЯ REDIS
     mockRedis.get = jest.fn().mockResolvedValue(null);
@@ -103,6 +138,44 @@ describe('Payment Service', () => {
         await expect(createPayment('order-1', 'http://localhost:3001/success')).rejects.toThrow(
           'Заказ уже оплачен'
         );
+      });
+
+      it('should not create payment when inventory changed after order creation', async () => {
+        (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+          id: 'order-1',
+          total: 1000,
+          items: [{ productId: '1', name: 'Product', quantity: 1, price: 1000 }],
+          status: 'pending',
+          paymentId: null,
+        });
+        mockedAssertCheckoutSnapshotStillCurrent.mockRejectedValue(new CheckoutInventoryError(
+          'Недостаточно товара',
+          409,
+          'INSUFFICIENT_STOCK',
+        ));
+
+        await expect(createPayment('order-1', 'http://localhost:3001/success'))
+          .rejects.toMatchObject({ code: 'INSUFFICIENT_STOCK', status: 409 });
+        expect(mockPrisma.order.update).not.toHaveBeenCalled();
+      });
+
+      it('should revalidate inventory before returning an existing pending payment', async () => {
+        (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+          id: 'order-1',
+          total: 1000,
+          items: [{ productId: '1', name: 'Product', quantity: 1, price: 1000 }],
+          status: 'pending',
+          paymentId: 'payment-1',
+        });
+        mockedAssertCheckoutSnapshotStillCurrent.mockRejectedValue(new CheckoutInventoryError(
+          'Цена изменилась',
+          409,
+          'ORDER_PRICE_CHANGED',
+        ));
+
+        await expect(createPayment('order-1', 'http://localhost:3001/success'))
+          .rejects.toMatchObject({ code: 'ORDER_PRICE_CHANGED' });
+        expect(mockAxios.get).not.toHaveBeenCalled();
       });
     });
   });
@@ -346,7 +419,7 @@ describe('Payment Service', () => {
       expect(result).toHaveProperty('status', 'waiting_for_capture');
     });
 
-    it('should skip if order already processed', async () => {
+    it('does not trust Redis processed marker over durable PostgreSQL state', async () => {
       const event = {
         object: {
           id: 'pay-123',
@@ -366,7 +439,10 @@ describe('Payment Service', () => {
 
       const result = await handlePaymentWebhook(event);
 
-      expect(result).toHaveProperty('alreadyProcessed', true);
+      expect(result).toHaveProperty('status', 'paid');
+      expect(mockPrisma.order.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'order-1' },
+      }));
     });
   });
 
@@ -403,25 +479,29 @@ describe('Payment Service', () => {
       expect(result).toHaveProperty('success', true);
       expect(result).toHaveProperty('status', 'paid');
       expect(mockPrisma.order.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockedEnsureCrmCreateOutboxEvent).toHaveBeenCalled();
       expect(mockPrisma.cart.update).toHaveBeenCalled();
     });
 
-    it('should skip if order already processing', async () => {
+    it('does not acknowledge an ephemeral Redis processing lock', async () => {
       mockRedis.get = jest.fn().mockResolvedValue('true');
 
       const result = await handlePaymentSuccess('order-1');
 
-      expect(result).toHaveProperty('alreadyProcessing', true);
+      expect(result).toHaveProperty('status', 'paid');
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
 
-    it('should skip if order already processed', async () => {
+    it('repairs durable processing even when Redis says already processed', async () => {
       mockRedis.get = jest.fn()
         .mockResolvedValueOnce(null)  // lockKey
         .mockResolvedValueOnce('true'); // processedKey
 
       const result = await handlePaymentSuccess('order-1');
 
-      expect(result).toHaveProperty('alreadyProcessed', true);
+      expect(result).toHaveProperty('status', 'paid');
+      expect(mockedEnsureCrmCreateOutboxEvent).toHaveBeenCalled();
     });
 
     it('should throw error if order not found', async () => {
@@ -442,6 +522,38 @@ describe('Payment Service', () => {
       const result = await handlePaymentSuccess('order-1');
 
       expect(result).toHaveProperty('alreadyProcessed', true);
+    });
+
+    it('reserves stock before fulfilling a payment that was pending during rollout', async () => {
+      const legacyAttempt = {
+        id: 'legacy_order-1', providerPaymentId: 'pay-legacy', reservationId: null,
+        amountMinor: 100_000, currency: 'RUB',
+      };
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        paymentId: 'pay-legacy',
+        paymentAttempts: [legacyAttempt],
+      });
+      mockedEnsureCrmReservation.mockResolvedValueOnce({
+        ...legacyAttempt,
+        reservationId: 'reservation-legacy',
+      });
+      (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.cart.update as jest.Mock).mockResolvedValue({});
+
+      await handlePaymentSuccess('order-1');
+
+      expect(mockedEnsureCrmReservation).toHaveBeenCalled();
+      expect(mockedEnsureCrmCreateOutboxEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        'order-1',
+        expect.objectContaining({
+          contractVersion: 1,
+          reservationId: 'reservation-legacy',
+          paymentId: 'pay-legacy',
+        }),
+      );
     });
   });
 
