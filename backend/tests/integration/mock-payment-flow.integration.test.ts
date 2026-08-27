@@ -11,6 +11,20 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 let storedOrder: any;
 
+type MockCrmOutboxEvent = {
+  id: string;
+  status: 'pending' | 'processing' | 'dispatched' | 'completed';
+  attempts: number;
+  processedAt: Date | null;
+};
+
+let mockCrmOutboxEvent: MockCrmOutboxEvent | null;
+let mockCrmOutboxCreatedCount: number;
+let mockCrmDispatchAttemptCount: number;
+let mockCrmOutboxClaimCount: number;
+let mockCrmDispatchSideEffectCount: number;
+let mockCrmOutboxStatusHistory: MockCrmOutboxEvent['status'][];
+
 jest.mock('@prisma/client', () => {
   const prisma = {
     order: {
@@ -67,12 +81,74 @@ jest.mock('../../src/services/paymentAttempt.service', () => ({
   markProviderOutcomeUnknown: jest.fn().mockResolvedValue({}),
   markPaymentAttemptCanceled: jest.fn().mockResolvedValue(undefined),
 }));
-jest.mock('../../src/services/crmOutbox.service', () => ({
-  ensureCrmCreateOutboxEvent: jest.fn().mockResolvedValue({ id: 'event-1' }),
-  dispatchCrmOutboxEvent: jest.fn().mockResolvedValue(true),
-  ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
-  dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
-}));
+jest.mock('../../src/services/crmOutbox.service', () => {
+  const resetCrmOutbox = () => {
+    mockCrmOutboxEvent = null;
+    mockCrmOutboxCreatedCount = 0;
+    mockCrmDispatchAttemptCount = 0;
+    mockCrmOutboxClaimCount = 0;
+    mockCrmDispatchSideEffectCount = 0;
+    mockCrmOutboxStatusHistory = [];
+  };
+
+  return {
+    ensureCrmCreateOutboxEvent: jest.fn(async () => {
+      if (!mockCrmOutboxEvent) {
+        mockCrmOutboxEvent = {
+          id: 'event-1',
+          status: 'pending',
+          attempts: 0,
+          processedAt: null,
+        };
+        mockCrmOutboxCreatedCount += 1;
+        mockCrmOutboxStatusHistory.push('pending');
+      }
+      return mockCrmOutboxEvent;
+    }),
+    dispatchCrmOutboxEvent: jest.fn(async (eventId: string) => {
+      mockCrmDispatchAttemptCount += 1;
+      if (!mockCrmOutboxEvent
+        || mockCrmOutboxEvent.id !== eventId
+        || mockCrmOutboxEvent.status !== 'pending') {
+        return false;
+      }
+
+      mockCrmOutboxEvent.status = 'processing';
+      mockCrmOutboxEvent.attempts += 1;
+      mockCrmOutboxClaimCount += 1;
+      mockCrmOutboxStatusHistory.push('processing');
+
+      // Models the one durable side effect accepted by Bull. The worker marks
+      // the outbox event completed separately after CRM commits the order.
+      mockCrmDispatchSideEffectCount += 1;
+      mockCrmOutboxEvent.status = 'dispatched';
+      mockCrmOutboxStatusHistory.push('dispatched');
+      return true;
+    }),
+    completeCrmOutboxEvent: (eventId: string) => {
+      if (!mockCrmOutboxEvent
+        || mockCrmOutboxEvent.id !== eventId
+        || mockCrmOutboxEvent.status !== 'dispatched') {
+        return false;
+      }
+      mockCrmOutboxEvent.status = 'completed';
+      mockCrmOutboxEvent.processedAt = new Date();
+      mockCrmOutboxStatusHistory.push('completed');
+      return true;
+    },
+    getCrmOutboxState: () => ({
+      event: mockCrmOutboxEvent ? { ...mockCrmOutboxEvent } : null,
+      createdCount: mockCrmOutboxCreatedCount,
+      dispatchAttemptCount: mockCrmDispatchAttemptCount,
+      claimCount: mockCrmOutboxClaimCount,
+      dispatchSideEffectCount: mockCrmDispatchSideEffectCount,
+      statusHistory: [...mockCrmOutboxStatusHistory],
+    }),
+    resetCrmOutbox,
+    ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
+    dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
+  };
+});
 
 const response = () => ({
   statusCode: 200,
@@ -90,6 +166,7 @@ const response = () => ({
 describe('local mock payment flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.requireMock('../../src/services/crmOutbox.service').resetCrmOutbox();
     process.env.NODE_ENV = 'test';
     process.env.PAYMENT_PROVIDER = 'mock';
     resetMockPaymentsForTests();
@@ -172,8 +249,25 @@ describe('local mock payment flow', () => {
 
     const crmOutbox = jest.requireMock('../../src/services/crmOutbox.service');
     const email = jest.requireMock('../../src/services/email.service');
-    expect(crmOutbox.ensureCrmCreateOutboxEvent).toHaveBeenCalledTimes(1);
-    expect(crmOutbox.dispatchCrmOutboxEvent).toHaveBeenCalledTimes(1);
+    expect(crmOutbox.getCrmOutboxState()).toMatchObject({
+      event: { id: 'event-1', status: 'dispatched', attempts: 1, processedAt: null },
+      createdCount: 1,
+      dispatchAttemptCount: 2,
+      claimCount: 1,
+      dispatchSideEffectCount: 1,
+      statusHistory: ['pending', 'processing', 'dispatched'],
+    });
+
+    expect(crmOutbox.completeCrmOutboxEvent('event-1')).toBe(true);
+    expect(crmOutbox.completeCrmOutboxEvent('event-1')).toBe(false);
+    expect(crmOutbox.getCrmOutboxState()).toMatchObject({
+      event: { id: 'event-1', status: 'completed', attempts: 1 },
+      createdCount: 1,
+      dispatchAttemptCount: 2,
+      claimCount: 1,
+      dispatchSideEffectCount: 1,
+      statusHistory: ['pending', 'processing', 'dispatched', 'completed'],
+    });
     expect(email.sendOrderConfirmationToCustomer).toHaveBeenCalledTimes(1);
     expect(email.sendOrderNotificationToManager).toHaveBeenCalledTimes(1);
   });
