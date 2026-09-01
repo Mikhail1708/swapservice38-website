@@ -3,6 +3,7 @@ jest.unmock('@queues/crm.queue');
 import crmQueue, {
   addOrderToCRMQueue,
   addUpdateToCRMQueue,
+  getCrmQueueRedisOptions,
   markOrderAsFailed,
   processCreateOrder,
 } from '../../../src/queues/crm.queue';
@@ -18,6 +19,18 @@ describe('CRM queue idempotency', () => {
     jest.clearAllMocks();
     queue.getJob.mockResolvedValue(null);
     queue.add.mockResolvedValue({ id: 'queued-job' });
+  });
+
+  it('passes the configured Redis password to Bull', () => {
+    const previousPassword = process.env.REDIS_PASSWORD;
+    process.env.REDIS_PASSWORD = 'redis-test-password';
+    expect(getCrmQueueRedisOptions()).toEqual(expect.objectContaining({
+      host: process.env.REDIS_HOST || 'localhost',
+      password: 'redis-test-password',
+      connectTimeout: 5000,
+    }));
+    if (previousPassword === undefined) delete process.env.REDIS_PASSWORD;
+    else process.env.REDIS_PASSWORD = previousPassword;
   });
 
   it('uses a deterministic create job id and adds the external order id', async () => {
@@ -60,6 +73,21 @@ describe('CRM queue idempotency', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  it('recreates a completed deterministic job only for explicit reconciliation replay', async () => {
+    const existingJob = {
+      id: 'existing', isFailed: jest.fn().mockResolvedValue(false),
+      isCompleted: jest.fn().mockResolvedValue(true), remove: jest.fn().mockResolvedValue(undefined),
+    };
+    queue.getJob.mockResolvedValue(existingJob);
+
+    await addOrderToCRMQueue('site-order-1', {}, { replayCompleted: true });
+
+    expect(existingJob.remove).toHaveBeenCalledTimes(1);
+    expect(queue.add).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      jobId: 'crm-create-site-order-1',
+    }));
+  });
+
   it('routes reserved paid orders only to the versioned consume contract', async () => {
     mockedAxios.post.mockResolvedValueOnce({ data: {
       orderId: 42,
@@ -76,25 +104,126 @@ describe('CRM queue idempotency', () => {
       currency: 'RUB',
       items: [{ productId: 1, quantity: 1 }],
     };
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'site-order-1', status: 'crm_failed', crmOrderId: null, crmStatusVersion: 0,
+    });
+    prisma.paymentAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', orderId: 'site-order-1', providerPaymentId: 'payment-1',
+      status: 'compensation_required',
+    });
+    prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 2 });
 
     await processCreateOrder({ orderId: 'site-order-1', orderData });
 
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function), { maxWait: 5_000, timeout: 10_000 },
+    );
     expect(mockedAxios.post).toHaveBeenCalledWith(
       expect.stringContaining('/api/sale-documents/internal/v1/reservations/reservation%2F1/consume'),
       orderData,
       expect.objectContaining({ headers: expect.objectContaining({ 'X-API-Key': expect.any(String) }) }),
     );
     expect(mockedAxios.post.mock.calls[0][0]).not.toContain('/public');
+    expect(prisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ['succeeded', 'compensation_required'] } }),
+      data: expect.objectContaining({ status: 'succeeded', lastError: null }),
+    }));
+    expect(prisma.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] },
+      }),
+      data: expect.objectContaining({ status: 'completed' }),
+    }));
+  });
+
+  it('stops a legacy create before HTTP when cancellation won before handoff', async () => {
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'site-order-legacy', status: 'paid', crmOrderId: null,
+      cancellationState: 'requested', cancellationRequestedAt: new Date(),
+      cancellationReason: 'customer_request', crmStatusVersion: 0,
+    });
+    prisma.paymentAttempt.findUnique.mockResolvedValueOnce(null);
+    prisma.outboxEvent.findUnique.mockResolvedValueOnce(null);
+    prisma.order.update.mockResolvedValueOnce({ id: 'site-order-legacy', status: 'cancelled' });
+    prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(processCreateOrder({
+      orderId: 'site-order-legacy',
+      orderData: { externalOrderId: 'site-order-legacy', items: [] },
+    })).resolves.toEqual({ cancelledBeforeHandoff: true });
+
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+    expect(prisma.order.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'cancelled', cancellationState: 'accepted' }),
+    }));
+  });
+
+  it('preserves ambiguous handoff and atomically refunds an authoritative cancelled response', async () => {
+    const currentOrder = {
+      id: 'site-order-1', status: 'paid', crmOrderId: null, crmStatusVersion: 0,
+      cancellationState: 'requested', cancellationRequestedAt: new Date(),
+      cancellationReason: 'customer_request',
+    };
+    const currentAttempt = {
+      id: 'attempt-1', orderId: currentOrder.id, providerPaymentId: 'payment-1',
+      reservationId: 'reservation-1', status: 'succeeded', amountMinor: 10_000,
+      currency: 'RUB', refundRequestedAt: null, lastError: null,
+    };
+    prisma.order.findUnique
+      .mockResolvedValueOnce(currentOrder)
+      .mockResolvedValueOnce(currentOrder);
+    prisma.paymentAttempt.findUnique.mockResolvedValue(currentAttempt);
+    prisma.outboxEvent.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'create-event',
+        payload: { orderId: currentOrder.id, orderData: {}, handoffAttempted: true },
+      });
+    prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.paymentAttempt.update.mockResolvedValueOnce({ ...currentAttempt, status: 'refund_required' });
+    prisma.outboxEvent.upsert.mockResolvedValue({ id: 'event' });
+    prisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    mockedAxios.post.mockResolvedValueOnce({ data: {
+      orderId: 42, documentNumber: 'ORDER-42', orderStatus: 'cancelled', statusVersion: 1,
+    } } as any);
+
+    await processCreateOrder({
+      orderId: currentOrder.id,
+      orderData: {
+        externalOrderId: currentOrder.id, reservationId: 'reservation-1', contractVersion: 1,
+        paymentId: 'payment-1', paidAmountMinor: 10_000, currency: 'RUB', items: [],
+      },
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'cancelled', cancellationState: 'accepted' }),
+    }));
+    expect(prisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'refund_required', refundReason: 'post_handoff_cancellation' }),
+    }));
+    expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { deduplicationKey: 'payment-refund:payment-1' },
+      create: expect.objectContaining({
+        payload: expect.objectContaining({ reason: 'post_handoff_cancellation' }),
+      }),
+    }));
   });
 
   it('durably requests a refund when a paid reservation expired', async () => {
-    prisma.paymentAttempt.findUnique.mockResolvedValueOnce({
+    prisma.paymentAttempt.findUnique.mockResolvedValue({
       id: 'attempt-1',
       providerPaymentId: 'payment-1',
       amountMinor: 10_000,
       currency: 'RUB',
     });
-    prisma.paymentAttempt.update.mockResolvedValueOnce({});
+    prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.outboxEvent.upsert.mockResolvedValueOnce({ id: 'refund-event' });
@@ -106,20 +235,46 @@ describe('CRM queue idempotency', () => {
       response: { data: { code: 'RESERVATION_EXPIRED' } },
     });
 
-    expect(prisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'compensation_required' }),
     }));
+    expect(prisma.$queryRaw).toHaveBeenCalled();
     expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { deduplicationKey: 'payment-refund:payment-1' },
       create: expect.objectContaining({ type: 'payment_refund_requested' }),
     }));
   });
 
+  it('uses one deterministic refund event for duplicate RESERVATION_EXPIRED finalizers', async () => {
+    prisma.paymentAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', providerPaymentId: 'payment-1', amountMinor: 10_000, currency: 'RUB',
+    });
+    prisma.paymentAttempt.updateMany.mockResolvedValue({ count: 1 });
+    prisma.order.updateMany.mockResolvedValue({ count: 1 });
+    prisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prisma.outboxEvent.upsert.mockResolvedValue({ id: 'refund-event' });
+    const job = {
+      orderId: 'site-order-1',
+      orderData: { contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1' },
+    };
+    const expired = { response: { data: { code: 'RESERVATION_EXPIRED' } } };
+
+    await markOrderAsFailed('createOrder', job, expired);
+    await markOrderAsFailed('createOrder', job, expired);
+
+    expect(prisma.outboxEvent.upsert).toHaveBeenCalledTimes(2);
+    for (const [argument] of prisma.outboxEvent.upsert.mock.calls) {
+      expect(argument).toEqual(expect.objectContaining({
+        where: { deduplicationKey: 'payment-refund:payment-1' }, update: {},
+      }));
+    }
+  });
+
   it('durably records reconciliation for other permanent reservation failures', async () => {
-    prisma.paymentAttempt.findUnique.mockResolvedValueOnce({
+    prisma.paymentAttempt.findUnique.mockResolvedValue({
       id: 'attempt-2', providerPaymentId: 'payment-2', amountMinor: 12_000, currency: 'RUB',
     });
-    prisma.paymentAttempt.update.mockResolvedValueOnce({});
+    prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.outboxEvent.upsert.mockResolvedValueOnce({ id: 'reconciliation-event' });
@@ -129,12 +284,64 @@ describe('CRM queue idempotency', () => {
       orderData: { contractVersion: 1, reservationId: 'reservation-2' },
     }, { response: { status: 409, data: { message: 'Reservation was released' } } });
 
-    expect(prisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'compensation_required' }),
     }));
     expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { deduplicationKey: 'payment-reconciliation:payment-2' },
-      create: expect.objectContaining({ type: 'payment_reconciliation_required' }),
+      create: expect.objectContaining({
+        type: 'payment_reconciliation_required',
+        payload: expect.objectContaining({
+          orderData: { contractVersion: 1, reservationId: 'reservation-2' },
+        }),
+      }),
     }));
+    expect(prisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        deduplicationKey: 'payment-reconciliation:payment-2',
+        processedAt: null,
+      }),
+      data: expect.objectContaining({
+        status: 'pending', lastError: 'Reservation was released',
+        nextAttemptAt: expect.any(Date),
+      }),
+    }));
+  });
+
+  it('does not persist CRM success over a refunded payment', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: {
+      orderId: 42, documentNumber: 'ORDER-42', orderStatus: 'confirmed', statusVersion: 0,
+    } } as any);
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'site-order-1', status: 'crm_failed', crmOrderId: null, crmStatusVersion: 0,
+    });
+    prisma.paymentAttempt.findUnique.mockResolvedValueOnce({
+      id: 'attempt-1', providerPaymentId: 'payment-1', status: 'refunded',
+    });
+
+    await expect(processCreateOrder({
+      orderId: 'site-order-1',
+      orderData: {
+        externalOrderId: 'site-order-1', reservationId: 'reservation-1', contractVersion: 1,
+        paymentId: 'payment-1', paidAmountMinor: 100, currency: 'RUB', items: [],
+      },
+    })).resolves.toEqual({ cancelledBeforeHandoff: true });
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a late exhausted worker after CRM success wins the order CAS', async () => {
+    prisma.paymentAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', providerPaymentId: 'payment-1', amountMinor: 10_000, currency: 'RUB',
+    });
+    prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.order.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await markOrderAsFailed('createOrder', {
+      orderId: 'site-order-1',
+      orderData: { contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1' },
+    }, new Error('late failure'));
+
+    expect(prisma.outboxEvent.upsert).not.toHaveBeenCalled();
   });
 });

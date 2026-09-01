@@ -6,14 +6,21 @@ import crypto from 'crypto';
 import { sendOrderStatusUpdateToCustomer } from '../../../src/services/email.service';
 
 jest.mock('@prisma/client', () => {
-  const mockPrisma = {
+  const mockPrisma: any = {
     order: {
       findFirst: jest.fn(),
-      updateMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
     },
+    paymentAttempt: { findUnique: jest.fn(), update: jest.fn() },
+    outboxEvent: { upsert: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn(),
   };
+  mockPrisma.$transaction.mockImplementation((callback: any) => callback(mockPrisma));
   return {
     PrismaClient: jest.fn(() => mockPrisma),
+    Prisma: {},
   };
 });
 
@@ -50,7 +57,9 @@ describe('Webhook Controller', () => {
       };
 
       (mockPrisma.order.findFirst as jest.Mock).mockResolvedValue(mockOrder);
-      (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
+      (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'paid', crmStatusVersion: 1 });
+      ((mockPrisma as any).paymentAttempt.findUnique as jest.Mock).mockResolvedValue(null);
 
       const payload = {
           crmOrderId: '12345',
@@ -72,8 +81,8 @@ describe('Webhook Controller', () => {
 
       await handleOrderStatusWebhook(req, res);
 
-      expect(mockPrisma.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ crmStatusVersion: 0 }),
+      expect(mockPrisma.order.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'order-1' },
         data: expect.objectContaining({ status: 'paid', crmStatusVersion: 1 }),
       }));
       expect(res.status).toHaveBeenCalledWith(200);
@@ -153,7 +162,7 @@ describe('Webhook Controller', () => {
       await handleOrderStatusWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(503);
-      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
     });
 
     it('should reject an unknown order status', async () => {
@@ -170,7 +179,7 @@ describe('Webhook Controller', () => {
       await handleOrderStatusWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
     });
 
     it('ignores a replayed or stale CRM status version', async () => {
@@ -181,6 +190,7 @@ describe('Webhook Controller', () => {
         crmStatusVersion: 4,
       };
       (mockPrisma.order.findFirst as jest.Mock).mockResolvedValue(mockOrder);
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
       const payload = { crmOrderId: '12345', status: 'assembling', version: 3 };
       const req = {
         body: payload,
@@ -195,28 +205,26 @@ describe('Webhook Controller', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       expect(sendOrderStatusUpdateToCustomer).not.toHaveBeenCalled();
-      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
     });
 
-    it('re-reads and applies a newer version after a concurrent webhook wins', async () => {
-      (mockPrisma.order.findFirst as jest.Mock)
-        .mockResolvedValueOnce({
-          id: 'order-1',
-          crmOrderId: '12345',
-          status: 'confirmed',
-          crmStatusVersion: 0,
-        })
-        .mockResolvedValueOnce({
-          id: 'order-1',
-          crmOrderId: '12345',
-          status: 'assembling',
-          crmStatusVersion: 1,
-        });
-      (mockPrisma.order.updateMany as jest.Mock)
-        .mockResolvedValueOnce({ count: 0 })
-        .mockResolvedValueOnce({ count: 1 });
+    it('atomically creates a deterministic refund intent for authoritative CRM cancellation', async () => {
+      const current = {
+        id: 'order-1', crmOrderId: '12345', status: 'assembling', crmStatusVersion: 1,
+        cancellationState: 'requested', customerEmail: 'ivan@example.com',
+      };
+      (mockPrisma.order.findFirst as jest.Mock).mockResolvedValue(current);
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(current);
+      (mockPrisma.order.update as jest.Mock).mockResolvedValue({
+        ...current, status: 'cancelled', crmStatusVersion: 2, cancellationState: 'accepted',
+      });
+      ((mockPrisma as any).paymentAttempt.findUnique as jest.Mock).mockResolvedValue({
+        id: 'attempt-1', providerPaymentId: 'payment-1', status: 'succeeded',
+        amountMinor: 10_000, currency: 'RUB', refundRequestedAt: null,
+      });
+      ((mockPrisma as any).outboxEvent.upsert as jest.Mock).mockResolvedValue({ id: 'refund-event' });
 
-      const payload = { crmOrderId: '12345', status: 'shipped', version: 2 };
+      const payload = { crmOrderId: '12345', status: 'cancelled', version: 2 };
       const req = {
         body: payload,
         headers: { 'x-webhook-signature': signPayload(payload) },
@@ -228,10 +236,11 @@ describe('Webhook Controller', () => {
 
       await handleOrderStatusWebhook(req, res);
 
-      expect(mockPrisma.order.updateMany).toHaveBeenCalledTimes(2);
-      expect(mockPrisma.order.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ crmStatusVersion: 1 }),
-        data: expect.objectContaining({ status: 'shipped', crmStatusVersion: 2 }),
+      expect((mockPrisma as any).paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'refund_required', refundReason: 'post_handoff_cancellation' }),
+      }));
+      expect((mockPrisma as any).outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { deduplicationKey: 'payment-refund:payment-1' },
       }));
       expect(res.status).toHaveBeenCalledWith(200);
     });

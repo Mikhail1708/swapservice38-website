@@ -34,6 +34,7 @@ const mockPrisma = {
     create: jest.fn(),
     upsert: jest.fn(),
     findUnique: jest.fn().mockResolvedValue(null),
+    findFirst: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn(),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -87,6 +88,7 @@ const mockPrisma = {
   $transaction: jest.fn().mockImplementation((operation) => (
     Array.isArray(operation) ? Promise.all(operation) : operation(mockPrisma)
   )),
+  $queryRaw: jest.fn().mockResolvedValue([]),
   $disconnect: jest.fn().mockResolvedValue(undefined),
 };
 

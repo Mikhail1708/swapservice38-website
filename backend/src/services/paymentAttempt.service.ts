@@ -2,6 +2,7 @@ import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { getInternalApiKey } from '../utils/internalApiKey';
+import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -119,16 +120,45 @@ export const ensureCrmReservation = async (order: OrderSnapshot, attempt: any) =
       );
     }
 
-    return prisma.paymentAttempt.update({
-      where: { id: attempt.id },
-      data: {
-        reservationId: reservation.reservationId,
-        reservationExpiresAt: reservation.expiresAt ? new Date(reservation.expiresAt) : null,
-        amountMinor: reservation.totalMinor,
-        currency: reservation.currency,
-        lastError: null,
-      },
-    });
+    const finalized = await prisma.$transaction(async tx => {
+      await lockPaymentWorkflowOrder(tx, order.id);
+      const currentOrder = await tx.order.findUnique({ where: { id: order.id } });
+      const currentAttempt = await tx.paymentAttempt.findUnique({ where: { orderId: order.id } });
+      if (!currentOrder || !currentAttempt || currentAttempt.id !== attempt.id) {
+        throw new Error('Payment reservation identity changed');
+      }
+      const paymentAttempt = await tx.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          reservationId: reservation.reservationId,
+          reservationExpiresAt: reservation.expiresAt ? new Date(reservation.expiresAt) : null,
+          amountMinor: reservation.totalMinor,
+          currency: reservation.currency,
+          lastError: null,
+        },
+      });
+      const cancellationActive = currentOrder.status === 'cancelled'
+        || ['requested', 'accepted'].includes(currentOrder.cancellationState);
+      if (cancellationActive) {
+        await tx.outboxEvent.upsert({
+          where: { deduplicationKey: `crm-reservation-release:${reservation.reservationId}` },
+          create: {
+            aggregateId: order.id,
+            type: 'crm_reservation_release_requested',
+            deduplicationKey: `crm-reservation-release:${reservation.reservationId}`,
+            payload: { orderId: order.id, reservationId: reservation.reservationId },
+          },
+          update: {},
+        });
+      }
+      return { paymentAttempt, cancellationActive };
+    }, { maxWait: 5_000, timeout: 10_000 });
+    if (finalized.cancellationActive) {
+      throw new PaymentPreparationError(
+        'Оплата недоступна во время отмены заказа', 409, 'ORDER_CANCELLATION_ACTIVE',
+      );
+    }
+    return finalized.paymentAttempt;
   } catch (error: any) {
     if (error instanceof PaymentPreparationError) throw error;
     const status = error?.response?.status;
@@ -161,8 +191,11 @@ export const bindProviderPaymentToOrder = (
   orderId: string,
   providerPaymentId: string,
   status: string,
-) => prisma.$transaction([
-  prisma.paymentAttempt.update({
+) => prisma.$transaction(async tx => {
+  await lockPaymentWorkflowOrder(tx, orderId);
+  const order = await tx.order.findUnique({ where: { id: orderId } });
+  if (!order) throw new Error('Payment order no longer exists');
+  const paymentAttempt = await tx.paymentAttempt.update({
     where: { id: attemptId },
     data: {
       providerPaymentId,
@@ -171,9 +204,10 @@ export const bindProviderPaymentToOrder = (
       lastCheckedAt: new Date(),
       lastError: null,
     },
-  }),
-  prisma.order.update({ where: { id: orderId }, data: { paymentId: providerPaymentId } }),
-]);
+  });
+  await tx.order.update({ where: { id: orderId }, data: { paymentId: providerPaymentId } });
+  return paymentAttempt;
+}, { maxWait: 5_000, timeout: 10_000 });
 
 export const markProviderOutcomeUnknown = (attemptId: string, error: unknown) => prisma.paymentAttempt.update({
   where: { id: attemptId },

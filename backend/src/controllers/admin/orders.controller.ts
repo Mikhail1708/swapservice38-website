@@ -5,13 +5,19 @@ import axios from 'axios';
 import bcrypt from 'bcrypt';
 import { log } from '../../config/logger';
 import { AppError, NotFoundError, UnauthorizedError, ForbiddenError } from '../../middleware/error.middleware';
-import { addOrderToCRMQueue, addUpdateToCRMQueue, retryFailedOrders } from '../../queues/crm.queue';
-import {
-  assertOrderStatusTransition,
-  InvalidOrderStatusTransitionError,
-} from '../../utils/orderStatus';
+import { addUpdateToCRMQueue, retryFailedOrders } from '../../queues/crm.queue';
 import { buildCrmOrderPayload } from '../../services/crmOrderPayload.service';
 import { noStartedPaymentWhere } from '../../utils/paymentSafety';
+import {
+  acceleratePaymentReconciliationEvent,
+  crmCreateDeduplicationKey,
+  dispatchPaymentRefundEvent,
+  dispatchPaymentReconciliationEvent,
+  ensurePaymentReconciliationEvent,
+  paymentRefundDeduplicationKey,
+  replayFailedPaymentRefund,
+} from '../../services/crmOutbox.service';
+import { lockPaymentWorkflowOrder } from '../../services/paymentWorkflowLock.service';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -84,7 +90,10 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
 export const getOrderById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const order = await prisma.order.findUnique({ where: { id } });
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
     
     if (!order) {
       throw new NotFoundError('Заказ не найден');
@@ -109,31 +118,18 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
 // PATCH /api/admin/orders/:id/status — обновить статус
 // ============================================================
 export const updateOrderStatus = async (req: Request, res: Response): Promise<void> => {
+  res.status(410).json({
+    error: 'Lifecycle status управляется CRM и доступен на сайте только для чтения',
+  });
+};
+
+export const retryFailedRefund = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const existingOrder = await prisma.order.findUnique({ where: { id } });
-    if (!existingOrder) {
-      throw new NotFoundError('Заказ не найден');
-    }
-
-    assertOrderStatusTransition(existingOrder.status, status);
-
-    const order = await prisma.order.update({
-      where: { id },
-      data: { status },
-    });
-    
-    log.info(`📝 Статус заказа ${id} обновлён на ${status}`);
-    res.json({ success: true, order });
+    const replay = await replayFailedPaymentRefund(req.params.id);
+    await dispatchPaymentRefundEvent(replay.outboxEvent.id).catch(() => false);
+    res.json({ success: true, ...replay });
   } catch (error: any) {
-    if (error instanceof AppError) throw error;
-    if (error instanceof InvalidOrderStatusTransitionError) {
-      throw new AppError(error.message, 400);
-    }
-    log.error('❌ Update order status error', { error: error.message });
-    throw new AppError('Ошибка обновления статуса', 500);
+    throw new AppError(error?.message || 'Refund replay failed', 409);
   }
 };
 
@@ -483,49 +479,37 @@ export const retryOrderToCRM = async (req: Request, res: Response): Promise<void
       throw new AppError(`Заказ в статусе ${order.status} нельзя отправить в CRM`, 400);
     }
 
-    const phone = order.guestPhone || '';
-    const orderData = {
-      items: (order.items as any[]).map((item: any) => ({
-        productId: typeof item.productId === 'string' ? parseInt(item.productId) : item.productId,
-        quantity: item.quantity || 1,
-        price: item.price || 0,
-      })),
-      client: {
-        firstName: order.guestName || 'Клиент',
-        lastName: '',
-        phone: phone || '+79999999999',
-        email: order.guestEmail || '',
-        city: '',
-        address: order.deliveryAddress || '',
-      },
-      deliveryMethod: order.deliveryMethod || 'pickup',
-      deliveryAddress: order.deliveryAddress || '',
-      comment: order.comment || '',
-      source: 'website_retry'
-    };
-
-    const attempt = await prisma.paymentAttempt.findUnique({ where: { orderId: id } });
-    const retryPayload = attempt?.reservationId && order.paymentId
-      ? {
-          ...buildCrmOrderPayload(order),
-          reservationId: attempt.reservationId,
-          paymentId: order.paymentId,
-          paidAmountMinor: attempt.amountMinor,
-          currency: attempt.currency,
-          contractVersion: 1,
-          sourceDetail: 'website_retry',
-        }
-      : { ...buildCrmOrderPayload(order), sourceDetail: 'website_retry' };
-    await addOrderToCRMQueue(id, retryPayload);
-
-    assertOrderStatusTransition(order.status, 'paid');
-    await prisma.order.update({
-      where: { id },
-      data: {
-        status: 'paid',
-        comment: 'Повторная отправка в CRM через очередь',
-      },
+    const reconciliation = await prisma.$transaction(async (tx) => {
+      await lockPaymentWorkflowOrder(tx, id);
+      const currentOrder = await tx.order.findUnique({ where: { id } });
+      if (!currentOrder || currentOrder.crmOrderId) {
+        throw new AppError('Заказ уже обработан или не найден', 409);
+      }
+      if (currentOrder.status !== 'paid' && currentOrder.status !== 'crm_failed') {
+        throw new AppError('Состояние заказа изменилось', 409);
+      }
+      const attempt = await tx.paymentAttempt.findUnique({ where: { orderId: id } });
+      if (!attempt?.providerPaymentId || !attempt.reservationId) {
+        throw new AppError('Для заказа нет durable payment reservation', 409);
+      }
+      const refund = await tx.outboxEvent.findUnique({
+        where: { deduplicationKey: paymentRefundDeduplicationKey(attempt.providerPaymentId) },
+      });
+      if (refund) throw new AppError('Для заказа уже запущен durable refund workflow', 409);
+      const original = await tx.outboxEvent.findUnique({
+        where: { deduplicationKey: crmCreateDeduplicationKey(id) },
+      });
+      const immutableOrderData = (original?.payload as { orderData?: Record<string, unknown> } | undefined)?.orderData;
+      if (!immutableOrderData) throw new AppError('Immutable CRM payload не найден', 409);
+      const event = await ensurePaymentReconciliationEvent(
+        tx, id, attempt.providerPaymentId, immutableOrderData,
+      );
+      await acceleratePaymentReconciliationEvent(tx, event.id);
+      return event;
     });
+
+    // Best-effort acceleration only; PostgreSQL remains the recovery source.
+    await dispatchPaymentReconciliationEvent(reconciliation.id).catch(() => false);
 
     log.info(`✅ Заказ ${id} добавлен в очередь для повторной отправки`);
     res.json({

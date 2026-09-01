@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import {
+  bindProviderPaymentToOrder,
   ensureCrmReservation,
   getOrCreatePaymentAttempt,
   PaymentPreparationError,
@@ -44,11 +45,37 @@ describe('durable payment attempt and CRM reservation', () => {
       expiresAt: '2026-08-20T12:00:00.000Z',
       items: [{ productId: 10, quantity: 2, unitPriceMinor: 10_000, totalMinor: 20_000 }],
     } } as any);
+    (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({ ...order, status: 'pending', cancellationState: 'none' });
+    (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue(attempt);
     (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue({ ...attempt, reservationId: 'reservation-1' });
 
     await ensureCrmReservation(order, attempt);
     expect(mockPrisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ reservationId: 'reservation-1', amountMinor: 20_000 }),
+    }));
+  });
+
+  it('durably releases a reservation created concurrently with cancellation', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: {
+      reservationId: 'reservation-race', status: 'active', currency: 'RUB', totalMinor: 20_000,
+      expiresAt: '2026-09-01T12:00:00.000Z',
+      items: [{ productId: 10, quantity: 2, unitPriceMinor: 10_000, totalMinor: 20_000 }],
+    } } as any);
+    (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+      ...order, status: 'cancelled', cancellationState: 'accepted',
+    });
+    (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue(attempt);
+    (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue({
+      ...attempt, reservationId: 'reservation-race',
+    });
+    (mockPrisma.outboxEvent.upsert as jest.Mock).mockResolvedValue({ id: 'release-event' });
+
+    await expect(ensureCrmReservation(order, attempt)).rejects.toMatchObject({
+      status: 409, code: 'ORDER_CANCELLATION_ACTIVE',
+    });
+    expect(mockPrisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { deduplicationKey: 'crm-reservation-release:reservation-race' },
+      create: expect.objectContaining({ type: 'crm_reservation_release_requested' }),
     }));
   });
 
@@ -84,5 +111,25 @@ describe('durable payment attempt and CRM reservation', () => {
       reservationExpiresAt: new Date(Date.now() - 1_000),
     })).rejects.toMatchObject({ status: 409, code: 'RESERVATION_EXPIRED' });
     expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  it('binds provider identity in Order then PaymentAttempt lock order', async () => {
+    (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(order);
+    (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue(attempt);
+    (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...order, paymentId: 'payment-1' });
+
+    await bindProviderPaymentToOrder(attempt.id, order.id, 'payment-1', 'pending');
+
+    expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+    expect(mockPrisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: attempt.id }, data: expect.objectContaining({ providerPaymentId: 'payment-1' }),
+    }));
+    expect(mockPrisma.order.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: order.id }, data: { paymentId: 'payment-1' },
+    }));
+    expect(mockPrisma.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(mockPrisma.paymentAttempt.update.mock.invocationCallOrder[0]);
+    expect(mockPrisma.paymentAttempt.update.mock.invocationCallOrder[0])
+      .toBeLessThan(mockPrisma.order.update.mock.invocationCallOrder[0]);
   });
 });

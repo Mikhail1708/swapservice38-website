@@ -24,6 +24,10 @@ let mockCrmDispatchAttemptCount: number;
 let mockCrmOutboxClaimCount: number;
 let mockCrmDispatchSideEffectCount: number;
 let mockCrmOutboxStatusHistory: MockCrmOutboxEvent['status'][];
+let mockReconciliationEvent: MockCrmOutboxEvent | null;
+let mockPaymentAttemptStatus: 'succeeded' | 'compensation_required';
+let mockLogicalCrmOrderCount: number;
+let mockReconciliationReplayCount: number;
 
 jest.mock('@prisma/client', () => {
   const prisma = {
@@ -35,7 +39,12 @@ jest.mock('@prisma/client', () => {
         return Promise.resolve(storedOrder);
       }),
       updateMany: jest.fn(({ where, data }: any) => {
-        if (where.id !== storedOrder.id || (where.status && where.status !== storedOrder.status)) {
+        const statusMatches = !where.status
+          || (typeof where.status === 'string' && where.status === storedOrder.status)
+          || (Array.isArray(where.status?.in) && where.status.in.includes(storedOrder.status));
+        const cancellationMatches = !where.cancellationState?.notIn
+          || !where.cancellationState.notIn.includes(storedOrder.cancellationState);
+        if (where.id !== storedOrder.id || !statusMatches || !cancellationMatches) {
           return Promise.resolve({ count: 0 });
         }
         storedOrder = { ...storedOrder, ...data };
@@ -44,6 +53,7 @@ jest.mock('@prisma/client', () => {
     },
     cart: { update: jest.fn().mockResolvedValue({}) },
     paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn((callback: any) => callback(prisma)),
   };
   return { PrismaClient: jest.fn(() => prisma) };
@@ -89,6 +99,10 @@ jest.mock('../../src/services/crmOutbox.service', () => {
     mockCrmOutboxClaimCount = 0;
     mockCrmDispatchSideEffectCount = 0;
     mockCrmOutboxStatusHistory = [];
+    mockReconciliationEvent = null;
+    mockPaymentAttemptStatus = 'succeeded';
+    mockLogicalCrmOrderCount = 0;
+    mockReconciliationReplayCount = 0;
   };
 
   return {
@@ -145,6 +159,56 @@ jest.mock('../../src/services/crmOutbox.service', () => {
       statusHistory: [...mockCrmOutboxStatusHistory],
     }),
     resetCrmOutbox,
+    crmCreateDeduplicationKey: (orderId: string) => `crm-order-create:${orderId}`,
+    ensurePaymentReconciliationEvent: jest.fn(async () => mockReconciliationEvent),
+    dispatchPaymentReconciliationEvent: jest.fn(async (eventId: string) => {
+      if (
+        !mockReconciliationEvent
+        || mockReconciliationEvent.id !== eventId
+        || mockReconciliationEvent.status !== 'pending'
+      ) return false;
+      mockReconciliationEvent.status = 'processing';
+      mockReconciliationEvent.attempts += 1;
+      mockReconciliationReplayCount += 1;
+
+      // Models timeout-after-commit: CRM already owns one idempotent order and
+      // replay returns it instead of creating another logical order.
+      if (mockLogicalCrmOrderCount === 0) mockLogicalCrmOrderCount = 1;
+      storedOrder = {
+        ...storedOrder,
+        crmOrderId: 'crm-committed-1',
+        orderNumber: 'CRM-1',
+        status: 'confirmed',
+        crmStatusVersion: 0,
+      };
+      mockPaymentAttemptStatus = 'succeeded';
+      if (mockCrmOutboxEvent) {
+        mockCrmOutboxEvent.status = 'completed';
+        mockCrmOutboxEvent.processedAt = new Date();
+      }
+      mockReconciliationEvent.status = 'completed';
+      mockReconciliationEvent.processedAt = new Date();
+      return true;
+    }),
+    exhaustCrmRetriesAfterCommittedTimeout: (paymentId: string) => {
+      if (!mockCrmOutboxEvent) throw new Error('create outbox is missing');
+      mockCrmOutboxEvent.status = 'completed';
+      mockCrmOutboxEvent.attempts = 5;
+      mockCrmOutboxEvent.processedAt = new Date();
+      storedOrder = { ...storedOrder, status: 'crm_failed', crmOrderId: null };
+      mockPaymentAttemptStatus = 'compensation_required';
+      mockLogicalCrmOrderCount = 1;
+      mockReconciliationEvent = {
+        id: `payment-reconciliation:${paymentId}`,
+        status: 'pending', attempts: 0, processedAt: null,
+      };
+    },
+    getReconciliationState: () => ({
+      event: mockReconciliationEvent ? { ...mockReconciliationEvent } : null,
+      paymentAttemptStatus: mockPaymentAttemptStatus,
+      logicalCrmOrderCount: mockLogicalCrmOrderCount,
+      replayCount: mockReconciliationReplayCount,
+    }),
     ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
     dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
   };
@@ -175,6 +239,7 @@ describe('local mock payment flow', () => {
       userId: 'user-1',
       total: 1250.5,
       status: 'pending',
+      cancellationState: 'none',
       paymentId: null,
       crmOrderId: null,
       orderNumber: 'ORDER-1',
@@ -291,6 +356,49 @@ describe('local mock payment flow', () => {
 
     expect(completeRes.statusCode).toBe(404);
     expect(storedOrder.status).toBe('pending');
+  });
+
+  it('recovers exhausted retries after timeout-after-commit without a second CRM order', async () => {
+    const createRes = response();
+    await createPaymentController({
+      body: { orderId: storedOrder.id }, user: { id: storedOrder.userId },
+    } as unknown as Request, createRes);
+    const completeRes = response();
+    await completeMockPaymentController({
+      body: { orderId: storedOrder.id, paymentId: createRes.body.paymentId },
+      user: { id: storedOrder.userId },
+    } as unknown as Request, completeRes);
+    const confirmRes = response();
+    await confirmPaymentController({
+      body: { orderId: storedOrder.id, paymentId: createRes.body.paymentId },
+      user: { id: storedOrder.userId },
+    } as unknown as Request, confirmRes);
+
+    const crmOutbox = jest.requireMock('../../src/services/crmOutbox.service');
+    crmOutbox.exhaustCrmRetriesAfterCommittedTimeout(createRes.body.paymentId);
+    expect(storedOrder).toMatchObject({ status: 'crm_failed', crmOrderId: null });
+    expect(crmOutbox.getReconciliationState()).toMatchObject({
+      event: { status: 'pending', attempts: 0 },
+      paymentAttemptStatus: 'compensation_required',
+      logicalCrmOrderCount: 1,
+    });
+
+    const reconciliationId = `payment-reconciliation:${createRes.body.paymentId}`;
+    await expect(crmOutbox.dispatchPaymentReconciliationEvent(reconciliationId)).resolves.toBe(true);
+    await expect(crmOutbox.dispatchPaymentReconciliationEvent(reconciliationId)).resolves.toBe(false);
+
+    expect(storedOrder).toMatchObject({
+      status: 'confirmed', crmOrderId: 'crm-committed-1', orderNumber: 'CRM-1',
+    });
+    expect(crmOutbox.getCrmOutboxState()).toMatchObject({
+      event: { status: 'completed', attempts: 5 }, createdCount: 1,
+    });
+    expect(crmOutbox.getReconciliationState()).toMatchObject({
+      event: { status: 'completed', attempts: 1 },
+      paymentAttemptStatus: 'succeeded',
+      logicalCrmOrderCount: 1,
+      replayCount: 1,
+    });
   });
 
   it('rejects mock provider in production', async () => {

@@ -16,6 +16,7 @@ import {
   updateOrder,
   deleteOrderWithPassword,
   retryOrderToCRM,
+  retryFailedRefund,
   massDeleteOrders,
   massDeleteOrdersWithPassword,
 } from '../controllers/admin/orders.controller';
@@ -77,6 +78,7 @@ router.put('/orders/:id', updateOrder);
 router.delete('/orders/:id', deleteOrder);
 router.post('/orders/:id/delete-with-password', deleteOrderWithPassword);
 router.post('/orders/:id/retry', retryOrderToCRM);
+router.post('/orders/:id/refund/retry', retryFailedRefund);
 router.post('/orders/mass-delete', massDeleteOrders);
 router.post('/orders/mass-delete-with-password', massDeleteOrdersWithPassword);
 

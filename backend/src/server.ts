@@ -14,6 +14,7 @@ import csrfMiddleware from './middleware/csrf.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { log } from './config/logger';
 import { startCrmOutboxDispatcher, stopCrmOutboxDispatcher } from './services/crmOutbox.service';
+import { closeCrmQueue } from './queues/crm.queue';
 
 // Routes
 import authRoutes from './routes/auth.routes';
@@ -240,9 +241,7 @@ app.use(errorHandler);
 // ============================================================
 if (require.main === module) {
   startCrmOutboxDispatcher();
-  process.once('SIGTERM', stopCrmOutboxDispatcher);
-  process.once('SIGINT', stopCrmOutboxDispatcher);
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log.info(`🚀 Site Backend running on port ${port}`);
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -266,6 +265,18 @@ if (require.main === module) {
     log.info(`📁 Uploads:    ${uploadsPath}`);
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   });
+
+  const shutdown = (signal: string) => {
+    log.info('Shutting down website backend', { signal });
+    stopCrmOutboxDispatcher();
+    server.close(() => {
+      void closeCrmQueue()
+        .catch((error) => log.error('Failed to close CRM queue', { error }))
+        .finally(() => process.exit(0));
+    });
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 // ✅ ЭКСПОРТИРУЕМ app ДЛЯ ТЕСТОВ

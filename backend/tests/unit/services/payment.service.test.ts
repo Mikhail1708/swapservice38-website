@@ -13,7 +13,11 @@ import {
   assertCheckoutSnapshotStillCurrent,
   CheckoutInventoryError,
 } from '../../../src/services/checkoutInventory.service';
-import { ensureCrmCreateOutboxEvent } from '../../../src/services/crmOutbox.service';
+import {
+  dispatchPaymentReconciliationEvent,
+  ensureCrmCreateOutboxEvent,
+  ensurePaymentReconciliationEvent,
+} from '../../../src/services/crmOutbox.service';
 import { ensureCrmReservation } from '../../../src/services/paymentAttempt.service';
 
 // ============================================================
@@ -29,8 +33,10 @@ jest.mock('@prisma/client', () => {
     cart: {
       update: jest.fn(),
     },
-    paymentAttempt: { update: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
+    paymentAttempt: { update: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
+    outboxEvent: { findUnique: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   mockPrisma.$transaction.mockImplementation((callback: any) => callback(mockPrisma));
   return {
@@ -66,10 +72,16 @@ jest.mock('../../../src/services/paymentAttempt.service', () => ({
   markPaymentAttemptCanceled: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../../../src/services/crmOutbox.service', () => ({
+  acceleratePaymentReconciliationEvent: jest.fn().mockResolvedValue({ count: 1 }),
   ensureCrmCreateOutboxEvent: jest.fn().mockResolvedValue({ id: 'event-1' }),
   dispatchCrmOutboxEvent: jest.fn().mockResolvedValue(true),
+  ensurePaymentReconciliationEvent: jest.fn().mockResolvedValue({ id: 'reconciliation-event' }),
+  dispatchPaymentReconciliationEvent: jest.fn().mockResolvedValue(true),
+  crmCreateDeduplicationKey: (orderId: string) => `crm-order-create:${orderId}`,
   ensurePaymentRefundOutboxEvent: jest.fn().mockResolvedValue({ id: 'refund-event' }),
   dispatchPaymentRefundEvent: jest.fn().mockResolvedValue(true),
+  paymentRefundDeduplicationKey: (paymentId: string) => `payment-refund:${paymentId}`,
+  paymentReconciliationDeduplicationKey: (paymentId: string) => `payment-reconciliation:${paymentId}`,
 }));
 
 const mockAxios = axios as jest.Mocked<typeof axios>;
@@ -77,6 +89,8 @@ const mockPrisma = new PrismaClient() as jest.Mocked<PrismaClient>;
 const mockRedis = safeRedis as jest.Mocked<typeof safeRedis>;
 const mockedAssertCheckoutSnapshotStillCurrent = assertCheckoutSnapshotStillCurrent as jest.Mock;
 const mockedEnsureCrmCreateOutboxEvent = ensureCrmCreateOutboxEvent as jest.Mock;
+const mockedEnsurePaymentReconciliationEvent = ensurePaymentReconciliationEvent as jest.Mock;
+const mockedDispatchPaymentReconciliationEvent = dispatchPaymentReconciliationEvent as jest.Mock;
 const mockedEnsureCrmReservation = ensureCrmReservation as jest.Mock;
 
 describe('Payment Service', () => {
@@ -88,6 +102,8 @@ describe('Payment Service', () => {
     process.env.CRM_API_URL = 'http://localhost:5000';
     process.env.PAYMENT_PROVIDER = 'mock';
     mockedAssertCheckoutSnapshotStillCurrent.mockResolvedValue(undefined);
+    (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockReset().mockResolvedValue(null);
+    mockedEnsureCrmReservation.mockReset().mockImplementation(async (_order: any, attempt: any) => attempt);
     
     // ✅ ПРАВИЛЬНЫЙ МОК ДЛЯ REDIS
     mockRedis.get = jest.fn().mockResolvedValue(null);
@@ -138,6 +154,19 @@ describe('Payment Service', () => {
         await expect(createPayment('order-1', 'http://localhost:3001/success')).rejects.toThrow(
           'Заказ уже оплачен'
         );
+      });
+
+      it('does not start a payment while cancellation is requested', async () => {
+        (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+          id: 'order-1', total: 1000, items: [], status: 'pending',
+          cancellationState: 'requested', paymentId: null,
+        });
+
+        await expect(createPayment('order-1', 'http://localhost:3001/success'))
+          .rejects.toThrow('Оплата недоступна во время отмены заказа');
+        expect(mockedAssertCheckoutSnapshotStillCurrent).not.toHaveBeenCalled();
+        expect(mockedEnsureCrmReservation).not.toHaveBeenCalled();
+        expect(mockAxios.post).not.toHaveBeenCalled();
       });
 
       it('should not create payment when inventory changed after order creation', async () => {
@@ -373,12 +402,34 @@ describe('Payment Service', () => {
       };
 
       (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'cancelled' });
+      (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'cancelled' });
 
       const result = await handlePaymentWebhook(event);
 
       expect(result).toHaveProperty('orderId', 'order-1');
-      expect(result).toHaveProperty('status', 'cancelled');
-      expect(mockPrisma.order.update).toHaveBeenCalled();
+      expect(result).toHaveProperty('status', 'canceled');
+      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
+      expect((mockPrisma as any).$queryRaw).toHaveBeenCalled();
+    });
+
+    it('keeps a cancellation-after-CRM-success conflict durable and guarded', async () => {
+      const event = {
+        object: { id: 'pay-123', status: 'canceled', metadata: { orderId: 'order-1' } },
+      };
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
+        ...mockOrder, status: 'confirmed', crmOrderId: 'crm-1',
+      });
+      (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue({
+        id: 'attempt-1', status: 'succeeded', providerPaymentId: 'pay-123',
+      });
+      (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue({});
+
+      await expect(handlePaymentWebhook(event)).rejects.toThrow('PAYMENT_CANCELLATION_CONFLICT');
+      expect(mockPrisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ lastError: expect.stringContaining('PAYMENT_CANCELLATION_CONFLICT') }),
+      }));
+      expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
     });
 
     it('should handle webhook without metadata', async () => {
@@ -524,6 +575,44 @@ describe('Payment Service', () => {
       expect(result).toHaveProperty('alreadyProcessed', true);
     });
 
+    it('activates durable reconciliation for duplicate success after CRM exhaustion', async () => {
+      const immutableOrderData = {
+        contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1',
+        paidAmountMinor: 100_000, currency: 'RUB', items: [],
+      };
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValueOnce({
+        ...mockOrder,
+        status: 'crm_failed',
+        paymentId: 'payment-1',
+        paymentAttempts: [{
+          id: 'attempt-1', status: 'compensation_required', providerPaymentId: 'payment-1',
+          reservationId: 'reservation-1', amountMinor: 100_000, currency: 'RUB',
+        }],
+      });
+      (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValueOnce({
+        id: 'attempt-1', status: 'compensation_required', providerPaymentId: 'payment-1',
+        reservationId: 'reservation-1', amountMinor: 100_000, currency: 'RUB',
+      });
+      (mockPrisma.outboxEvent.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+        payload: { orderId: 'order-1', orderData: immutableOrderData },
+      });
+
+      const result = await handlePaymentSuccess('order-1');
+
+      expect(result).toEqual(expect.objectContaining({
+        status: 'paid', alreadyProcessed: true, compensationRequired: true,
+      }));
+      expect(mockedEnsurePaymentReconciliationEvent).toHaveBeenCalledWith(
+        mockPrisma, 'order-1', 'payment-1', immutableOrderData,
+      );
+      expect(mockedDispatchPaymentReconciliationEvent).toHaveBeenCalledWith('reconciliation-event');
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect((mockPrisma as any).$queryRaw).toHaveBeenCalled();
+    });
+
     it('reserves stock before fulfilling a payment that was pending during rollout', async () => {
       const legacyAttempt = {
         id: 'legacy_order-1', providerPaymentId: 'pay-legacy', reservationId: null,
@@ -578,22 +667,22 @@ describe('Payment Service', () => {
 
     it('should resend order to CRM', async () => {
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
-
-      const mockCrmResponse = {
-        data: {
-          orderId: 12345,
-          documentNumber: 'ЗАКАЗ-2026-001',
-        },
-      };
-      mockAxios.post.mockResolvedValue(mockCrmResponse);
-      (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, crmOrderId: '12345' });
+      (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue({
+        id: 'attempt-1', providerPaymentId: 'payment-1', reservationId: 'reservation-1',
+        status: 'compensation_required', amountMinor: 100_000, currency: 'RUB',
+      });
+      (mockPrisma.outboxEvent.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ payload: { orderData: {
+          contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1',
+        } } });
 
       const result = await resendOrderToCRM('order-1');
 
       expect(result).toHaveProperty('success', true);
-      expect(result).toHaveProperty('crmOrderId', 12345);
-      expect(result).toHaveProperty('documentNumber', 'ЗАКАЗ-2026-001');
-      expect(mockAxios.post).toHaveBeenCalled();
+      expect(result).toHaveProperty('queued', true);
+      expect(mockAxios.post).not.toHaveBeenCalled();
+      expect(mockedEnsurePaymentReconciliationEvent).toHaveBeenCalled();
     });
 
     it('should throw error if order not found', async () => {
@@ -624,11 +713,12 @@ describe('Payment Service', () => {
       );
     });
 
-    it('should handle CRM error', async () => {
+    it('should reject retry without a durable reservation', async () => {
       (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
-      mockAxios.post.mockRejectedValue(new Error('CRM unavailable'));
+      (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(resendOrderToCRM('order-1')).rejects.toThrow('CRM unavailable');
+      await expect(resendOrderToCRM('order-1')).rejects.toThrow('durable payment reservation');
+      expect(mockAxios.post).not.toHaveBeenCalled();
     });
   });
 });

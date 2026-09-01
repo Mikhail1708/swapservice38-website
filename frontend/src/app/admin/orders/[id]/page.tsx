@@ -45,7 +45,28 @@ interface Order {
   guestEmail?: string;
   createdAt: string;
   crmOrderId?: string;
+  cancellationState?: 'none' | 'requested' | 'accepted' | 'rejected';
+  cancellationRequestedAt?: string;
+  cancellationResolvedAt?: string;
+  cancellationReason?: string;
+  cancellationDecisionReason?: string;
+  paymentAttempts?: Array<{
+    id: string;
+    status: string;
+    refundReason?: string;
+    refundId?: string;
+    refundRequestedAt?: string;
+    refundedAt?: string;
+    lastError?: string;
+  }>;
 }
+
+const cancellationLabels: Record<string, string> = {
+  none: 'Не запрошена',
+  requested: 'Ожидает решения CRM',
+  accepted: 'Принята',
+  rejected: 'Отклонена',
+};
 
 const statusMap: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending: { 
@@ -100,8 +121,7 @@ export default function AdminOrderDetailsPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [replayingRefund, setReplayingRefund] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
@@ -118,7 +138,6 @@ export default function AdminOrderDetailsPage() {
       if (!res.ok) throw new Error('Заказ не найден');
       const data = await res.json();
       setOrder(data.order);
-      setSelectedStatus(data.order.status);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -126,28 +145,25 @@ export default function AdminOrderDetailsPage() {
     }
   };
 
-  const updateStatus = async (status: string) => {
-    if (!confirm(`Изменить статус на "${statusMap[status]?.label || status}"?`)) return;
-    
-    setUpdating(true);
+  const replayRefund = async () => {
+    if (!order || !confirm('Повторить возврат платежа? Операция использует прежний idempotency key.')) return;
+    setReplayingRefund(true);
     try {
-      const res = await fetchWithCsrf(`/api/admin/orders/${id}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
+      const res = await fetchWithCsrf(`/api/admin/orders/${order.id}/refund/retry`, {
+        method: 'POST',
       });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Ошибка обновления');
-      }
-      
       const data = await res.json();
-      setOrder(data.order);
-      setSelectedStatus(data.order.status);
+      if (!res.ok) throw new Error(data.error || 'Не удалось повторить возврат');
+      setOrder({
+        ...order,
+        paymentAttempts: data.paymentAttempt
+          ? [data.paymentAttempt, ...(order.paymentAttempts || []).slice(1)]
+          : order.paymentAttempts,
+      });
     } catch (err: any) {
       alert(err.message);
     } finally {
-      setUpdating(false);
+      setReplayingRefund(false);
     }
   };
 
@@ -248,6 +264,7 @@ export default function AdminOrderDetailsPage() {
   const status = getStatus(order.status);
   const displayNumber = order.orderNumber || order.documentNumber || order.id.slice(0, 8);
   const delivery = getDeliveryLabel(order.deliveryMethod);
+  const latestPaymentAttempt = order.paymentAttempts?.[0];
   const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
   const requiresPassword = !allowedWithoutPassword.includes(order.status);
 
@@ -377,28 +394,95 @@ export default function AdminOrderDetailsPage() {
             </div>
           </div>
 
-          {/* Изменение статуса */}
+          {/* CRM-authoritative fulfillment status */}
           <div className="bg-card border border-border rounded-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-4">Изменить статус</h3>
+            <h3 className="text-sm font-medium text-foreground mb-4">Статус исполнения</h3>
             <div className="space-y-3">
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
-                disabled={updating}
-              >
-                {Object.entries(statusMap).map(([key, value]) => (
-                  <option key={key} value={key}>{value.label}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => updateStatus(selectedStatus)}
-                disabled={updating || selectedStatus === order.status}
-                className="w-full px-4 py-2.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {updating && <Loader2 className="w-4 h-4 animate-spin" />}
-                {updating ? 'Обновление...' : 'Обновить статус'}
-              </button>
+              <div className={`px-4 py-2.5 rounded-lg border ${status.bg} ${status.color}`}>
+                <span className="text-sm font-medium inline-flex items-center gap-2">
+                  {status.icon} {status.label}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Статус поступает из CRM и недоступен для ручного изменения на сайте.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <h3 className="text-sm font-medium text-foreground mb-4">Отмена и возврат</h3>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Запрос отмены</p>
+                <p className="font-medium text-foreground">
+                  {cancellationLabels[order.cancellationState || 'none'] || order.cancellationState}
+                </p>
+              </div>
+              {order.cancellationRequestedAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Запрошена</p>
+                  <p className="text-foreground">{formatDate(order.cancellationRequestedAt)}</p>
+                </div>
+              )}
+              {order.cancellationResolvedAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Решение получено</p>
+                  <p className="text-foreground">{formatDate(order.cancellationResolvedAt)}</p>
+                </div>
+              )}
+              {order.cancellationReason && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Основание запроса</p>
+                  <p className="text-foreground break-words">{order.cancellationReason}</p>
+                </div>
+              )}
+              {order.cancellationDecisionReason && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Решение CRM</p>
+                  <p className="text-foreground break-words">{order.cancellationDecisionReason}</p>
+                </div>
+              )}
+              {latestPaymentAttempt && (
+                <>
+                  <div className="pt-3 border-t border-border">
+                    <p className="text-xs text-muted-foreground">Платёж / возврат</p>
+                    <p className="font-medium text-foreground">{latestPaymentAttempt.status}</p>
+                  </div>
+                  {latestPaymentAttempt.refundReason && (
+                    <p className="text-xs text-muted-foreground break-words">
+                      Основание возврата: {latestPaymentAttempt.refundReason}
+                    </p>
+                  )}
+                  {latestPaymentAttempt.refundId && (
+                    <p className="text-xs text-muted-foreground break-all">
+                      Refund ID: {latestPaymentAttempt.refundId}
+                    </p>
+                  )}
+                  {latestPaymentAttempt.refundRequestedAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Запрошен: {formatDate(latestPaymentAttempt.refundRequestedAt)}
+                    </p>
+                  )}
+                  {latestPaymentAttempt.refundedAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Завершён: {formatDate(latestPaymentAttempt.refundedAt)}
+                    </p>
+                  )}
+                  {latestPaymentAttempt.lastError && (
+                    <p className="text-xs text-red-500 break-words">{latestPaymentAttempt.lastError}</p>
+                  )}
+                  {latestPaymentAttempt.status === 'refund_failed' && (
+                    <button
+                      onClick={replayRefund}
+                      disabled={replayingRefund}
+                      className="w-full px-4 py-2.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {replayingRefund && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {replayingRefund ? 'Повтор возврата...' : 'Повторить возврат'}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
 

@@ -21,6 +21,7 @@ jest.mock('@prisma/client', () => {
       updateMany: jest.fn(),
     },
     paymentAttempt: { updateMany: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   mockPrisma.$transaction = jest.fn((callback: Function) => callback(mockPrisma));
   return { PrismaClient: jest.fn(() => mockPrisma) };

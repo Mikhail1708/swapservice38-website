@@ -5,6 +5,8 @@ import { log } from '../config/logger';
 import { PrismaClient } from '@prisma/client';
 import { getInternalApiKey } from '../utils/internalApiKey';
 import crypto from 'crypto';
+import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
+import { acceptPreHandoffCancellation } from '../services/orderCancellation.service';
 
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
@@ -12,11 +14,15 @@ const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 // ============================================================
 // СОЗДАНИЕ ОЧЕРЕДИ
 // ============================================================
-const crmQueue = new Queue('crm queue', {
-  redis: {
+export const getCrmQueueRedisOptions = () => ({
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
-  },
+    password: process.env.REDIS_PASSWORD || undefined,
+    connectTimeout: 5000,
+});
+
+const crmQueue = new Queue('crm queue', {
+  redis: getCrmQueueRedisOptions(),
 });
 
 // ============================================================
@@ -27,6 +33,7 @@ interface CreateOrderJob {
   data: {
     orderId: string;
     orderData: any;
+    reconciliationReplay?: boolean;
   };
 }
 
@@ -75,12 +82,12 @@ crmQueue.process(async (job) => {
 // ОБРАБОТЧИК: СОЗДАНИЕ ЗАКАЗА
 // ============================================================
 export const processCreateOrder = async (data: any) => {
-  const { orderId, orderData } = data;
+  const { orderId, orderData, reconciliationReplay = false } = data;
   const isReservedContract = orderData?.contractVersion === 1 && typeof orderData?.reservationId === 'string';
 
   log.info(`📤 Отправка заказа ${orderId} в CRM (попытка)`);
 
-  const response = await axios.post(
+  const postToCrm = () => axios.post(
     `${CRM_API_URL}/api/sale-documents/${isReservedContract ? `internal/v1/reservations/${encodeURIComponent(orderData.reservationId)}/consume` : 'public'}`,
     orderData,
     {
@@ -89,9 +96,93 @@ export const processCreateOrder = async (data: any) => {
         'Content-Type': 'application/json',
         'X-API-Key': getInternalApiKey(),
       },
-    }
+    },
   );
+  const preflight = await prisma.$transaction(async (tx) => {
+    await lockPaymentWorkflowOrder(tx, orderId);
+    const eligibleOrder = await tx.order.findUnique({ where: { id: orderId } });
+    if (!eligibleOrder) throw new Error('Website order no longer exists');
+    const eligibleAttempt = await tx.paymentAttempt.findUnique({ where: { orderId } });
+    if (isReservedContract && (!eligibleAttempt || eligibleAttempt.providerPaymentId !== orderData.paymentId)) {
+      throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: payment attempt mismatch');
+    }
+    if (eligibleAttempt?.providerPaymentId) {
+      const refundIntent = await tx.outboxEvent.findUnique({
+        where: { deduplicationKey: `payment-refund:${eligibleAttempt.providerPaymentId}` },
+      });
+      if (refundIntent) {
+        await tx.outboxEvent.updateMany({
+          where: {
+            aggregateId: orderId,
+            type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] },
+            processedAt: null,
+          },
+          data: {
+            status: 'completed', processedAt: new Date(), lockedAt: null,
+            lastError: 'CRM handoff stopped by durable refund intent',
+          },
+        });
+        return { skip: true };
+      }
+    }
+    const createIntent = await tx.outboxEvent.findUnique({
+      where: { deduplicationKey: `crm-order-create:${orderId}` },
+    });
+    const createIntentPayload = createIntent?.payload
+      && typeof createIntent.payload === 'object'
+      && !Array.isArray(createIntent.payload)
+      ? createIntent.payload as Record<string, unknown>
+      : {};
+    const handoffWasAttempted = reconciliationReplay
+      || createIntentPayload.handoffAttempted === true;
+    if (
+      eligibleOrder.cancellationState === 'requested'
+      && !eligibleOrder.crmOrderId
+      && !handoffWasAttempted
+    ) {
+      await acceptPreHandoffCancellation(
+        tx,
+        eligibleOrder,
+        eligibleAttempt,
+        eligibleOrder.cancellationReason || 'customer_request',
+        'accepted_before_crm_handoff',
+      );
+      return { skip: true };
+    }
+    if (
+      eligibleOrder.cancellationState === 'accepted'
+      || eligibleOrder.status === 'cancelled'
+      || Boolean(eligibleAttempt && ['refunded', 'canceled', 'refund_required', 'refund_failed'].includes(eligibleAttempt.status))
+    ) {
+      await tx.outboxEvent.updateMany({
+        where: {
+          aggregateId: orderId,
+          type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] },
+          processedAt: null,
+        },
+        data: {
+          status: 'completed', processedAt: new Date(), lockedAt: null,
+          lastError: 'CRM handoff stopped by cancellation/refund state',
+        },
+      });
+      return { skip: true };
+    }
+    if (createIntent && !handoffWasAttempted) {
+      await tx.outboxEvent.updateMany({
+        where: { id: createIntent.id, processedAt: null },
+        data: {
+          payload: { ...createIntentPayload, handoffAttempted: true },
+        },
+      });
+    }
+    return { skip: false };
+  }, { maxWait: 5_000, timeout: 10_000 });
+  if (preflight.skip) return { cancelledBeforeHandoff: true };
 
+  // External HTTP is deliberately outside PostgreSQL. The durable Bull/outbox
+  // identity makes timeout-after-commit replay safe, while both preflight and
+  // finalize serialize on the common Order row lock.
+  const response = await postToCrm();
   const crmResult = response.data;
 
   const crmStatusMap: Record<string, string> = {
@@ -107,32 +198,127 @@ export const processCreateOrder = async (data: any) => {
     : 0;
 
   // ✅ Обновляем заказ в БД — сохраняем crmOrderId, НО НЕ МЕНЯЕМ СТАТУС
-  await prisma.$transaction([
-    prisma.order.update({
-      where: { id: orderId },
-      data: {
-        crmOrderId: crmResult.orderId ? String(crmResult.orderId) : null,
-        orderNumber: crmResult.documentNumber || null,
-        // CRM creates website orders as confirmed. Persist its initial state and
-        // version so subsequent webhooks continue from the same source of truth.
-        status: syncedStatus,
-        crmStatusVersion: syncedVersion,
+  const crmOrderId = crmResult.orderId ? String(crmResult.orderId) : null;
+  if (!crmOrderId) throw new Error('CRM response has no orderId');
+
+  // Persist the local projection and finish both delivery markers atomically.
+  await prisma.$transaction(async (tx) => {
+    await lockPaymentWorkflowOrder(tx, orderId);
+    const currentOrder = await tx.order.findUnique({ where: { id: orderId } });
+    if (!currentOrder) throw new Error('Website order no longer exists');
+    if (currentOrder.crmOrderId && currentOrder.crmOrderId !== crmOrderId) {
+      throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: conflicting CRM order id');
+    }
+
+    const attempt = await tx.paymentAttempt.findUnique({ where: { orderId } });
+    if (isReservedContract) {
+      if (!attempt || attempt.providerPaymentId !== orderData.paymentId) {
+        throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: payment attempt mismatch');
+      }
+      if (['refunded', 'canceled', 'refund_required', 'refund_failed'].includes(attempt.status)) {
+        throw new Error(`CRM_ORDER_RECONCILIATION_REQUIRED: payment is ${attempt.status}`);
+      }
+      const attemptUpdated = await tx.paymentAttempt.updateMany({
+        where: {
+          id: attempt.id,
+          providerPaymentId: orderData.paymentId,
+          status: { in: ['succeeded', 'compensation_required'] },
+        },
+        data: { status: 'succeeded', lastCheckedAt: new Date(), lastError: null },
+      });
+      if (attemptUpdated.count !== 1) {
+        throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: payment state changed concurrently');
+      }
+    }
+
+    const applyResponseProjection = !currentOrder.crmOrderId
+      || syncedVersion > (currentOrder.crmStatusVersion || 0);
+    const projectedStatus = applyResponseProjection ? syncedStatus : currentOrder.status;
+    const orderUpdated = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        OR: [{ crmOrderId: null }, { crmOrderId }],
       },
-    }),
-    prisma.outboxEvent.updateMany({
+      data: {
+        crmOrderId,
+        orderNumber: crmResult.documentNumber || null,
+        status: projectedStatus,
+        crmStatusVersion: Math.max(currentOrder.crmStatusVersion || 0, syncedVersion),
+        ...(projectedStatus === 'cancelled' && currentOrder.cancellationState === 'requested'
+          ? {
+              cancellationState: 'accepted',
+              cancellationResolvedAt: new Date(),
+              cancellationDecisionReason: 'authoritative_crm_cancelled',
+            }
+          : {}),
+      },
+    });
+    if (orderUpdated.count !== 1) {
+      throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: order state changed concurrently');
+    }
+
+    if (
+      projectedStatus === 'cancelled'
+      && attempt?.providerPaymentId
+      && ['succeeded', 'compensation_required', 'refund_failed'].includes(attempt.status)
+    ) {
+      const now = new Date();
+      await tx.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: attempt.status === 'refund_failed' ? 'refund_failed' : 'refund_required',
+          refundReason: 'post_handoff_cancellation',
+          refundRequestedAt: attempt.refundRequestedAt || now,
+          lastCheckedAt: now,
+          lastError: attempt.status === 'refund_failed' ? attempt.lastError : null,
+        },
+      });
+      await tx.outboxEvent.upsert({
+        where: { deduplicationKey: `payment-refund:${attempt.providerPaymentId}` },
+        create: {
+          aggregateId: orderId,
+          type: 'payment_refund_requested',
+          deduplicationKey: `payment-refund:${attempt.providerPaymentId}`,
+          payload: {
+            orderId,
+            paymentId: attempt.providerPaymentId,
+            amountMinor: attempt.amountMinor,
+            currency: attempt.currency,
+            reason: 'post_handoff_cancellation',
+          },
+        },
+        update: {},
+      });
+    }
+
+    if (currentOrder.cancellationState === 'requested') {
+      await tx.outboxEvent.upsert({
+        where: { deduplicationKey: `crm-order-cancellation:${orderId}` },
+        create: {
+          aggregateId: orderId,
+          type: 'crm_order_cancellation_requested',
+          deduplicationKey: `crm-order-cancellation:${orderId}`,
+          payload: {
+            orderId,
+            crmOrderId,
+            requestId: `crm-order-cancellation:${orderId}`,
+            reason: currentOrder.cancellationReason || 'customer_request',
+          },
+        },
+        update: {},
+      });
+    }
+
+    await tx.outboxEvent.updateMany({
       where: {
         aggregateId: orderId,
-        type: 'crm_order_create_requested',
-        processedAt: null,
+        type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] },
       },
       data: {
-        status: 'completed',
-        processedAt: new Date(),
-        lockedAt: null,
-        lastError: null,
+        status: 'completed', processedAt: new Date(), lockedAt: null, lastError: null,
       },
-    }),
-  ]);
+    });
+  }, { maxWait: 5_000, timeout: 10_000 });
 
   log.info(`✅ Заказ ${orderId} отправлен в CRM`, {
     crmOrderId: crmResult.orderId,
@@ -183,63 +369,146 @@ export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?:
           code: cause?.response?.data?.code || null,
           message: String(cause?.response?.data?.message || cause?.message || 'CRM reservation consume failed').slice(0, 1000),
         };
-        await prisma.$transaction([
-          prisma.paymentAttempt.update({
-            where: { id: attempt.id },
+        await prisma.$transaction(async (tx) => {
+          await lockPaymentWorkflowOrder(tx, data.orderId);
+          const lockedAttempt = await tx.paymentAttempt.findUnique({ where: { orderId: data.orderId } });
+          if (
+            !lockedAttempt?.providerPaymentId
+            || lockedAttempt.providerPaymentId !== attempt.providerPaymentId
+          ) throw new Error('Reserved payment attempt changed before CRM finalization');
+          const lockedOrder = await tx.order.findUnique({ where: { id: data.orderId } });
+          if (!lockedOrder) throw new Error('Reserved website order disappeared');
+          if (
+            reservationExpired
+            && lockedOrder.cancellationState === 'requested'
+            && !lockedOrder.crmOrderId
+          ) {
+            await acceptPreHandoffCancellation(
+              tx,
+              lockedOrder,
+              lockedAttempt,
+              lockedOrder.cancellationReason || 'customer_request',
+              'accepted_after_failed_crm_handoff',
+            );
+            return;
+          }
+          const attemptUpdated = await tx.paymentAttempt.updateMany({
+            where: { id: lockedAttempt.id, status: { in: ['succeeded', 'compensation_required'] } },
             data: {
               status: 'compensation_required',
               lastError: reservationExpired
                 ? 'Reservation expired before CRM consumption'
                 : `CRM reservation reconciliation required: ${providerError.message}`,
             },
-          }),
-          prisma.order.updateMany({
-            where: { id: data.orderId, status: 'paid' },
+          });
+          if (attemptUpdated.count !== 1) throw new Error('Payment is no longer eligible for CRM recovery');
+
+          const orderUpdated = await tx.order.updateMany({
+            where: {
+              id: data.orderId,
+              status: { in: ['paid', 'crm_failed'] },
+              crmOrderId: null,
+            },
             data: { status: 'crm_failed', updatedAt: new Date() },
-          }),
-          prisma.outboxEvent.updateMany({
+          });
+          if (orderUpdated.count !== 1) {
+            // A concurrent CRM success/cancellation won. Rolling back here also
+            // rolls the attempt transition back, so no false recovery/refund
+            // marker can be created by a late failed worker.
+            throw new Error('Order is no longer eligible for CRM recovery');
+          }
+          await tx.outboxEvent.updateMany({
             where: { aggregateId: data.orderId, type: 'crm_order_create_requested', processedAt: null },
             data: {
               status: 'completed', processedAt: new Date(), lockedAt: null,
-              lastError: 'Reservation expired; automatic refund requested',
+              lastError: reservationExpired
+                ? 'Reservation expired; durable refund requested'
+                : 'CRM retries exhausted; durable reconciliation requested',
             },
-          }),
-          prisma.outboxEvent.upsert({
-            where: {
-              deduplicationKey: reservationExpired
-                ? `payment-refund:${attempt.providerPaymentId}`
-                : `payment-reconciliation:${attempt.providerPaymentId}`,
-            },
-            create: {
-              aggregateId: data.orderId,
-              type: reservationExpired ? 'payment_refund_requested' : 'payment_reconciliation_required',
-              deduplicationKey: reservationExpired
-                ? `payment-refund:${attempt.providerPaymentId}`
-                : `payment-reconciliation:${attempt.providerPaymentId}`,
-              payload: {
-                orderId: data.orderId,
-                paymentId: attempt.providerPaymentId,
-                amountMinor: attempt.amountMinor,
-                currency: attempt.currency,
-                reservationId: data.orderData.reservationId,
-                ...(reservationExpired ? {} : { providerError }),
+          });
+
+          if (reservationExpired) {
+            await tx.outboxEvent.upsert({
+              where: { deduplicationKey: `payment-refund:${lockedAttempt.providerPaymentId}` },
+              create: {
+                aggregateId: data.orderId,
+                type: 'payment_refund_requested',
+                deduplicationKey: `payment-refund:${lockedAttempt.providerPaymentId}`,
+                payload: {
+                  orderId: data.orderId, paymentId: lockedAttempt.providerPaymentId,
+                  amountMinor: lockedAttempt.amountMinor, currency: lockedAttempt.currency,
+                },
               },
-            },
-            update: {},
-          }),
-        ]);
+              update: {},
+            });
+            // The reconciliation marker is terminal only after the refund intent
+            // is committed in the same PostgreSQL transaction.
+            await tx.outboxEvent.updateMany({
+              where: {
+                aggregateId: data.orderId,
+                type: 'payment_reconciliation_required',
+                processedAt: null,
+              },
+              data: {
+                status: 'completed', processedAt: new Date(), lockedAt: null,
+                lastError: 'Reservation expired; handed off to durable refund',
+              },
+            });
+          } else {
+            const reconciliationKey = `payment-reconciliation:${lockedAttempt.providerPaymentId}`;
+            await tx.outboxEvent.upsert({
+              where: { deduplicationKey: reconciliationKey },
+              create: {
+                aggregateId: data.orderId,
+                type: 'payment_reconciliation_required',
+                deduplicationKey: reconciliationKey,
+                payload: {
+                  orderId: data.orderId,
+                  paymentId: lockedAttempt.providerPaymentId,
+                  amountMinor: lockedAttempt.amountMinor,
+                  currency: lockedAttempt.currency,
+                  reservationId: data.orderData.reservationId,
+                  orderData: data.orderData,
+                  providerError,
+                },
+              },
+              update: {},
+            });
+            const retryMs = cause?.response && cause.response.status < 500 ? 5 * 60_000 : 60_000;
+            await tx.outboxEvent.updateMany({
+              where: {
+                deduplicationKey: reconciliationKey,
+                processedAt: null,
+                status: { in: ['pending', 'processing', 'dispatched'] },
+              },
+              data: {
+                status: 'pending', lockedAt: null,
+                nextAttemptAt: new Date(Date.now() + retryMs),
+                lastError: providerError.message,
+              },
+            });
+          }
+        });
         log.error(reservationExpired
           ? `Reservation expired for paid order ${data.orderId}; durable refund requested`
           : `Reserved paid order ${data.orderId} requires durable payment reconciliation`);
         return;
       }
-      await prisma.order.update({
-        where: { id: data.orderId },
-        data: {
-          status: 'crm_failed',
-          comment: `Ошибка отправки в CRM: все попытки исчерпаны`,
-        },
-      });
+      await prisma.$transaction(async tx => {
+        await lockPaymentWorkflowOrder(tx, data.orderId);
+        await tx.order.updateMany({
+          where: {
+            id: data.orderId,
+            crmOrderId: null,
+            status: { in: ['paid', 'crm_failed'] },
+            cancellationState: { not: 'accepted' },
+          },
+          data: {
+            status: 'crm_failed',
+            comment: `Ошибка отправки в CRM: все попытки исчерпаны`,
+          },
+        });
+      }, { maxWait: 5_000, timeout: 10_000 });
       log.error(`❌ Заказ ${data.orderId} помечен как CRM_FAILED`);
     }
   } catch (error) {
@@ -250,12 +519,17 @@ export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?:
 // ============================================================
 // ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ЗАДАЧ В ОЧЕРЕДЬ
 // ============================================================
-export const addOrderToCRMQueue = async (orderId: string, orderData: any) => {
+export const addOrderToCRMQueue = async (
+  orderId: string,
+  orderData: any,
+  options: { replayCompleted?: boolean } = {},
+) => {
   const jobId = `crm-create-${orderId}`;
   const existingJob = await crmQueue.getJob(jobId);
   if (existingJob) {
     if (await existingJob.isFailed()) await existingJob.retry();
-    return existingJob;
+    else if (options.replayCompleted && await existingJob.isCompleted()) await existingJob.remove();
+    else return existingJob;
   }
 
   const originalSource = typeof orderData?.source === 'string' ? orderData.source : 'website';
@@ -269,7 +543,11 @@ export const addOrderToCRMQueue = async (orderId: string, orderData: any) => {
   const job = await crmQueue.add(
     {
       type: 'createOrder',
-      data: { orderId, orderData: normalizedOrderData },
+      data: {
+        orderId,
+        orderData: normalizedOrderData,
+        reconciliationReplay: Boolean(options.replayCompleted),
+      },
     },
     {
       jobId,
@@ -374,5 +652,13 @@ crmQueue.on('failed', (job, err) => {
 crmQueue.on('stalled', (job) => {
   log.warn(`⚠️ Задача ${job.id} зависла`);
 });
+
+crmQueue.on('error', (error) => {
+  log.error('CRM queue Redis error', { error: error.message });
+});
+
+export const closeCrmQueue = async (): Promise<void> => {
+  await crmQueue.close();
+};
 
 export default crmQueue;

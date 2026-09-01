@@ -9,7 +9,10 @@ import {
   CheckoutInventoryError,
   validateCheckoutItems,
 } from '../services/checkoutInventory.service';
-import { noStartedPaymentWhere } from '../utils/paymentSafety';
+import {
+  OrderCancellationError,
+  requestOrderCancellation,
+} from '../services/orderCancellation.service';
 
 const prisma = new PrismaClient();
 
@@ -380,74 +383,30 @@ export const getUserOrdersController = async (req: Request, res: Response): Prom
 };
 
 // ============================================================
-// DELETE /api/orders/:id — УДАЛЕНИЕ ЗАКАЗА
+// DELETE /api/orders/:id — legacy physical delete is retired
 // ============================================================
 export const deleteOrderController = async (req: Request, res: Response): Promise<void> => {
+  res.status(405).json({
+    error: 'Физическое удаление заказа недоступно. Используйте запрос отмены.',
+    cancellationEndpoint: `/api/orders/${req.params.id}/cancellation`,
+  });
+};
+
+export const requestOrderCancellationController = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
     const userId = (req as any).user?.id;
-
-    const order = await prisma.order.findFirst({
-      where: {
-        id: id,
-        userId: userId,
-      }
-    });
-
-    if (!order) {
-      res.status(404).json({ error: 'Заказ не найден' });
+    if (!userId) {
+      res.status(401).json({ error: 'Необходимо авторизоваться' });
       return;
     }
-
-    if (order.crmOrderId) {
-      res.status(400).json({
-        error: 'Нельзя удалить заказ, который уже обработан'
-      });
-      return;
-    }
-
-    if (order.status !== 'pending') {
-      res.status(400).json({
-        error: 'Нельзя удалить заказ в статусе ' + order.status
-      });
-      return;
-    }
-
-    const createdAt = new Date(order.createdAt);
-    const now = new Date();
-    const hoursDiff = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
-
-    if (hoursDiff > 12) {
-      res.status(400).json({
-        error: 'Время на удаление заказа истекло (12 часов)'
-      });
-      return;
-    }
-
-    const deleted = await prisma.order.deleteMany({
-      where: {
-        id,
-        userId,
-        status: 'pending',
-        crmOrderId: null,
-        ...noStartedPaymentWhere,
-        createdAt: { gte: new Date(now.getTime() - 12 * 60 * 60 * 1000) },
-      },
-    });
-    if (deleted.count !== 1) {
-      res.status(409).json({ error: 'Нельзя удалить заказ после начала оплаты' });
-      return;
-    }
-
-    res.json({
-      success: true,
-      message: 'Заказ успешно удалён'
-    });
-
+    const order = await requestOrderCancellation(req.params.id, userId, req.body?.reason);
+    res.status(order?.cancellationState === 'requested' ? 202 : 200).json({ success: true, order });
   } catch (error: any) {
-    console.error('❌ Ошибка удаления заказа:', error);
-    res.status(500).json({
-      error: error.message || 'Ошибка удаления заказа'
-    });
+    if (error instanceof OrderCancellationError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    console.error('Ошибка запроса отмены заказа:', error);
+    res.status(500).json({ error: 'Не удалось запросить отмену заказа' });
   }
 };

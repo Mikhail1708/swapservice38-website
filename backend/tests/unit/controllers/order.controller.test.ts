@@ -16,27 +16,20 @@ jest.mock('@prisma/client', () => {
   return { PrismaClient: jest.fn(() => prisma) };
 });
 
-describe('deleteOrderController payment barrier', () => {
+describe('retired physical order deletion', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('uses an atomic delete predicate that rejects every started payment attempt', async () => {
-    mockPrisma.order.findFirst.mockResolvedValue({
-      id: 'order-1', userId: 'user-1', status: 'pending', crmOrderId: null,
-      paymentId: null, createdAt: new Date(),
-    });
-    mockPrisma.order.deleteMany.mockResolvedValue({ count: 0 });
+  it('returns 405 and directs callers to cancellation without deleting history', async () => {
     const req = { params: { id: 'order-1' }, user: { id: 'user-1' } } as unknown as Request;
     const res = response();
 
     await deleteOrderController(req, res);
 
-    expect(mockPrisma.order.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        id: 'order-1', userId: 'user-1', paymentId: null,
-        paymentAttempts: { none: {} },
-      }),
+    expect(mockPrisma.order.deleteMany).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(405);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      cancellationEndpoint: '/api/orders/order-1/cancellation',
     }));
-    expect(res.status).toHaveBeenCalledWith(409);
   });
 });
 jest.mock('../../../src/services/checkoutInventory.service', () => {

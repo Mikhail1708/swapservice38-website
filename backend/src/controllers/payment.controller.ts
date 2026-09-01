@@ -12,6 +12,7 @@ import {
 } from '../services/payment.service';
 import { CheckoutInventoryError } from '../services/checkoutInventory.service';
 import { PaymentPreparationError } from '../services/paymentAttempt.service';
+import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
 
 const prisma = new PrismaClient();
 
@@ -260,6 +261,9 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
       && matchesUnboundPaymentAttempt(unboundAttempt, payment, paymentAmountCents)
     ) {
       const linked = await prisma.$transaction(async tx => {
+        await lockPaymentWorkflowOrder(tx, order!.id);
+        const currentOrder = await tx.order.findUnique({ where: { id: order!.id } });
+        if (!currentOrder || currentOrder.paymentId) return false;
         const attemptResult = await tx.paymentAttempt.updateMany({
           where: { id: unboundAttempt.id, providerPaymentId: null },
           data: {
@@ -275,7 +279,7 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
         });
         if (orderResult.count !== 1) throw new Error('Concurrent payment binding conflict');
         return true;
-      });
+      }, { maxWait: 5_000, timeout: 10_000 });
       if (linked) {
         order = {
           ...order,

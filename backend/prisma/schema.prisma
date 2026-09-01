@@ -182,9 +182,16 @@ model Order {
   orderNumber        String?          @unique
   paymentId          String?          @unique
   crmStatusVersion   Int              @default(0)
+  cancellationState String           @default("none")
+  cancellationRequestedAt DateTime?
+  cancellationResolvedAt  DateTime?
+  cancellationReason      String?
+  cancellationDecisionReason String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   paymentAttempts    PaymentAttempt[]
+
+  @@index([cancellationState])
 }
 
 // Durable record created before any external payment-provider call. It keeps an
@@ -205,6 +212,10 @@ model PaymentAttempt {
   providerConfirmedAt      DateTime?
   lastCheckedAt            DateTime?
   lastError                String?
+  refundReason             String?
+  refundId                 String?
+  refundRequestedAt        DateTime?
+  refundedAt               DateTime?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

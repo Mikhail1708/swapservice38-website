@@ -72,6 +72,12 @@ const statusMap: Record<string, { label: string; color: string; bg: string; icon
   },
 };
 
+const cancellationLabels: Record<string, string> = {
+  requested: 'Отмена запрошена',
+  accepted: 'Отмена принята',
+  rejected: 'Отмена отклонена',
+};
+
 export default function OrdersPage() {
   const { user, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
@@ -247,6 +253,11 @@ export default function OrdersPage() {
                           {status.icon}
                           {status.label}
                         </span>
+                        {order.cancellationState && order.cancellationState !== 'none' && (
+                          <span className="text-xs px-3 py-1 rounded-full font-medium border border-border bg-muted text-muted-foreground">
+                            {cancellationLabels[order.cancellationState] || order.cancellationState}
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2">
                         <span>{formatDate(order.createdAt)}</span>

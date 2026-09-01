@@ -11,7 +11,7 @@ import {
   Mail, 
   Clock, 
   AlertCircle,
-  Trash2, 
+  Ban,
   CreditCard, 
   CheckCircle, 
   XCircle, 
@@ -49,7 +49,19 @@ interface Order {
   guestEmail?: string;
   createdAt: string;
   crmOrderId?: string;
+  cancellationState?: 'none' | 'requested' | 'accepted' | 'rejected';
+  cancellationRequestedAt?: string;
+  cancellationResolvedAt?: string;
+  cancellationReason?: string;
+  cancellationDecisionReason?: string;
 }
+
+const cancellationLabels: Record<string, string> = {
+  none: 'Не запрошена',
+  requested: 'Запрошена, ожидает решения',
+  accepted: 'Отмена принята',
+  rejected: 'Отмена отклонена',
+};
 
 const statusMap: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending: { 
@@ -111,9 +123,9 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     if (authLoading) {
@@ -163,9 +175,9 @@ export default function OrderDetailPage() {
     fetchOrder();
   }, [orderId, user, authLoading]);
 
-  const canDelete = (): boolean => {
+  const canCancel = (): boolean => {
     if (!order) return false;
-    if (order.status !== 'pending') return false;
+    if (order.cancellationState && order.cancellationState !== 'none') return false;
     const createdAt = new Date(order.createdAt);
     const now = new Date();
     const hoursDiff = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
@@ -174,30 +186,32 @@ export default function OrderDetailPage() {
 
   const canPay = (): boolean => {
     if (!order) return false;
-    return order.status === 'pending';
+    return order.status === 'pending'
+      && (!order.cancellationState || order.cancellationState === 'none');
   };
 
-const handleDeleteOrder = async () => {
+const handleCancelOrder = async () => {
   if (!order) return;
-  setIsDeleting(true);
+  setIsCancelling(true);
   try {
-    // ✅ МЕНЯЕМ URL: /api/orders/delete?id=xxx → /api/orders/xxx
-    const response = await fetchWithCsrf(`/api/orders/${order.id}`, {
-      method: 'DELETE',
+    const response = await fetchWithCsrf(`/api/orders/${order.id}/cancellation`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'customer_request' }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'Ошибка удаления заказа');
+      throw new Error(data.error || 'Ошибка запроса отмены заказа');
     }
 
-    router.push('/profile/orders?deleted=true');
+    setOrder(data.order || data);
+    setError(null);
   } catch (error: any) {
-    setError(error.message || 'Не удалось удалить заказ');
+    setError(error.message || 'Не удалось запросить отмену заказа');
   } finally {
-    setIsDeleting(false);
-    setShowDeleteConfirm(false);
+    setIsCancelling(false);
+    setShowCancelConfirm(false);
   }
 };
 
@@ -310,8 +324,7 @@ const handleDeleteOrder = async () => {
 
   const status = getStatus(order.status);
   const displayNumber = order.orderNumber || order.documentNumber || order.id.slice(0, 8);
-  const isPending = order.status === 'pending';
-  const isDeletable = canDelete();
+  const isCancellable = canCancel();
   const isPayable = canPay();
   const delivery = getDeliveryLabel(order.deliveryMethod);
 
@@ -360,13 +373,13 @@ const handleDeleteOrder = async () => {
                   Оплатить
                 </button>
               )}
-              {isDeletable && (
+              {isCancellable && (
                 <button
-                  onClick={() => setShowDeleteConfirm(true)}
+                  onClick={() => setShowCancelConfirm(true)}
                   className="flex items-center gap-2 px-5 py-2.5 bg-red-500/10 text-red-500 rounded-lg text-sm font-medium hover:bg-red-500/20 transition border border-red-500/20"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Удалить
+                  <Ban className="w-4 h-4" />
+                  Отменить заказ
                 </button>
               )}
             </div>
@@ -374,12 +387,31 @@ const handleDeleteOrder = async () => {
         </div>
 
         {/* Предупреждение */}
-        {isPending && (
+        {isCancellable && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 mb-6 text-sm text-yellow-500 flex items-center gap-3">
             <Clock className="w-5 h-5 flex-shrink-0" />
-            <span>Заказ можно удалить в течение 12 часов с момента создания.</span>
+            <span>Запросить отмену можно в течение 12 часов с момента создания. После передачи заказа в CRM отмена требует подтверждения.</span>
           </div>
         )}
+
+        <div className="bg-muted border border-border rounded-lg p-4 mb-6 text-sm text-foreground">
+            <p className="font-medium">
+              Отмена: {cancellationLabels[order.cancellationState || 'none'] || order.cancellationState}
+            </p>
+            {order.cancellationDecisionReason && (
+              <p className="text-muted-foreground mt-1">{order.cancellationDecisionReason}</p>
+            )}
+            {order.cancellationRequestedAt && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Запрошена: {formatDate(order.cancellationRequestedAt)}
+              </p>
+            )}
+            {order.cancellationResolvedAt && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Решение: {formatDate(order.cancellationResolvedAt)}
+              </p>
+            )}
+        </div>
 
         {/* Основная сетка */}
         <div className="grid lg:grid-cols-3 gap-6">
@@ -537,40 +569,40 @@ const handleDeleteOrder = async () => {
           </div>
         </div>
 
-        {/* Модал удаления */}
-        {showDeleteConfirm && (
+        {/* Подтверждение запроса отмены */}
+        {showCancelConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="bg-card border border-border rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center">
-                  <Trash2 className="w-6 h-6 text-red-500" />
+                  <Ban className="w-6 h-6 text-red-500" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-foreground">Удалить заказ?</h3>
-                  <p className="text-sm text-muted-foreground">Это действие нельзя отменить</p>
+                  <h3 className="text-xl font-bold text-foreground">Отменить заказ?</h3>
+                  <p className="text-sm text-muted-foreground">Заказ останется в истории</p>
                 </div>
               </div>
               <p className="text-muted-foreground text-sm mb-6">
-                Заказ #{displayNumber} будет безвозвратно удалён. Вы уверены?
+                Будет отправлен запрос на отмену заказа #{displayNumber}. После передачи в CRM отмена может быть отклонена.
               </p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowDeleteConfirm(false)}
+                  onClick={() => setShowCancelConfirm(false)}
                   className="flex-1 px-4 py-2.5 border border-border text-foreground rounded-lg hover:bg-muted transition font-medium"
                 >
                   Отмена
                 </button>
                 <button
-                  onClick={handleDeleteOrder}
-                  disabled={isDeleting}
+                  onClick={handleCancelOrder}
+                  disabled={isCancelling}
                   className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
                 >
-                  {isDeleting ? (
+                  {isCancelling ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
-                      <Trash2 className="w-4 h-4" />
-                      Удалить
+                      <Ban className="w-4 h-4" />
+                      Запросить отмену
                     </>
                   )}
                 </button>

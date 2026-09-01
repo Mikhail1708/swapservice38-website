@@ -6,6 +6,7 @@ import {
   getOrderController,
   getUserOrdersController,
   deleteOrderController,
+  requestOrderCancellationController,
 } from '../controllers/order.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 
@@ -16,6 +17,7 @@ const router: Router = Router();
 router.post('/', requireAuth, validate(createOrderSchema), createOrderController);
 router.get('/', requireAuth, getUserOrdersController);
 router.get('/:id', requireAuth, getOrderController);
+router.post('/:id/cancellation', requireAuth, requestOrderCancellationController);
 router.delete('/:id', requireAuth, deleteOrderController);
 
 export default router;

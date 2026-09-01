@@ -1,13 +1,15 @@
 // backend/src/controllers/webhook.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import {
   assertOrderStatusTransition,
   InvalidOrderStatusTransitionError,
   shouldApplyCrmStatusVersion,
 } from '../utils/orderStatus';
 import { sendOrderStatusUpdateToCustomer } from '../services/email.service';
+import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
+import { ensurePaymentRefundOutboxEvent } from '../services/crmOutbox.service';
 
 const prisma = new PrismaClient();
 
@@ -20,6 +22,33 @@ const statusMap: Record<string, string> = {
   'cancelled': 'cancelled',
   'paid': 'paid',
   'confirmed': 'confirmed',
+};
+
+const ensureAuthoritativeCancellationRefund = async (
+  tx: Prisma.TransactionClient,
+  order: { id: string; crmOrderId: string | null; status: string },
+  now: Date,
+) => {
+  if (!order.crmOrderId || order.status !== 'cancelled') return;
+  const paymentAttempt = await tx.paymentAttempt.findUnique({ where: { orderId: order.id } });
+  if (
+    !paymentAttempt?.providerPaymentId
+    || !['succeeded', 'compensation_required', 'refund_failed'].includes(paymentAttempt.status)
+  ) return;
+  await tx.paymentAttempt.update({
+    where: { id: paymentAttempt.id },
+    data: {
+      status: paymentAttempt.status === 'refund_failed' ? 'refund_failed' : 'refund_required',
+      refundReason: 'post_handoff_cancellation',
+      refundRequestedAt: paymentAttempt.refundRequestedAt || now,
+      lastCheckedAt: now,
+      lastError: paymentAttempt.status === 'refund_failed' ? paymentAttempt.lastError : null,
+    },
+  });
+  await ensurePaymentRefundOutboxEvent(
+    tx, order.id, paymentAttempt.providerPaymentId, paymentAttempt.amountMinor,
+    paymentAttempt.currency, 'post_handoff_cancellation',
+  );
 };
 
 /**
@@ -93,14 +122,13 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
     const siteStatus = statusMap[status];
     console.log(`🔄 Маппинг статуса: ${status} → ${siteStatus}`);
 
-    // ✅ ИЩЕМ ЗАКАЗ ПО crmOrderId
-    let order = await prisma.order.findFirst({
+    const locatedOrder = await prisma.order.findFirst({
       where: {
         crmOrderId: String(crmOrderId),
       },
     });
 
-    if (!order) {
+    if (!locatedOrder) {
       console.warn(`⚠️ Webhook: Заказ с crmOrderId=${crmOrderId} не найден в БД сайта`);
       res.status(404).json({
         success: false,
@@ -109,74 +137,46 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       return;
     }
 
-    let applied = false;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    const projection = await prisma.$transaction(async (tx) => {
+      await lockPaymentWorkflowOrder(tx, locatedOrder.id);
+      const order = await tx.order.findUnique({ where: { id: locatedOrder.id } });
+      if (!order || order.crmOrderId !== String(crmOrderId)) {
+        throw new Error('Order identity changed during CRM projection');
+      }
       if (!shouldApplyCrmStatusVersion(order.crmStatusVersion, version)) {
-        if (version === order.crmStatusVersion && order.status === siteStatus) {
-          try {
-            await sendOrderStatusUpdateToCustomer({
-              orderId: order.id,
-              documentNumber: documentNumber || order.orderNumber || String(crmOrderId),
-              customerName: [order.customerFirstName, order.customerMiddleName, order.customerLastName].filter(Boolean).join(' ') || order.guestName || 'Клиент',
-              customerEmail: order.customerEmail || order.guestEmail || '',
-              status: siteStatus,
-              version,
-            });
-          } catch (emailError) {
-            console.error(`❌ Повторная постановка письма о статусе заказа ${order.id} не удалась:`, emailError);
-          }
-        }
-        res.status(200).json({
-          success: true,
-          idempotent: true,
-          message: `CRM status version ${version} was already applied or is stale`,
-        });
-        return;
+        await ensureAuthoritativeCancellationRefund(tx, order, new Date());
+        return { applied: false, order };
       }
-
-      try {
-        assertOrderStatusTransition(order.status, siteStatus);
-      } catch (error) {
-        if (error instanceof InvalidOrderStatusTransitionError) {
-          res.status(409).json({ error: error.message });
-          return;
-        }
-        throw error;
-      }
-
-      const updated = await prisma.order.updateMany({
-        where: {
-          id: order.id,
-          crmStatusVersion: order.crmStatusVersion,
-        },
+      assertOrderStatusTransition(order.status, siteStatus);
+      const now = new Date();
+      const updatedOrder = await tx.order.update({
+        where: { id: order.id },
         data: {
           status: siteStatus,
           crmStatusVersion: version,
-          updatedAt: new Date(),
+          updatedAt: now,
+          ...(siteStatus === 'cancelled' && order.cancellationState === 'requested'
+            ? {
+                cancellationState: 'accepted',
+                cancellationResolvedAt: now,
+                cancellationDecisionReason: 'authoritative_crm_cancelled',
+              }
+            : {}),
         },
       });
+      await ensureAuthoritativeCancellationRefund(tx, updatedOrder, now);
+      return { applied: true, order: updatedOrder };
+    }, { maxWait: 5_000, timeout: 10_000 });
 
-      if (updated.count === 1) {
-        applied = true;
-        break;
-      }
-
-      // Another webhook won the compare-and-swap. Re-read and either apply
-      // this newer version from the new state or identify it as stale.
-      const currentOrder = await prisma.order.findFirst({
-        where: { crmOrderId: String(crmOrderId) },
+    if (!projection.applied) {
+      res.status(200).json({
+        success: true,
+        idempotent: true,
+        message: `CRM status version ${version} was already applied or is stale`,
       });
-      if (!currentOrder) {
-        res.status(404).json({ success: false, message: 'Order disappeared during status update' });
-        return;
-      }
-      order = currentOrder;
-    }
-
-    if (!applied) {
-      res.status(409).json({ error: 'Concurrent status update; retry webhook' });
       return;
     }
+    const order = projection.order;
 
     console.log(`✅ Webhook: Заказ ${order.id} (crmOrderId: ${crmOrderId}) обновлён → статус "${siteStatus}"`);
     try {
@@ -201,6 +201,10 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       message: `Order ${order.id} status updated to ${siteStatus}`,
     });
   } catch (error: any) {
+    if (error instanceof InvalidOrderStatusTransitionError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
     console.error('❌ Webhook error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
