@@ -8,6 +8,7 @@ import { fetchWithCsrf }  from '@/lib/csrf';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
 import { validatePhone, normalizePhoneForServer }  from '@/lib/validation/phone';
+import { getPasswordPolicyErrors } from '@/lib/password-policy';
 
 export default function CreateUserPage() {
   const router = useRouter();
@@ -38,8 +39,9 @@ export default function CreateUserPage() {
       errors.email = 'Неверный формат email';
     }
 
-    if (!form.password || form.password.length < 6) {
-      errors.password = 'Пароль должен быть минимум 6 символов';
+    const passwordErrors = getPasswordPolicyErrors(form.password);
+    if (passwordErrors.length > 0) {
+      errors.password = `Пароль: ${passwordErrors.join(', ')}`;
     }
 
     if (form.phone) {
@@ -162,14 +164,14 @@ export default function CreateUserPage() {
           <input
             type="password"
             required
-            minLength={6}
+            minLength={8}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             onBlur={() => handleFieldBlur('password')}
             className={`w-full px-4 py-2.5 bg-muted border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition ${
               formErrors.password && touched.password ? 'border-red-500/50 focus:ring-red-500/20' : 'border-border'
             }`}
-            placeholder="Минимум 6 символов"
+            placeholder="Минимум 8 символов, латинские буквы и цифра"
           />
           {formErrors.password && touched.password && (
             <p className="text-xs text-red-500 mt-1">{formErrors.password}</p>

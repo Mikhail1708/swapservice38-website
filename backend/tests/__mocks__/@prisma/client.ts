@@ -25,6 +25,7 @@ const mockPrisma = {
   paymentAttempt: {
     create: jest.fn(),
     findUnique: jest.fn().mockResolvedValue(null),
+    findFirst: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn(),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),

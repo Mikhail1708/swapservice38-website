@@ -11,11 +11,11 @@ const positiveInteger = (value: string | undefined, fallback: number): number =>
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const accountKey = (email: string): string =>
-  createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+const accountKey = (accountId: string): string =>
+  createHash('sha256').update(accountId).digest('hex');
 
-const keysFor = (email: string) => {
-  const account = accountKey(email);
+const keysFor = (accountId: string) => {
+  const account = accountKey(accountId);
   return {
     code: `password-reset:${account}:code`,
     attempts: `password-reset:${account}:attempts`,
@@ -73,10 +73,10 @@ export const generatePasswordResetCode = (): string =>
   randomInt(100000, 1000000).toString();
 
 export const issuePasswordResetCode = async (
-  email: string,
+  accountId: string,
   code: string
 ): Promise<'issued' | 'cooldown' | 'locked'> => {
-  const keys = keysFor(email);
+  const keys = keysFor(accountId);
   const result = Number(await redis.eval(
     ISSUE_CODE_SCRIPT,
     3,
@@ -95,11 +95,11 @@ export const issuePasswordResetCode = async (
 };
 
 export const checkPasswordResetCode = async (
-  email: string,
+  accountId: string,
   code: string,
   consume: boolean
 ): Promise<ResetCodeCheck> => {
-  const keys = keysFor(email);
+  const keys = keysFor(accountId);
   const result = Number(await redis.eval(
     CHECK_CODE_SCRIPT,
     2,
@@ -116,4 +116,3 @@ export const checkPasswordResetCode = async (
   if (result === -1) return 'expired';
   return 'invalid';
 };
-

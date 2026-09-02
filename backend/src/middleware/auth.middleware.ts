@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { credentialVersion } from '../utils/credentialVersion';
 
 const prisma = new PrismaClient();
 
@@ -18,6 +19,7 @@ const findUser = (id: string) => prisma.user.findUnique({
     role: true,
     isVerified: true,
     blockedAt: true,
+    passwordHash: true,
   },
 });
 
@@ -52,6 +54,9 @@ const authenticate = async (req: Request): Promise<AuthResult> => {
     const user = await findUser(String(decoded.id));
     if (!user) return { authenticated: false, reason: 'not_found' };
     if (user.blockedAt) return { authenticated: false, reason: 'blocked' };
+    if (decoded.cv !== credentialVersion(user.passwordHash)) {
+      return { authenticated: false, reason: 'invalid' };
+    }
 
     return { authenticated: true, user };
   } catch {

@@ -2,9 +2,9 @@
 import axios from 'axios';
 import redis from '../config/redis';
 import { getInternalApiKey } from '../utils/internalApiKey';
+import { log } from '../config/logger';
 
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
-console.log('🔗 CRM_API_URL:', process.env.CRM_API_URL || 'http://localhost:5000');
 
 /**
  * Получение списка товаров из CRM
@@ -30,7 +30,7 @@ export const getProductsFromCRM = async (filters?: { category?: string; search?:
     await redis.setex(cacheKey, 300, JSON.stringify(response.data));
     return response.data;
   } catch (error) {
-    console.error('Error fetching products from CRM:', error);
+    log.error('CRM product list request failed');
     throw new Error('Ошибка получения товаров из CRM');
   }
 };
@@ -57,7 +57,7 @@ export const getProductFromCRM = async (productId: number) => {
     await redis.setex(cacheKey, 300, JSON.stringify(response.data));
     return response.data;
   } catch (error) {
-    console.error(`Error fetching product ${productId} from CRM:`, error);
+    log.error('CRM product request failed');
     throw new Error('Ошибка получения товара из CRM');
   }
 };
@@ -92,10 +92,8 @@ export const createOrderInCRM = async (orderData: {
     });
     return response.data;
   } catch (error) {
-    console.error('❌ Ошибка создания заказа в CRM:', error);
     if (axios.isAxiosError(error) && error.response) {
-      console.error('📦 Статус CRM:', error.response.status);
-      throw new Error(error.response.data?.message || 'Ошибка создания заказа в CRM');
+      throw new Error('Ошибка создания заказа в CRM');
     }
     throw new Error('Ошибка создания заказа в CRM');
   }
@@ -114,7 +112,7 @@ export const getOrderStatusFromCRM = async (orderId: number) => {
     });
     return response.data;
   } catch (error) {
-    console.error(`Error fetching order ${orderId} status from CRM:`, error);
+    log.error('CRM order status request failed');
     throw new Error('Ошибка получения статуса заказа');
   }
 };

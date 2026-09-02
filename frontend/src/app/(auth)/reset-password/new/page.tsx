@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter, Image, Link } from '@/lib/next-shims';
 import { Eye, EyeOff, ArrowRight, ArrowLeft, CheckCircle } from 'lucide-react';
 import { fetchWithCsrf } from '@/lib/csrf';
+import { getPasswordPolicyErrors } from '@/lib/password-policy';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function ResetPasswordNewPage() {
   const [password, setPassword] = useState('');
@@ -17,7 +19,7 @@ export default function ResetPasswordNewPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const email = searchParams.get('email') || '';
-  const code = searchParams.get('code') || '';
+  const code = sessionStorage.getItem('passwordResetCode') || '';
 
   useEffect(() => {
     if (!email || !code) {
@@ -29,8 +31,9 @@ export default function ResetPasswordNewPage() {
   e.preventDefault();
   setError('');
 
-  if (password.length < 8) {
-    setError('Пароль должен быть минимум 8 символов');
+  const passwordErrors = getPasswordPolicyErrors(password);
+  if (passwordErrors.length > 0) {
+    setError(`Пароль: ${passwordErrors.join(', ')}`);
     return;
   }
 
@@ -47,18 +50,17 @@ export default function ResetPasswordNewPage() {
       body: JSON.stringify({ email, code, newPassword: password }),
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || 'Ошибка смены пароля');
+      throw new Error(await readApiError(response, 'Не удалось изменить пароль. Попробуйте позже.'));
     }
 
+    sessionStorage.removeItem('passwordResetCode');
     setSuccess(true);
     setTimeout(() => {
       router.push('/login?reset=true');
     }, 2000);
-  } catch (err: any) {
-    setError(err.message);
+  } catch (err: unknown) {
+    setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось изменить пароль. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось изменить пароль. Попробуйте позже.');
   } finally {
     setLoading(false);
   }
@@ -116,7 +118,7 @@ export default function ResetPasswordNewPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Минимум 8 символов"
+                  placeholder="Минимум 8 символов, латинские буквы и цифра"
                   className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-black placeholder-gray-400 focus:outline-none focus:border-black/30 transition font-light pr-12"
                   minLength={8}
                   required
@@ -130,7 +132,7 @@ export default function ResetPasswordNewPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-2 font-light">Пароль должен содержать минимум 8 символов</p>
+              <p className="text-xs text-gray-400 mt-2 font-light">Минимум 8 символов, заглавная и строчная латинские буквы, цифра</p>
             </div>
 
             <div>

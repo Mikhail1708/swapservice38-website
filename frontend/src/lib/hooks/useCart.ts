@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getCsrfToken, fetchWithCsrf } from '../csrf';
+import { readApiError, userMessageFromError } from '../api-error';
 
 interface CartItem {
   productId: string;
@@ -24,6 +25,7 @@ export function useCart() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [itemsCount, setItemsCount] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
   const fetchPromise = useRef<Promise<void> | null>(null);
 
@@ -35,6 +37,7 @@ export function useCart() {
     fetchPromise.current = (async () => {
       try {
         setIsLoading(true);
+        setLoadError(null);
         await getCsrfToken();
 
         const response = await fetch('/api/cart', {
@@ -56,11 +59,14 @@ export function useCart() {
         } else {
           setCart(null);
           setItemsCount(0);
+          if (response.status !== 401) {
+            setLoadError(await readApiError(response, 'Не удалось загрузить корзину. Попробуйте ещё раз.'));
+          }
         }
       } catch (error) {
-        console.error('❌ Cart fetch error:', error);
         setCart(null);
         setItemsCount(0);
+        setLoadError(userMessageFromError(error, 'Не удалось загрузить корзину. Попробуйте ещё раз.'));
       } finally {
         setIsLoading(false);
         fetchPromise.current = null;
@@ -78,9 +84,9 @@ export function useCart() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.clone().json().catch(() => ({}));
         // ✅ ПРОБРАСЫВАЕМ ОШИБКУ С ДЕТАЛЯМИ
-        const error = new Error(errorData.error || 'Ошибка добавления');
+        const error = new Error(await readApiError(response, 'Не удалось обновить корзину. Попробуйте ещё раз.'));
         (error as any).availableStock = errorData.availableStock;
         (error as any).currentQuantity = errorData.currentQuantity;
         (error as any).maxAvailable = errorData.maxAvailable;
@@ -99,7 +105,7 @@ export function useCart() {
       }
       return true;
     } catch (error) {
-      console.error('❌ Add to cart error:', error);
+      if (error instanceof TypeError) throw new Error(userMessageFromError(error, 'Не удалось обновить корзину. Попробуйте ещё раз.'));
       throw error;
     }
   }, []);
@@ -112,8 +118,8 @@ export function useCart() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        const error = new Error(errorData.error || 'Ошибка обновления');
+        const errorData = await response.clone().json().catch(() => ({}));
+        const error = new Error(await readApiError(response, 'Не удалось обновить корзину. Попробуйте ещё раз.'));
         (error as any).availableStock = errorData.availableStock;
         (error as any).code = errorData.code;
         throw error;
@@ -130,7 +136,7 @@ export function useCart() {
       }
       return true;
     } catch (error) {
-      console.error('❌ Update cart error:', error);
+      if (error instanceof TypeError) throw new Error(userMessageFromError(error, 'Не удалось обновить корзину. Попробуйте ещё раз.'));
       throw error;
     }
   }, []);
@@ -146,10 +152,10 @@ export function useCart() {
         setItemsCount(0);
         return true;
       }
-      return false;
+      throw new Error(await readApiError(response, 'Не удалось очистить корзину. Попробуйте ещё раз.'));
     } catch (error) {
-      console.error('❌ Clear cart error:', error);
-      return false;
+      if (error instanceof TypeError) throw new Error(userMessageFromError(error, 'Не удалось очистить корзину. Попробуйте ещё раз.'));
+      throw error;
     }
   }, []);
 
@@ -182,6 +188,7 @@ export function useCart() {
     cart,
     isLoading,
     itemsCount,
+    loadError,
     addToCart,
     updateQuantity,
     clearCart,

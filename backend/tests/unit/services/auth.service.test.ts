@@ -9,6 +9,8 @@ jest.mock('@prisma/client', () => {
   const mockPrisma = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -29,6 +31,7 @@ const mockPrisma = new PrismaClient() as jest.Mocked<PrismaClient>;
 describe('Auth Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([]);
     process.env.JWT_SECRET = 'test_secret';
     process.env.JWT_EXPIRES_IN = '7d';
   });
@@ -46,7 +49,7 @@ describe('Auth Service', () => {
 
     it('should register user and send verification email', async () => {
       // ✅ ПРАВИЛЬНЫЙ МОК
-      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.user.create as jest.Mock).mockResolvedValue({
         id: 'user-1',
         email: registerData.email,
@@ -72,7 +75,7 @@ describe('Auth Service', () => {
     });
 
     it('should throw error if user already exists', async () => {
-      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValue({
         id: 'user-1',
         email: registerData.email,
         isVerified: true,
@@ -95,7 +98,8 @@ describe('Auth Service', () => {
 
     it('should verify user email with valid code', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue(code);
+      redis.eval.mockResolvedValue(1);
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-1', email, isVerified: false });
       (mockPrisma.user.update as jest.Mock).mockResolvedValue({
         id: 'user-1',
         email,
@@ -110,7 +114,8 @@ describe('Auth Service', () => {
 
     it('should throw error if code is invalid', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue('wrong_code');
+      redis.eval.mockResolvedValue(0);
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-1', email, isVerified: false });
 
       await expect(verifyEmail(email, code)).rejects.toThrow(
         'Неверный или просроченный код'
@@ -119,11 +124,28 @@ describe('Auth Service', () => {
 
     it('should throw error if code is expired', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue(null);
+      redis.eval.mockResolvedValue(-1);
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-1', email, isVerified: false });
 
       await expect(verifyEmail(email, code)).rejects.toThrow(
         'Неверный или просроченный код'
       );
+    });
+
+    it('does not reveal that an address is already verified', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-1', email, isVerified: true });
+
+      await expect(verifyEmail(email, code)).rejects.toThrow('Неверный или просроченный код');
+    });
+
+    it('fails closed when legacy rows differ only by email case', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-1', email, isVerified: false });
+      (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: 'user-1', email: 'test@example.com', isVerified: false },
+        { id: 'user-2', email: 'Test@example.com', isVerified: false },
+      ]);
+
+      await expect(verifyEmail(email, code)).rejects.toThrow('Неверный или просроченный код');
     });
   });
 
@@ -161,10 +183,12 @@ describe('Auth Service', () => {
 
     it('should throw error if user not found', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(login(loginData.email, loginData.password)).rejects.toThrow(
         'Неверный email или пароль'
       );
+      expect(bcrypt.compare).toHaveBeenCalledTimes(1);
     });
 
     it('should throw error if email not verified', async () => {
@@ -174,6 +198,7 @@ describe('Auth Service', () => {
         passwordHash: 'hashed_password',
         isVerified: false,
       });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(login(loginData.email, loginData.password)).rejects.toThrow(
         'Email не подтверждён'
@@ -193,6 +218,16 @@ describe('Auth Service', () => {
       await expect(login(loginData.email, loginData.password)).rejects.toThrow(
         'Неверный email или пароль'
       );
+    });
+
+    it('does not issue a session for a blocked user', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1', email: loginData.email, passwordHash: 'hashed_password', isVerified: true, blockedAt: new Date(),
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await expect(login(loginData.email, loginData.password)).rejects.toThrow('Неверный email или пароль');
+      expect(jwt.sign).not.toHaveBeenCalled();
     });
   });
 
@@ -260,6 +295,8 @@ describe('Auth Service', () => {
     const email = 'test@example.com';
 
     it('should send password change code to email', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.eval.mockResolvedValue(1);
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: userId,
         email: email,
@@ -302,7 +339,7 @@ describe('Auth Service', () => {
 
     it('should confirm password change with valid code', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue(code);
+      redis.eval.mockResolvedValue(1);
       (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_password');
       (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
 
@@ -313,7 +350,7 @@ describe('Auth Service', () => {
 
     it('should throw error if code is invalid', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue('wrong_code');
+      redis.eval.mockResolvedValue(0);
 
       await expect(
         confirmPasswordChange(userId, code, newPassword)
@@ -322,7 +359,7 @@ describe('Auth Service', () => {
 
     it('should throw error if code is expired', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue(null);
+      redis.eval.mockResolvedValue(-1);
 
       await expect(
         confirmPasswordChange(userId, code, newPassword)
@@ -331,11 +368,20 @@ describe('Auth Service', () => {
 
     it('should throw error if password is too short', async () => {
       const redis = require('../../../src/config/redis').default;
-      redis.get.mockResolvedValue(code);
+      redis.eval.mockResolvedValue(1);
 
       await expect(
         confirmPasswordChange(userId, code, 'short')
-      ).rejects.toThrow('Пароль должен быть минимум 8 символов');
+      ).rejects.toThrow('Минимум 8 символов');
+      expect(redis.eval).not.toHaveBeenCalled();
+    });
+
+    it('rejects Cyrillic characters in the emailed password-change flow', async () => {
+      const redis = require('../../../src/config/redis').default;
+      redis.eval.mockResolvedValue(1);
+      await expect(confirmPasswordChange(userId, code, 'Valid1Пароль'))
+        .rejects.toThrow('Используйте только латинские символы');
+      expect(redis.eval).not.toHaveBeenCalled();
     });
   });
 });

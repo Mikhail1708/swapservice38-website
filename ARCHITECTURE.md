@@ -23,7 +23,8 @@ flowchart LR
     API --> YooKassa[YooKassa]
     API --> OAuth[Yandex / MAX OAuth]
     API --> SMTP[SMTP]
-    Browser -->|подсказки адресов| DaData[DaData Suggestions]
+    Browser -->|POST /api/address/suggestions| WebsiteBackend
+    WebsiteBackend -->|server-side request| DaData[DaData Suggestions]
 ```
 
 ## 2. Структура репозитория
@@ -106,7 +107,7 @@ Frontend использует относительные URL `/api/...` и пр�
 - добавляет `X-CSRF-Token`, `CSRF-Token` и `_csrf` в JSON/FormData;
 - всегда включает cookies.
 
-Из внешних API браузер напрямую вызывает DaData Suggestions в `AddressInput`; ключ берётся из `VITE_DADATA_API_KEY`. OAuth-кнопки переходят на backend, используя `VITE_BACKEND_URL` либо `http://localhost:5001`.
+`AddressInput` обращается к защищённому website backend proxy; секретный ключ DaData хранится только в `DADATA_API_KEY` backend. OAuth-кнопки переходят на backend, используя `VITE_BACKEND_URL` либо same-origin URL.
 
 ## 4. Backend
 
@@ -287,7 +288,7 @@ sequenceDiagram
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `MANAGER_EMAIL` |
 | OAuth | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_REDIRECT_URI`, `MAX_CLIENT_ID`, `MAX_CLIENT_SECRET`, `MAX_REDIRECT_URI` |
 
-Frontend compile-time variables: `VITE_BACKEND_URL`, `VITE_DADATA_API_KEY`; в type declarations также объявлены `VITE_API_URL`, `VITE_YANDEX_REDIRECT_URI`, `VITE_YANDEX_GEOCODER_API_KEY`, но активный код их не читает.
+Frontend compile-time variables: `VITE_BACKEND_URL` и необязательный allowlist `VITE_PAYMENT_REDIRECT_HOSTS`. Секреты внешних API не передаются в browser bundle.
 
 ## 9. Сборка, запуск и тесты
 

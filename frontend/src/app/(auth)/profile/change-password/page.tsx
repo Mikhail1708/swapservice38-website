@@ -16,6 +16,8 @@ import {
   EyeOff
 } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
+import { getPasswordPolicyErrors } from '@/lib/password-policy';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function ChangePasswordPage() {
   const { user, loading: authLoading, refresh } = useAuth();
@@ -32,25 +34,14 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [shouldRedirect, setShouldRedirect] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
-      setShouldRedirect(true);
       router.push('/login?redirect=/profile/change-password');
     }
   }, [user, authLoading, router]);
 
-  const validatePassword = (pass: string) => {
-    const errors = [];
-    if (pass.length < 8) errors.push('минимум 8 символов');
-    if (!/[A-Z]/.test(pass)) errors.push('заглавная буква');
-    if (!/[a-z]/.test(pass)) errors.push('строчная буква');
-    if (!/[0-9]/.test(pass)) errors.push('цифра');
-    return errors;
-  };
-
-  const passwordErrors = validatePassword(formData.newPassword);
+  const passwordErrors = getPasswordPolicyErrors(formData.newPassword);
   const isPasswordValid = passwordErrors.length === 0 && formData.newPassword.length > 0;
   const passwordsMatch = formData.newPassword === formData.confirmPassword && formData.newPassword.length > 0;
 
@@ -101,10 +92,8 @@ export default function ChangePasswordPage() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка смены пароля');
+        throw new Error(await readApiError(response, 'Не удалось изменить пароль. Попробуйте позже.'));
       }
 
       setSuccess('✅ Пароль успешно изменён!');
@@ -116,9 +105,10 @@ export default function ChangePasswordPage() {
         router.push('/profile');
       }, 2000);
 
-    } catch (error: any) {
-      console.error('❌ Ошибка смены пароля:', error);
-      setError(error.message);
+    } catch (error: unknown) {
+      setError(error instanceof TypeError
+        ? userMessageFromError(error, 'Не удалось изменить пароль. Попробуйте позже.')
+        : error instanceof Error ? error.message : 'Не удалось изменить пароль. Попробуйте позже.');
     } finally {
       setLoading(false);
     }

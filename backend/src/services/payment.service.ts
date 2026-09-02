@@ -170,7 +170,6 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       }
     }
 
-    log.info('💳 Создание платежа', { orderId, total: order.total });
 
     if (provider === 'mock') {
       await markProviderRequestStartedIfEligible(orderId, attempt.id);
@@ -261,8 +260,6 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       },
     };
 
-    log.debug('📤 Отправка в ЮKassa', { paymentData });
-
     await markProviderRequestStartedIfEligible(orderId, attempt.id);
     providerRequestStarted = true;
 
@@ -272,7 +269,6 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       { headers }
     );
 
-    log.info('✅ Платёж создан', { paymentId: response.data.id });
 
     await bindProviderPaymentToOrder(attempt.id, orderId, response.data.id, response.data.status);
 
@@ -302,12 +298,11 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     
     // ✅ ОШИБКА ЮKASSA
     if (error.response?.data?.description) {
-      log.error('❌ Ошибка ЮKassa', { 
-        orderId, 
-        error: error.response.data,
-        status: error.response.status 
+      log.error('YooKassa payment request failed', {
+        orderId,
+        status: error.response.status,
       });
-      throw new Error(error.response.data.description);
+      throw new Error('Ошибка платёжного провайдера');
     }
     
     // ✅ ДРУГИЕ ОШИБКИ
@@ -784,7 +779,7 @@ export const handlePaymentSuccess = async (orderId: string) => {
 // ОБРАБОТКА WEBHOOK
 // ============================================================
 export const handlePaymentWebhook = async (event: any) => {
-  log.info('📥 Webhook от ЮKassa', { paymentId: event.object?.id, status: event.object?.status });
+  log.info('YooKassa webhook received', { status: event.object?.status });
 
   const payment = event.object;
   

@@ -15,6 +15,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { userMessageFromError } from '@/lib/api-error';
 
 interface Service {
   id: string;
@@ -33,7 +34,6 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 // ЗАГРУЗКА УСЛУГИ
 // ============================================================
 const fetchService = async (id: string): Promise<Service | null> => {
-  console.log(`🔄 Загрузка услуги ${id}...`);
   
   const response = await fetch(`/api/services/${id}`, {
     method: 'GET',
@@ -78,9 +78,8 @@ export default function ServiceDetailPage() {
         
         setService(data);
         
-      } catch (err: any) {
-        console.error('❌ Ошибка загрузки услуги:', err);
-        setError(err.message || 'Ошибка загрузки услуги');
+      } catch (err: unknown) {
+        setError(userMessageFromError(err, 'Не удалось загрузить услугу. Попробуйте позже.'));
       } finally {
         setLoading(false);
       }

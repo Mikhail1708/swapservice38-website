@@ -49,6 +49,10 @@ describe('Auth Schemas', () => {
       expect(result.success).toBe(false);
     });
 
+    it('rejects Cyrillic characters during registration', () => {
+      expect(registerSchema.safeParse({ ...validData, password: 'Valid1Пароль' }).success).toBe(false);
+    });
+
     it('should reject invalid firstName', () => {
       const data = { ...validData, firstName: '123' };
       const result = registerSchema.safeParse(data);
@@ -150,6 +154,10 @@ describe('Auth Schemas', () => {
       const result = changePasswordSchema.safeParse(data);
       expect(result.success).toBe(false);
     });
+
+    it('rejects Cyrillic characters during password change', () => {
+      expect(changePasswordSchema.safeParse({ ...validData, newPassword: 'Valid1Пароль' }).success).toBe(false);
+    });
   });
 
   // ============================================================
@@ -225,6 +233,10 @@ describe('Auth Schemas', () => {
       const data = { ...validData, newPassword: 'weak' };
       const result = resetPasswordConfirmSchema.safeParse(data);
       expect(result.success).toBe(false);
+    });
+
+    it('rejects Cyrillic characters during password reset', () => {
+      expect(resetPasswordConfirmSchema.safeParse({ ...validData, newPassword: 'Valid1Пароль' }).success).toBe(false);
     });
   });
 

@@ -4,7 +4,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, Image, Link } from '@/lib/next-shims';
 import { Loader2, CreditCard, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
-import { getCsrfToken } from '@/lib/csrf';
+import { getSafePaymentRedirect } from '@/lib/safe-navigation';
+import { fetchWithCsrf } from '@/lib/csrf';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -22,10 +24,8 @@ export default function PaymentPage() {
   const isMountedRef = useRef(true);
 
   useEffect(() => {
-    console.log('📄 PaymentPage mounted, orderId:', orderId);
-
+    isMountedRef.current = true;
     if (!orderId) {
-      console.error('❌ orderId отсутствует');
       setError('Не указан ID заказа');
       setLoading(false);
       return;
@@ -33,83 +33,59 @@ export default function PaymentPage() {
 
     // ✅ БЛОКИРУЕМ ПОВТОРНЫЙ ЗАПРОС ПРИ ПЕРЕЗАГРУЗКЕ СТРАНИЦЫ
     if (isProcessingRef.current) {
-      console.log('⚠️ Платеж уже обрабатывается, пропускаем');
-      return;
+      return () => { isMountedRef.current = false; };
     }
     isProcessingRef.current = true;
 
     const fetchData = async () => {
       try {
-        console.log(`🔄 1. Загрузка заказа ${orderId}...`);
-
         // 1. Получаем заказ
         const orderResponse = await fetch(`/api/orders/${orderId}`, {
           credentials: 'include',
         });
 
-        console.log(`📦 2. Статус ответа: ${orderResponse.status}`);
-
         if (!orderResponse.ok) {
-          const errorData = await orderResponse.json();
-          console.error('❌ 3. Ошибка получения заказа:', errorData);
-          throw new Error(errorData.error || 'Заказ не найден');
+          throw new Error(await readApiError(orderResponse, 'Не удалось загрузить заказ.'));
         }
 
         const orderData = await orderResponse.json();
-        console.log('✅ 4. Заказ получен:', orderData);
         setOrder(orderData.order || orderData);
 
         // 2. Проверяем статус заказа
         const orderStatus = orderData.order?.status || orderData.status;
-        if (orderStatus === 'paid' || orderStatus === 'confirmed') {
-          console.log('✅ Заказ уже оплачен, редирект на успех');
-          router.push('/payment/success?orderId=' + orderId);
-          return;
+        const cancellationState = orderData.order?.cancellationState || orderData.cancellationState;
+        if (orderStatus === 'cancelled' || ['requested', 'accepted'].includes(cancellationState)) {
+          throw new Error('Оплата недоступна: заказ отменён или ожидает решения по отмене');
         }
 
         // 3. Создаём платёж
-        console.log(`💳 5. Создание платежа для заказа ${orderId}...`);
         setIsCreatingPayment(true);
 
-        const csrfToken = await getCsrfToken();
-        console.log('🛡️ CSRF токен получен');
-
-        const paymentResponse = await fetch('/api/payment/create', {
+        const paymentResponse = await fetchWithCsrf('/api/payment/create', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          body: JSON.stringify({ 
-            orderId: orderId,
-            _csrf: csrfToken,
-          }),
-          credentials: 'include',
+          body: JSON.stringify({ orderId }),
         });
 
-        console.log(`📦 6. Статус платежа: ${paymentResponse.status}`);
+        const paymentData = await paymentResponse.clone().json().catch(() => ({}));
 
-        const paymentData = await paymentResponse.json();
-        console.log('📦 7. Ответ платежа:', paymentData);
-
-        if (paymentResponse.ok && paymentData.paymentUrl) {
-          console.log('✅ 8. Платёж создан, URL:', paymentData.paymentUrl);
-          setPaymentUrl(paymentData.paymentUrl);
+        const safePaymentUrl = getSafePaymentRedirect(paymentData.paymentUrl);
+        if (paymentResponse.ok && safePaymentUrl) {
+          setPaymentUrl(safePaymentUrl);
+        } else if (paymentResponse.ok && paymentData.paymentUrl) {
+          setError('Платёжный сервис вернул небезопасный адрес перенаправления');
         } else {
           // Если заказ уже обработан — перенаправляем на страницу успеха или в профиль
           if (paymentData.error === 'Заказ уже обработан') {
-            console.log('ℹ️ Заказ уже обработан, перенаправляем');
             router.push('/profile/orders');
             return;
           }
-          console.error('❌ 9. Ошибка создания платежа:', paymentData);
-          setError(paymentData.error || 'Не удалось создать платёж');
+          setError(await readApiError(paymentResponse, 'Не удалось начать оплату. Попробуйте ещё раз.'));
         }
-      } catch (error: any) {
-        console.error('❌ 10. Критическая ошибка:', error);
-        setError(error.message || 'Произошла ошибка');
+      } catch (error: unknown) {
+        setError(error instanceof TypeError
+          ? userMessageFromError(error, 'Не удалось начать оплату. Попробуйте ещё раз.')
+          : error instanceof Error ? error.message : 'Не удалось начать оплату. Попробуйте ещё раз.');
       } finally {
-        console.log('🏁 11. Завершение загрузки');
         if (isMountedRef.current) {
           setLoading(false);
           setIsCreatingPayment(false);
@@ -128,7 +104,6 @@ export default function PaymentPage() {
   // ✅ РЕДИРЕКТ НА ОПЛАТУ
   const handlePay = () => {
     if (paymentUrl) {
-      console.log('🔗 Редирект на оплату:', paymentUrl);
       window.location.href = paymentUrl;
     }
   };
@@ -171,7 +146,7 @@ export default function PaymentPage() {
   }
 
   // ✅ УСПЕХ (ЗАКАЗ УЖЕ ОПЛАЧЕН)
-  if (order?.status === 'paid' || order?.status === 'confirmed') {
+  if (order?.status === 'paid') {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20">
         <div className="container-custom max-w-2xl">

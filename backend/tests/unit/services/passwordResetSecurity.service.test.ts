@@ -33,16 +33,17 @@ describe('Password reset security service', () => {
     expect(mockRedis.eval).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the same account key for email case variants', async () => {
+  it('binds codes to immutable account identifiers without exposing them', async () => {
     mockRedis.eval.mockResolvedValue(1);
 
-    await issuePasswordResetCode('User@Example.com', '123456');
-    await issuePasswordResetCode('user@example.com', '654321');
+    await issuePasswordResetCode('user-id-1', '123456');
+    await issuePasswordResetCode('user-id-2', '654321');
 
     const firstKeys = (mockRedis.eval.mock.calls[0] as unknown[]).slice(2, 5);
     const secondKeys = (mockRedis.eval.mock.calls[1] as unknown[]).slice(2, 5);
-    expect(firstKeys).toEqual(secondKeys);
-    expect(String(firstKeys[0])).not.toContain('user@example.com');
+    expect(firstKeys).not.toEqual(secondKeys);
+    expect(String(firstKeys[0])).not.toContain('user-id-1');
+    expect(String(secondKeys[0])).not.toContain('user-id-2');
   });
 
   it.each([

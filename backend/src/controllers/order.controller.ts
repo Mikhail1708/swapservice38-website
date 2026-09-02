@@ -13,6 +13,7 @@ import {
   OrderCancellationError,
   requestOrderCancellation,
 } from '../services/orderCancellation.service';
+import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
 
@@ -44,7 +45,6 @@ const safeItems = (items: any): CartItem[] => {
 };
 
 const getCartWithTotal = async (userId?: string) => {
-  console.log('🔍 getCartWithTotal:', { userId });
 
   if (!userId) {
     console.log('ℹ️ Нет userId, возвращаем пустую корзину');
@@ -55,7 +55,6 @@ const getCartWithTotal = async (userId?: string) => {
     where: { userId: String(userId) },
   });
 
-  console.log('📦 Корзина найдена для userId:', cart ? 'да (id: ' + cart.id + ')' : 'нет');
 
   if (!cart) {
     return { id: null, items: [], total: 0, itemsCount: 0 };
@@ -65,7 +64,6 @@ const getCartWithTotal = async (userId?: string) => {
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
   const itemsCount = items.reduce((sum: number, item: CartItem) => sum + (item.quantity || 0), 0);
 
-  console.log('🛒 Товаров в корзине (БД):', items.length);
 
   return {
     id: cart.id,
@@ -77,24 +75,20 @@ const getCartWithTotal = async (userId?: string) => {
 
 const mergeCart = async (userId: string, guestId: string | undefined) => {
   if (!guestId) {
-    console.log('ℹ️ Нет guestId, корзина не переносится');
     return;
   }
 
   try {
-    console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
 
     const guestCart = await prisma.cart.findUnique({
       where: { guestId: guestId },
     });
 
     if (!guestCart || !guestCart.items || (guestCart.items as any[]).length === 0) {
-      console.log('ℹ️ Корзина гостя пуста');
       return;
     }
 
     const guestItems = safeItems(guestCart.items);
-    console.log(`📦 Товаров в гостевой корзине: ${guestItems.length}`);
 
     let userCart = await prisma.cart.findUnique({
       where: { userId: userId },
@@ -111,10 +105,8 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
 
         if (existingIndex !== -1) {
           mergedItems[existingIndex].quantity += guestItem.quantity;
-          console.log(`🔄 Обновлено количество: ${guestItem.name} -> ${mergedItems[existingIndex].quantity}`);
         } else {
           mergedItems.push(guestItem);
-          console.log(`➕ Добавлен товар: ${guestItem.name}`);
         }
       }
 
@@ -122,7 +114,6 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
         where: { userId: userId },
         data: { items: mergedItems as any },
       });
-      console.log(`✅ Корзина пользователя обновлена, ${mergedItems.length} товаров`);
     } else {
       await prisma.cart.create({
         data: {
@@ -130,16 +121,14 @@ const mergeCart = async (userId: string, guestId: string | undefined) => {
           items: guestItems as any,
         },
       });
-      console.log(`✅ Создана корзина пользователя, ${guestItems.length} товаров`);
     }
 
     await prisma.cart.delete({
       where: { guestId: guestId },
     });
 
-    console.log(`✅ Корзина успешно перенесена!`);
   } catch (error) {
-    console.error('❌ Ошибка переноса корзины:', error);
+    log.error('Cart merge failed', { error: error instanceof Error ? error.message : 'unknown' });
   }
 };
 
@@ -152,12 +141,10 @@ export const createOrderController = async (req: Request, res: Response): Promis
     const guestId = req.query.guestId as string || req.cookies?.guestId;
 
     if (!userId) {
-      console.log('❌ Пользователь не авторизован');
       res.status(401).json({ error: 'Необходимо авторизоваться' });
       return;
     }
 
-    console.log('📝 Создание заказа для пользователя:', userId);
 
     if (guestId) {
       await mergeCart(userId, guestId);
@@ -188,12 +175,10 @@ export const createOrderController = async (req: Request, res: Response): Promis
     const cart = await getCartWithTotal(userId);
 
     if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
-      console.error('❌ Корзина пуста');
       res.status(400).json({ error: 'Корзина пуста' });
       return;
     }
 
-    console.log('🛒 Корзина:', cart.items.length, 'товаров');
     const validatedCart = await validateCheckoutItems(cart.items);
 
     // Создание заказа и очистка корзины атомарны. Serializable не позволяет
@@ -250,9 +235,6 @@ export const createOrderController = async (req: Request, res: Response): Promis
       }
     }
 
-    console.log('✅ Локальный заказ создан (pending):', localOrder.id);
-
-    console.log('🧹 Корзина очищена');
 
     const customerName = [
       localOrder.customerFirstName,
@@ -287,7 +269,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
     ]);
     emailResults.forEach((result) => {
       if (result.status === 'rejected') {
-        console.error(`❌ Не удалось поставить уведомление о заказе ${localOrder.id} в очередь:`, result.reason);
+        log.error('Order notification enqueue failed', { orderId: localOrder.id });
       }
     });
 
@@ -302,7 +284,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
     });
 
   } catch (error: any) {
-    console.error('❌ Ошибка создания заказа:', error);
+    log.error('Order creation failed', { error: error instanceof Error ? error.message : 'unknown' });
     if (error instanceof CheckoutInventoryError) {
       res.status(error.status).json({
         error: error.message,
@@ -312,7 +294,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
       return;
     }
 
-    res.status(400).json({ error: error.message || 'Ошибка создания заказа' });
+    res.status(500).json({ code: 'ORDER_CREATE_FAILED', error: 'Не удалось создать заказ. Попробуйте ещё раз позже' });
   }
 };
 
@@ -338,7 +320,16 @@ export const getOrderController = async (req: Request, res: Response): Promise<v
             email: true,
             phone: true,
           }
-        }
+        },
+        paymentAttempts: {
+          select: {
+            status: true,
+            refundReason: true,
+            refundRequestedAt: true,
+            refundedAt: true,
+          },
+          take: 1,
+        },
       }
     });
 
@@ -349,8 +340,8 @@ export const getOrderController = async (req: Request, res: Response): Promise<v
 
     res.json({ order });
   } catch (error: any) {
-    console.error('❌ Ошибка получения заказа:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения заказа' });
+    log.error('Order lookup failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ code: 'ORDER_LOAD_FAILED', error: 'Не удалось загрузить заказ' });
   }
 };
 
@@ -370,15 +361,24 @@ export const getUserOrdersController = async (req: Request, res: Response): Prom
             lastName: true,
             middleName: true,
           }
-        }
+        },
+        paymentAttempts: {
+          select: {
+            status: true,
+            refundReason: true,
+            refundRequestedAt: true,
+            refundedAt: true,
+          },
+          take: 1,
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     res.json({ orders });
   } catch (error: any) {
-    console.error('❌ Ошибка получения заказов:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения заказов' });
+    log.error('Order list failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ code: 'ORDER_LOAD_FAILED', error: 'Не удалось загрузить заказы' });
   }
 };
 
@@ -406,7 +406,7 @@ export const requestOrderCancellationController = async (req: Request, res: Resp
       res.status(error.statusCode).json({ error: error.message });
       return;
     }
-    console.error('Ошибка запроса отмены заказа:', error);
+    log.error('Order cancellation request failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ error: 'Не удалось запросить отмену заказа' });
   }
 };

@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { authMiddleware, requireAuth } from '../../../src/middleware/auth.middleware';
 import jwt from 'jsonwebtoken';
+import { credentialVersion } from '../../../src/utils/credentialVersion';
 
 jest.mock('jsonwebtoken');
 jest.mock('@prisma/client', () => {
@@ -18,6 +19,7 @@ jest.mock('@prisma/client', () => {
           role: 'user',
           isVerified: true,
           blockedAt: null,
+          passwordHash: 'current-password-hash',
         }),
       },
     })),
@@ -123,7 +125,7 @@ describe('Auth Middleware (Сайт)', () => {
   });
 
   it('should accept a protected request with a valid token', async () => {
-    (jwt.verify as jest.Mock).mockReturnValue({ id: '1' });
+    (jwt.verify as jest.Mock).mockReturnValue({ id: '1', cv: credentialVersion('current-password-hash') });
     const req = createRequest('/api/auth/me', { token: 'valid-token' });
     const res = createResponse();
 
@@ -132,5 +134,16 @@ describe('Auth Middleware (Сайт)', () => {
     expect(mockNext).toHaveBeenCalled();
     expect((req as any).user).toEqual(expect.objectContaining({ id: '1' }));
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a session after the stored password hash changes', async () => {
+    (jwt.verify as jest.Mock).mockReturnValue({ id: '1', cv: credentialVersion('old-password-hash') });
+    const req = createRequest('/api/auth/me', { token: 'old-session' });
+    const res = createResponse();
+
+    await requireAuth(req as Request, res as Response, mockNext);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockNext).not.toHaveBeenCalled();
   });
 });

@@ -84,7 +84,7 @@ export const safeRedis = {
     try {
       return await redis.get(key);
     } catch (error) {
-      console.error(`❌ Redis get error [${key}]:`, error);
+      console.error('Redis get failed');
       throw error;
     }
   },
@@ -93,7 +93,7 @@ export const safeRedis = {
     try {
       await redis.setex(key, ttl, value);
     } catch (error) {
-      console.error(`❌ Redis setex error [${key}]:`, error);
+      console.error('Redis setex failed');
       throw error;
     }
   },
@@ -102,7 +102,7 @@ export const safeRedis = {
     try {
       return await redis.del(key);
     } catch (error) {
-      console.error(`❌ Redis del error [${key}]:`, error);
+      console.error('Redis del failed');
       throw error;
     }
   },
@@ -111,7 +111,7 @@ export const safeRedis = {
     try {
       return await redis.keys(pattern);
     } catch (error) {
-      console.error(`❌ Redis keys error [${pattern}]:`, error);
+      console.error('Redis keys failed');
       throw error;
     }
   },
@@ -120,7 +120,7 @@ export const safeRedis = {
     try {
       return await redis.incr(key);
     } catch (error) {
-      console.error(`❌ Redis incr error [${key}]:`, error);
+      console.error('Redis incr failed');
       throw error;
     }
   },
@@ -129,7 +129,7 @@ export const safeRedis = {
     try {
       return await redis.expire(key, ttl);
     } catch (error) {
-      console.error(`❌ Redis expire error [${key}]:`, error);
+      console.error('Redis expire failed');
       throw error;
     }
   },
@@ -138,7 +138,7 @@ export const safeRedis = {
     try {
       return await redis.ttl(key);
     } catch (error) {
-      console.error(`❌ Redis ttl error [${key}]:`, error);
+      console.error('Redis ttl failed');
       throw error;
     }
   },
@@ -162,7 +162,7 @@ export const safeRedis = {
         await redis.set(key, json);
       }
     } catch (error) {
-      console.error(`❌ Redis setJson error [${key}]:`, error);
+      console.error('Redis JSON write failed');
       throw error;
     }
   },
@@ -173,7 +173,7 @@ export const safeRedis = {
       if (!data) return null;
       return JSON.parse(data) as T;
     } catch (error) {
-      console.error(`❌ Redis getJson error [${key}]:`, error);
+      console.error('Redis JSON read failed');
       throw error;
     }
   },

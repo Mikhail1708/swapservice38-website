@@ -24,8 +24,12 @@ export default function EditArticlePage() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/articles/${id}`)
-      .then(res => res.json())
+    fetch(`/api/admin/articles/${id}`, { credentials: 'include' })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка загрузки статьи');
+        return data;
+      })
       .then(data => {
         setForm({
           title: data.title || '',
@@ -56,7 +60,7 @@ export default function EditArticlePage() {
       formData.append('file', file);
 
       try {
-        const response = await fetch('/api/upload', {
+        const response = await fetchWithCsrf('/api/upload', {
           method: 'POST',
           body: formData,
         });
@@ -103,7 +107,7 @@ export default function EditArticlePage() {
         readTime: form.readTime || 5,
       };
 
-      const response = await fetchWithCsrf(`/api/articles/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/articles/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });

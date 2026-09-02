@@ -8,6 +8,8 @@ import { fetchWithCsrf } from '@/lib/csrf';
 import { Eye, EyeOff, ArrowRight, ArrowLeft } from 'lucide-react'; // ✅ ДОБАВЬ
 import { OAuthButtons } from '@/components/OAuthButtons'; // ✅ ДОБАВЬ
 import { useAuth } from '@/lib/hooks/useAuth';
+import { getSafeInternalRedirect } from '@/lib/safe-navigation';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,7 +18,12 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'loading' | 'sent'>('idle');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
+  const { refresh } = useAuth();
 
   // Загружаем сохранённый email при загрузке страницы
   useEffect(() => {
@@ -30,6 +37,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNeedsVerification(false);
     setLoading(true);
 
     try {
@@ -38,10 +46,10 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка входа');
+        const message = await readApiError(response, 'Вход временно недоступен. Попробуйте позже.');
+        if (response.status === 403) setNeedsVerification(true);
+        throw new Error(message);
       }
 
       // ✅ Сохраняем email если выбран чекбокс
@@ -51,12 +59,31 @@ export default function LoginPage() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      router.push('/');
-      router.refresh();
+      await refresh();
+      router.replace(redirectTo);
     } catch (err: any) {
-      setError(err.message);
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Вход временно недоступен. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Вход временно недоступен. Попробуйте позже.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendStatus('loading');
+    try {
+      const response = await fetchWithCsrf('/api/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось отправить письмо. Попробуйте позже.'));
+      setResendStatus('sent');
+    } catch (resendError) {
+      setError(resendError instanceof TypeError
+        ? userMessageFromError(resendError, 'Не удалось отправить письмо. Попробуйте позже.')
+        : resendError instanceof Error ? resendError.message : 'Не удалось отправить письмо. Попробуйте позже.');
+      setResendStatus('idle');
     }
   };
 
@@ -87,6 +114,20 @@ export default function LoginPage() {
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6">
             {error}
+          </div>
+        )}
+        {needsVerification && (
+          <div className="mb-6 rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm">
+            <p className="font-medium text-foreground">Email не подтверждён</p>
+            <p className="mt-1 text-muted-foreground">Проверьте почту или запросите новое письмо.</p>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resendStatus !== 'idle'}
+              className="mt-3 text-foreground underline disabled:opacity-50"
+            >
+              {resendStatus === 'loading' ? 'Отправляем…' : resendStatus === 'sent' ? 'Письмо для подтверждения отправлено' : 'Отправить письмо повторно'}
+            </button>
           </div>
         )}
 
@@ -160,13 +201,13 @@ export default function LoginPage() {
 
         {/* OAuth */}
         <div className="mt-6">
-          <OAuthButtons mode="login" />
+          <OAuthButtons mode="login" redirectTo={redirectTo} />
         </div>
 
         {/* Ссылка на регистрацию */}
         <p className="text-center text-muted-foreground text-sm mt-8 font-light">
           Нет аккаунта?{' '}
-          <Link href="/register" className="text-foreground hover:text-muted-foreground transition font-medium">
+          <Link href={`/register?redirect=${encodeURIComponent(redirectTo)}`} className="text-foreground hover:text-muted-foreground transition font-medium">
             Зарегистрироваться
           </Link>
         </p>

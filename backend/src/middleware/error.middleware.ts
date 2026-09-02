@@ -56,11 +56,10 @@ export const errorHandler = (
 ) => {
   // Логируем ошибку с контекстом
   log.error('Ошибка обработки запроса', {
-    error: err,
-    url: req.url,
+    errorName: err?.name || 'Error',
+    errorCode: err?.code,
+    path: req.path,
     method: req.method,
-    ip: req.ip,
-    user: (req as any).user?.id || 'anonymous',
   });
 
   // Если это наша кастомная ошибка
@@ -137,16 +136,16 @@ export const errorHandler = (
   }
 
   // Ошибка по умолчанию (не показываем детали в production)
-  const isProduction = process.env.NODE_ENV === 'production';
-  const errorMessage = isProduction
-    ? 'Внутренняя ошибка сервера'
-    : err.message || 'Внутренняя ошибка сервера';
+  const exposeDiagnostics = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+  const errorMessage = exposeDiagnostics
+    ? err.message || 'Внутренняя ошибка сервера'
+    : 'Внутренняя ошибка сервера';
 
   res.status(err.status || 500).json({
     success: false,
     error: errorMessage,
     code: err.code || 'INTERNAL_SERVER_ERROR',
-    ...(isProduction ? {} : { stack: err.stack }),
+    ...(exposeDiagnostics ? { stack: err.stack } : {}),
   });
 };
 

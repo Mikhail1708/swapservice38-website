@@ -188,14 +188,11 @@ export default function AdminOrderDetailsPage() {
     
     setIsDeleting(true);
     try {
-      const body: any = {};
-      if (password) {
-        body.password = password;
-      }
-      
-      const response = await fetchWithCsrf(`/api/admin/orders/${id}`, {
-        method: 'DELETE',
-        body: JSON.stringify(body),
+      const response = await fetchWithCsrf(
+        password ? `/api/admin/orders/${id}/delete-with-password` : `/api/admin/orders/${id}`,
+        {
+        method: password ? 'POST' : 'DELETE',
+        ...(password ? { body: JSON.stringify({ password }) } : {}),
       });
       
       if (response.ok) {
@@ -469,7 +466,7 @@ export default function AdminOrderDetailsPage() {
                     </p>
                   )}
                   {latestPaymentAttempt.lastError && (
-                    <p className="text-xs text-red-500 break-words">{latestPaymentAttempt.lastError}</p>
+                    <p className="text-xs text-red-500">Последняя попытка завершилась ошибкой. Технические детали сохранены в серверном журнале.</p>
                   )}
                   {latestPaymentAttempt.status === 'refund_failed' && (
                     <button

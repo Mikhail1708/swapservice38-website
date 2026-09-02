@@ -1,10 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Image, Link, useRouter } from '@/lib/next-shims';
+import { Image, Link, useRouter, useSearchParams } from '@/lib/next-shims';
 import { Eye, EyeOff, ArrowRight, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { OAuthButtons } from '@/components/OAuthButtons';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { getPasswordPolicyErrors } from '@/lib/password-policy';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
+import { getSafeInternalRedirect } from '@/lib/safe-navigation';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -21,18 +24,12 @@ export default function RegisterPage() {
   const [codeSent, setCodeSent] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [emailForVerification, setEmailForVerification] = useState('');
+  const [resendStatus, setResendStatus] = useState<'idle' | 'loading' | 'sent'>('idle');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
 
-  const validatePassword = (pass: string) => {
-    const errors = [];
-    if (pass.length < 8) errors.push('минимум 8 символов');
-    if (!/[A-Z]/.test(pass)) errors.push('заглавная буква');
-    if (!/[a-z]/.test(pass)) errors.push('строчная буква');
-    if (!/[0-9]/.test(pass)) errors.push('цифра');
-    return errors;
-  };
-
-  const passwordErrors = validatePassword(password);
+  const passwordErrors = getPasswordPolicyErrors(password);
   const isPasswordValid = passwordErrors.length === 0 && password.length > 0;
   const passwordsMatch = password === confirmPassword && password.length > 0;
 
@@ -58,17 +55,17 @@ export default function RegisterPage() {
         body: JSON.stringify({ email, password, firstName, lastName, middleName }), // ✅ ДОБАВЛЕНО middleName
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка регистрации');
+        throw new Error(await readApiError(response, 'Не удалось зарегистрироваться. Попробуйте позже.'));
       }
 
       setEmailForVerification(email);
       setCodeSent(true);
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Не удалось зарегистрироваться. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Не удалось зарегистрироваться. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -85,17 +82,35 @@ export default function RegisterPage() {
         body: JSON.stringify({ email: emailForVerification, code: verificationCode }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Неверный код');
+        throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
       }
 
-      router.push('/login?verified=true');
-    } catch (err: any) {
-      setError(err.message);
+      router.push(`/login?verified=true&redirect=${encodeURIComponent(redirectTo)}`);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Не удалось подтвердить email. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Не удалось подтвердить email. Попробуйте позже.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError('');
+    setResendStatus('loading');
+    try {
+      const response = await fetchWithCsrf('/api/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ email: emailForVerification }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось отправить письмо. Попробуйте позже.'));
+      setResendStatus('sent');
+    } catch (err: unknown) {
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Не удалось отправить письмо. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Не удалось отправить письмо. Попробуйте позже.');
+      setResendStatus('idle');
     }
   };
 
@@ -171,6 +186,15 @@ export default function RegisterPage() {
 
             <button
               type="button"
+              onClick={handleResend}
+              disabled={resendStatus !== 'idle'}
+              className="w-full py-2 text-sm text-muted-foreground underline disabled:opacity-50"
+            >
+              {resendStatus === 'loading' ? 'Отправляем…' : resendStatus === 'sent' ? 'Письмо для подтверждения отправлено' : 'Отправить письмо повторно'}
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setCodeSent(false);
                 setSuccess(false);
@@ -215,7 +239,7 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-3 gap-4"> {/* ✅ 3 КОЛОНКИ */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="firstName" className="block text-sm text-muted-foreground font-medium mb-2">
                 Имя
@@ -291,6 +315,7 @@ export default function RegisterPage() {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
+                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -334,6 +359,7 @@ export default function RegisterPage() {
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
+                aria-label={showConfirmPassword ? 'Скрыть пароль' : 'Показать пароль'}
               >
                 {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -356,11 +382,11 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <OAuthButtons mode="register" />
+        <OAuthButtons mode="register" redirectTo={redirectTo} />
 
         <p className="text-center text-muted-foreground text-sm mt-8 font-light">
           Уже есть аккаунт?{' '}
-          <Link href="/login" className="text-foreground hover:text-muted-foreground transition font-medium">
+          <Link href={`/login?redirect=${encodeURIComponent(redirectTo)}`} className="text-foreground hover:text-muted-foreground transition font-medium">
             Войти
           </Link>
         </p>

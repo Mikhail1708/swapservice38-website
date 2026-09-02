@@ -22,6 +22,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function ProfilePage() {
   const { user, isLoading: authLoading, logout, refresh } = useAuth();
@@ -75,25 +76,28 @@ export default function ProfilePage() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка обновления профиля');
+        throw new Error(await readApiError(response, 'Не удалось сохранить изменения.'));
       }
 
       setSuccess('Профиль успешно обновлён');
       await refresh();
     } catch (error: any) {
-      console.error('❌ Ошибка обновления профиля:', error);
-      setError(error.message);
+      setError(error instanceof TypeError
+        ? userMessageFromError(error, 'Не удалось сохранить изменения.')
+        : error.message || 'Не удалось сохранить изменения.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await logout();
-    router.push('/');
+    try {
+      await logout();
+      router.replace('/');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Не удалось выйти');
+    }
   };
 
   if (authLoading) {

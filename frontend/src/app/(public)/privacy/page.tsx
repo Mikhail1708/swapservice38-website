@@ -307,6 +307,14 @@ export default function PrivacyPage() {
                 <li className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
                   <div>
+                    <span className="text-foreground font-medium">Сервис подсказок адресов</span>
+                    <span className="text-muted-foreground"> (DaData) — для упрощения ввода адреса.</span>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">Адрес можно ввести вручную, если подсказки недоступны.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
+                  <div>
                     <span className="text-foreground font-medium">Служба доставки</span>
                     <span className="text-muted-foreground"> — для отправки заказа.</span>
                     <p className="text-xs text-muted-foreground/60 mt-0.5">Передаём: имя, телефон, адрес доставки.</p>

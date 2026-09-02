@@ -6,9 +6,10 @@ import { Loader2 } from 'lucide-react';
 
 interface OAuthButtonsProps {
   mode?: 'login' | 'register';
+  redirectTo?: string;
 }
 
-export function OAuthButtons({ mode = 'login' }: OAuthButtonsProps) {
+export function OAuthButtons({ mode = 'login', redirectTo = '/' }: OAuthButtonsProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,11 +17,19 @@ export function OAuthButtons({ mode = 'login' }: OAuthButtonsProps) {
     setLoading(provider);
     setError(null);
     
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
-    const url = `${backendUrl}/api/auth/${provider}`;
-    
-    console.log(`🔄 OAuth редирект на: ${url}`);
-    window.location.href = url;
+    try {
+      const configuredBase = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+      const url = new URL(`/api/auth/${provider}`, configuredBase);
+      url.searchParams.set('redirect', redirectTo);
+      const isLocalDevelopment = import.meta.env.DEV && ['localhost', '127.0.0.1'].includes(url.hostname);
+      if (url.protocol !== 'https:' && !isLocalDevelopment) {
+        throw new Error('OAuth endpoint must use HTTPS');
+      }
+      window.location.assign(url.toString());
+    } catch {
+      setLoading(null);
+      setError('Вход через этот сервис временно недоступен');
+    }
   };
 
   return (

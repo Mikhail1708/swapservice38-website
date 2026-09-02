@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -57,15 +58,15 @@ export default function VerifyPage() {
         body: JSON.stringify({ email, code }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Неверный код');
+        throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
       }
 
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Не удалось подтвердить email. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Не удалось подтвердить email. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -84,16 +85,16 @@ export default function VerifyPage() {
         body: JSON.stringify({ email }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка отправки');
+        throw new Error(await readApiError(response, 'Не удалось отправить письмо. Попробуйте позже.'));
       }
 
       setResendSuccess(true);
       setCountdown(60);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError
+        ? userMessageFromError(err, 'Не удалось отправить письмо. Попробуйте позже.')
+        : err instanceof Error ? err.message : 'Не удалось отправить письмо. Попробуйте позже.');
     } finally {
       setResendLoading(false);
     }

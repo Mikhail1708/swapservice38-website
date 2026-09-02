@@ -1,7 +1,7 @@
 // frontend/components/AddToCartButton.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Image, Link } from '@/lib/next-shims';
 import { ShoppingCart, Check, Loader2, Plus, Minus, X } from 'lucide-react';
 import { useCart }  from '@/lib/context/CartContext';
@@ -21,12 +21,14 @@ export function AddToCartButton({
   onAdd,
   maxStock: propMaxStock = 999,
 }: AddToCartButtonProps) {
-  const { addToCart, updateQuantity, refetch, isInCart, getQuantity } = useCart();
+  const { addToCart, updateQuantity, isInCart, getQuantity } = useCart();
   const [isAdding, setIsAdding] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [localCount, setLocalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const addInFlightRef = useRef(false);
   
   const inCart = isInCart(productId);
   const cartQuantity = getQuantity(productId);
@@ -44,30 +46,31 @@ export function AddToCartButton({
   }, [inCart, cartQuantity]);
 
   const handleAdd = async () => {
+    if (addInFlightRef.current) return;
+    addInFlightRef.current = true;
     setIsAdding(true);
     setError(null);
     try {
       const result = await addToCart(productId, quantity);
       if (result) {
-        await refetch();
         setShowToast(true);
         setTimeout(() => setShowToast(false), 3000);
         if (onAdd) onAdd();
       }
     } catch (err: any) {
-      console.error('❌ Ошибка добавления в корзину:', err);
       if (err.message?.includes('недостаточно') || err.message?.includes('STOCK_LIMIT')) {
         setError(`Доступно только ${propMaxStock} шт.`);
       } else {
-        setError(err.message || 'Ошибка добавления');
+        setError('Не удалось обновить корзину. Попробуйте ещё раз.');
       }
     } finally {
+      addInFlightRef.current = false;
       setIsAdding(false);
     }
   };
 
   const handleQuantityChange = async (newQuantity: number) => {
-    if (newQuantity < 0) return;
+    if (newQuantity < 0 || isUpdating) return;
     
     // ✅ МИНУС ВСЕГДА РАБОТАЕТ — ПРОВЕРКА ТОЛЬКО ДЛЯ ПЛЮСА
     if (newQuantity > propMaxStock) {
@@ -76,21 +79,13 @@ export function AddToCartButton({
     }
     setError(null);
 
-    // Если количество становится 0 — удаляем товар из корзины
-    if (newQuantity === 0) {
-      await updateQuantity(productId, 0);
-      await refetch();
-      return;
-    }
-
     setLocalCount(newQuantity);
     setQuantity(newQuantity);
+    setIsUpdating(true);
 
     try {
       await updateQuantity(productId, newQuantity);
-      await refetch();
     } catch (err: any) {
-      console.error('❌ Ошибка обновления количества:', err);
       if (err.message?.includes('недостаточно') || err.message?.includes('STOCK_LIMIT')) {
         setError(`Доступно только ${propMaxStock} шт.`);
       } else {
@@ -98,6 +93,8 @@ export function AddToCartButton({
       }
       setLocalCount(cartQuantity);
       setQuantity(cartQuantity);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -114,7 +111,8 @@ export function AddToCartButton({
             <button
               onClick={() => handleQuantityChange(localCount - 1)}
               className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
-              disabled={isAdding || localCount <= 0}
+              disabled={isAdding || isUpdating || localCount <= 0}
+              aria-label={localCount === 1 ? 'Удалить товар из корзины' : 'Уменьшить количество'}
             >
               <Minus className="w-3.5 h-3.5 text-foreground" />
             </button>
@@ -124,7 +122,8 @@ export function AddToCartButton({
             <button
               onClick={() => handleQuantityChange(localCount + 1)}
               className={`px-2.5 py-2 transition ${canAddMore ? 'hover:bg-muted' : 'opacity-30 cursor-not-allowed'}`}
-              disabled={isAdding || !canAddMore || isOutOfStock}
+              disabled={isAdding || isUpdating || !canAddMore || isOutOfStock}
+              aria-label="Увеличить количество"
             >
               <Plus className="w-3.5 h-3.5 text-foreground" />
             </button>
@@ -136,6 +135,7 @@ export function AddToCartButton({
             <ShoppingCart className="w-4 h-4" />
           </Link>
         </div>
+        {error && <p role="alert" className="text-xs text-red-500 max-w-56 text-right">{error}</p>}
       </div>
     );
   }
@@ -151,6 +151,7 @@ export function AddToCartButton({
                 onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
                 className="px-2.5 py-2 hover:bg-muted transition disabled:opacity-50"
                 disabled={quantity <= 1 || isAdding}
+                aria-label="Уменьшить количество"
               >
                 <Minus className="w-3.5 h-3.5 text-foreground" />
               </button>
@@ -168,6 +169,7 @@ export function AddToCartButton({
                 }}
                 className={`px-2.5 py-2 hover:bg-muted transition ${quantity >= propMaxStock ? 'opacity-30 cursor-not-allowed' : ''}`}
                 disabled={isAdding || quantity >= propMaxStock || isOutOfStock}
+                aria-label="Увеличить количество"
               >
                 <Plus className="w-3.5 h-3.5 text-foreground" />
               </button>
@@ -205,6 +207,7 @@ export function AddToCartButton({
             )}
           </button>
         </div>
+        {error && <p role="alert" className="text-xs text-red-500 max-w-56 text-right">{error}</p>}
       </div>
 
       {/* Тост */}
@@ -227,6 +230,7 @@ export function AddToCartButton({
             <button
               onClick={() => setShowToast(false)}
               className="text-white/50 hover:text-white transition ml-1"
+              aria-label="Закрыть уведомление"
             >
               <X className="w-4 h-4" />
             </button>

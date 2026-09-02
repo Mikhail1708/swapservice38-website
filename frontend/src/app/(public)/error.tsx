@@ -24,7 +24,7 @@ export default function PublicError({
         </div>
         <h1 className="text-2xl font-bold text-foreground">Упс! Что-то сломалось</h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          {error.message || 'Мы уже чиним. Попробуйте обновить страницу.'}
+          Мы уже чиним. Попробуйте обновить страницу.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
           <button

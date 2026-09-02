@@ -304,7 +304,7 @@ export const massDeleteOrders = async (req: Request, res: Response): Promise<voi
     });
   } catch (error: any) {
     log.error('❌ Mass delete orders error', { error: error.message });
-    res.status(500).json({ error: error.message || 'Ошибка массового удаления' });
+    res.status(500).json({ error: 'Ошибка массового удаления' });
   }
 };
 
@@ -374,7 +374,7 @@ export const massDeleteOrdersWithPassword = async (req: Request, res: Response):
   } catch (error: any) {
     if (error instanceof AppError) throw error;
     log.error('❌ Mass delete orders with password error', { error: error.message });
-    res.status(500).json({ error: error.message || 'Ошибка массового удаления' });
+    res.status(500).json({ error: 'Ошибка массового удаления' });
   }
 };
 

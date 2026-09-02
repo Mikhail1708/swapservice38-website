@@ -1,25 +1,10 @@
 // backend/src/services/oauth.service.ts
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
-import jwt, { SignOptions } from 'jsonwebtoken';
 import { mergeCart } from '../controllers/auth.controller';
+import { generateToken } from './auth.service';
 
 const prisma = new PrismaClient();
-
-const getJwtSecret = (): string => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET is not configured');
-  return secret;
-};
-
-// Генерация JWT
-const generateToken = (userId: string): string => {
-  return jwt.sign(
-    { id: userId },
-    getJwtSecret(),
-    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'] }
-  );
-};
 
 // ============================================================
 // КОНФИГУРАЦИЯ
@@ -47,21 +32,18 @@ const MAX_CONFIG = {
 // ЯНДЕКС
 // ============================================================
 
-export function getYandexAuthUrl(): string {
+export function getYandexAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: YANDEX_CONFIG.clientId,
     redirect_uri: YANDEX_CONFIG.redirectUri,
     response_type: 'code',
     scope: 'login:email login:info',
+    state,
   });
-  const url = `${YANDEX_CONFIG.authUrl}?${params.toString()}`;
-  console.log('🔑 Yandex auth URL:', url);
-  return url;
+  return `${YANDEX_CONFIG.authUrl}?${params.toString()}`;
 }
 
 export async function handleYandexCallback(code: string, guestId?: string) {
-  console.log('📥 Yandex callback received, code:', code.substring(0, 10) + '...');
-
   try {
     // 1. Получаем токен доступа
     const tokenResponse = await axios.post(
@@ -74,37 +56,36 @@ export async function handleYandexCallback(code: string, guestId?: string) {
       }),
       {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 10_000,
       }
     );
 
     const { access_token } = tokenResponse.data;
 
     // 2. Получаем данные пользователя
-    console.log('🔄 Requesting Yandex user info...');
     const userInfo = await axios.get(YANDEX_CONFIG.userInfoUrl, {
       params: { format: 'json' },
       headers: { Authorization: `OAuth ${access_token}` },
+      timeout: 10_000,
     });
 
     const { id: yandexId, default_email: email, first_name, last_name } = userInfo.data;
-    console.log('👤 Yandex user:', { yandexId, email, first_name, last_name });
-
     if (!email) {
       throw new Error('Не удалось получить email от Яндекса');
     }
+    const normalizedEmail = email.trim().toLowerCase();
 
     // 3. Ищем или создаём пользователя
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [{ yandexId }, { email }],
-      },
-    });
+    let user = await prisma.user.findUnique({ where: { yandexId } });
 
     if (!user) {
-      console.log('🆕 Creating new user from Yandex');
+      const emailOwner = await prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+      });
+      if (emailOwner) throw new Error('OAUTH_LINK_REQUIRED');
       user = await prisma.user.create({
         data: {
-          email,
+          email: normalizedEmail,
           firstName: first_name || '',
           lastName: last_name || '',
           yandexId,
@@ -112,32 +93,17 @@ export async function handleYandexCallback(code: string, guestId?: string) {
           role: 'user',
         },
       });
-      console.log(`✅ Создан пользователь: ${user.id} (${user.email})`);
-    } else if (!user.yandexId) {
-      console.log('🔗 Linking Yandex to existing user');
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { yandexId },
-      });
-    } else {
-      console.log('✅ User already exists with Yandex');
     }
+    if (user.blockedAt) throw new Error('OAUTH_ACCOUNT_UNAVAILABLE');
 
     // ✅ 4. ПЕРЕНОС КОРЗИНЫ (если есть guestId)
-    if (guestId) {
-      console.log(`🔄 Перенос корзины при OAuth входе...`);
-      await mergeCart(user.id, guestId);
-    }
+    const cartMerged = guestId ? await mergeCart(user.id, guestId) : true;
 
     // 5. Генерируем JWT
-    const token = generateToken(user.id);
+    const token = await generateToken(user.id);
 
-    return { user, token };
+    return { user, token, cartMerged };
   } catch (error: any) {
-    console.error('❌ Yandex callback error:', error.message);
-    if (error.response) {
-      console.error('📦 Response data:', error.response.data);
-    }
     throw error;
   }
 }
@@ -146,22 +112,18 @@ export async function handleYandexCallback(code: string, guestId?: string) {
 // MAX
 // ============================================================
 
-export function getMaxAuthUrl(): string {
+export function getMaxAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: MAX_CONFIG.clientId,
     redirect_uri: MAX_CONFIG.redirectUri,
     response_type: 'code',
     scope: 'email profile phone',
-    state: 'max_oauth',
+    state,
   });
-  const url = `${MAX_CONFIG.authUrl}?${params.toString()}`;
-  console.log('🔑 MAX auth URL:', url);
-  return url;
+  return `${MAX_CONFIG.authUrl}?${params.toString()}`;
 }
 
 export async function handleMaxCallback(code: string, guestId?: string) {
-  console.log('📥 MAX callback received, code:', code.substring(0, 10) + '...');
-
   try {
     // 1. Получаем токен доступа
     const tokenResponse = await axios.post(
@@ -177,17 +139,18 @@ export async function handleMaxCallback(code: string, guestId?: string) {
         headers: {
           'Content-Type': 'application/json',
         },
+        timeout: 10_000,
       }
     );
 
     const { access_token } = tokenResponse.data;
 
     // 2. Получаем данные пользователя
-    console.log('🔄 Requesting MAX user info...');
     const userInfo = await axios.get(MAX_CONFIG.userInfoUrl, {
       headers: {
         Authorization: `Bearer ${access_token}`,
       },
+      timeout: 10_000,
     });
 
     const {
@@ -199,46 +162,32 @@ export async function handleMaxCallback(code: string, guestId?: string) {
       email_verified,
     } = userInfo.data;
     
-    console.log('👤 MAX user:', { maxId, email, firstName, lastName, phone });
-
-    if (!email) {
+    if (!email || email_verified !== true) {
       throw new Error('Не удалось получить email от MAX');
     }
+    const normalizedEmail = email.trim().toLowerCase();
 
     // 3. Ищем или создаём пользователя
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [{ maxId }, { email }],
-      },
-    });
+    let user = await prisma.user.findUnique({ where: { maxId } });
+    if (user?.blockedAt) throw new Error('OAUTH_ACCOUNT_UNAVAILABLE');
 
     if (!user) {
-      console.log('🆕 Creating new user from MAX');
+      const emailOwner = await prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+      });
+      if (emailOwner) throw new Error('OAUTH_LINK_REQUIRED');
       user = await prisma.user.create({
         data: {
-          email,
+          email: normalizedEmail,
           firstName: firstName || '',
           lastName: lastName || '',
           phone: phone || null,
           maxId,
-          isVerified: email_verified || true,
+          isVerified: true,
           role: 'user',
         },
       });
-      console.log(`✅ Создан пользователь: ${user.id} (${user.email})`);
-    } else if (!user.maxId) {
-      console.log('🔗 Linking MAX to existing user');
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          maxId,
-          firstName: user.firstName || firstName || '',
-          lastName: user.lastName || lastName || '',
-          phone: user.phone || phone || null,
-        },
-      });
     } else {
-      console.log('✅ User already exists with MAX');
       // Обновляем данные
       user = await prisma.user.update({
         where: { id: user.id },
@@ -249,22 +198,16 @@ export async function handleMaxCallback(code: string, guestId?: string) {
         },
       });
     }
+    if (user.blockedAt) throw new Error('OAUTH_ACCOUNT_UNAVAILABLE');
 
     // ✅ 4. ПЕРЕНОС КОРЗИНЫ (если есть guestId)
-    if (guestId) {
-      console.log(`🔄 Перенос корзины при OAuth входе...`);
-      await mergeCart(user.id, guestId);
-    }
+    const cartMerged = guestId ? await mergeCart(user.id, guestId) : true;
 
     // 5. Генерируем JWT
-    const token = generateToken(user.id);
+    const token = await generateToken(user.id);
 
-    return { user, token };
+    return { user, token, cartMerged };
   } catch (error: any) {
-    console.error('❌ MAX callback error:', error.message);
-    if (error.response) {
-      console.error('📦 Response data:', error.response.data);
-    }
     throw error;
   }
 }

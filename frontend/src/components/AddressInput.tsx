@@ -1,8 +1,9 @@
 // frontend/components/AddressInput.tsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, MapPin, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { Loader2, MapPin, X, AlertCircle } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Suggestion {
   value: string;
@@ -36,39 +37,19 @@ interface AddressInputProps {
 }
 
 // Поиск адресов через DaData
-const searchAddresses = async (query: string): Promise<Suggestion[]> => {
+const searchAddresses = async (query: string, signal: AbortSignal): Promise<Suggestion[]> => {
   if (!query || query.length < 3) return []; // минимум 3 символа для поиска
-  
- const apiKey = import.meta.env.VITE_DADATA_API_KEY || '';
-  if (!apiKey) {
-    console.warn('⚠️ DaData API ключ не настроен');
-    return [];
-  }
 
-  try {
-    const response = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
+    const response = await fetchWithCsrf('/api/address/suggestions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Token ${apiKey}`,
-      },
-      body: JSON.stringify({
-        query: query,
-        count: 6,
-        from_bound: { value: 'street' },
-        to_bound: { value: 'house' },
-      }),
+      body: JSON.stringify({ query }),
+      signal,
     });
 
-    if (!response.ok) throw new Error('DaData API error');
+    if (!response.ok) throw new Error('ADDRESS_SUGGESTIONS_UNAVAILABLE');
     
     const data = await response.json();
-    return data.suggestions || [];
-  } catch (error) {
-    console.warn('DaData API error:', error);
-    return [];
-  }
+    return Array.isArray(data.suggestions) ? data.suggestions : [];
 };
 
 export const AddressInput = ({
@@ -89,12 +70,17 @@ export const AddressInput = ({
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [localTouched, setLocalTouched] = useState(false);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(false);
+  const [suggestionsUnavailable, setSuggestionsUnavailable] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const isInternalChange = useRef(false);
+  const skipNextSearchRef = useRef(false);
+  const inputId = useId();
+  const listboxId = `${inputId}-suggestions`;
 
   const isTouched = touched || localTouched;
 
@@ -124,31 +110,42 @@ export const AddressInput = ({
     }
 
     // Если пользователь выбрал подсказку — не ищем
-    if (selectedSuggestion) {
-      setSelectedSuggestion(false);
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
       return;
     }
 
     // Если меньше 3 символов — не ищем
     if (inputValue.length < 3) {
+      requestControllerRef.current?.abort();
+      requestControllerRef.current = null;
+      setLoading(false);
       setSuggestions([]);
       setIsOpen(false);
       return;
     }
 
     debounceRef.current = setTimeout(async () => {
+      requestControllerRef.current?.abort();
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
       setLoading(true);
       try {
-        const results = await searchAddresses(inputValue);
+        const results = await searchAddresses(inputValue, controller.signal);
+        if (controller.signal.aborted) return;
+        setSuggestionsUnavailable(false);
         setSuggestions(results);
+        setActiveIndex(results.length > 0 ? 0 : -1);
         // Показываем подсказки только если есть результаты и поле не пустое
         setIsOpen(results.length > 0 && inputValue.length >= 3);
       } catch (error) {
-        console.error('Error searching addresses:', error);
+        if (controller.signal.aborted) return;
+        setSuggestionsUnavailable(true);
         setSuggestions([]);
+        setActiveIndex(-1);
         setIsOpen(false);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 400); // чуть больше задержка для комфорта
 
@@ -156,12 +153,14 @@ export const AddressInput = ({
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
+      requestControllerRef.current?.abort();
     };
-  }, [inputValue, selectedSuggestion]);
+  }, [inputValue]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
+    setSuggestionsUnavailable(false);
     setLocalTouched(true);
     isInternalChange.current = true;
     onChange(newValue);
@@ -178,7 +177,7 @@ export const AddressInput = ({
     const fullAddress = suggestion.unrestricted_value || suggestion.value;
     
     setInputValue(fullAddress);
-    setSelectedSuggestion(true);
+    skipNextSearchRef.current = true;
     setIsOpen(false);
     setSuggestions([]);
     setLocalTouched(true);
@@ -201,7 +200,6 @@ export const AddressInput = ({
     setInputValue('');
     setSuggestions([]);
     setIsOpen(false);
-    setSelectedSuggestion(false);
     isInternalChange.current = true;
     onChange('');
     isInternalChange.current = false;
@@ -228,10 +226,28 @@ export const AddressInput = ({
 
   const showError = isTouched && error;
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setIsOpen(false);
+      return;
+    }
+    if (!isOpen || suggestions.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((current) => (current + 1) % suggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) => (current <= 0 ? suggestions.length - 1 : current - 1));
+    } else if (event.key === 'Enter' && activeIndex >= 0) {
+      event.preventDefault();
+      handleSelectSuggestion(suggestions[activeIndex]);
+    }
+  };
+
   return (
     <div className="w-full" ref={wrapperRef}>
       {label && (
-        <label className="block text-sm text-muted-foreground font-medium mb-1.5">
+        <label htmlFor={inputId} className="block text-sm text-muted-foreground font-medium mb-1.5">
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -242,11 +258,13 @@ export const AddressInput = ({
           <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
           
           <input
+            id={inputId}
             ref={inputRef}
             type="text"
             value={inputValue}
             onChange={handleInputChange}
             onFocus={handleFocus}
+            onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             placeholder={placeholder}
             disabled={disabled}
@@ -263,14 +281,16 @@ export const AddressInput = ({
               ${className}
             `}
             autoComplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isOpen}
+            aria-controls={listboxId}
+            aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+            aria-label={label || placeholder}
           />
 
           {loading && (
             <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50 animate-spin" />
-          )}
-          
-          {!loading && inputValue && !showError && (
-            <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
           )}
           
           {inputValue && !loading && (
@@ -278,6 +298,7 @@ export const AddressInput = ({
               type="button"
               onClick={handleClear}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition p-1"
+              aria-label="Очистить адрес"
             >
               <X className="w-4 h-4" />
             </button>
@@ -291,13 +312,23 @@ export const AddressInput = ({
           </p>
         )}
 
+        {suggestionsUnavailable && !showError && (
+          <p className="text-xs text-muted-foreground mt-1" role="status">
+            Подсказки недоступны — введите адрес вручную.
+          </p>
+        )}
+
         {/* Подсказки */}
         {isOpen && suggestions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-card border border-border rounded-lg shadow-xl max-h-52 overflow-y-auto">
+          <div id={listboxId} role="listbox" className="absolute z-50 w-full mt-1 bg-card border border-border rounded-lg shadow-xl max-h-52 overflow-y-auto">
             {suggestions.map((suggestion, index) => (
               <button
                 key={index}
+                id={`${listboxId}-${index}`}
                 type="button"
+                role="option"
+                aria-selected={activeIndex === index}
+                onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => handleSelectSuggestion(suggestion)}
                 className="w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50 transition border-b border-border last:border-0"
               >

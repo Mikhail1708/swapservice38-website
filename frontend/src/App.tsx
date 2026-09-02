@@ -61,6 +61,7 @@ import AdminEditNewsPage from '@/app/admin/content/news/[id]/page'
 import AdminServicesPage from '@/app/admin/content/services/page'
 import AdminCreateServicePage from '@/app/admin/content/services/create/page'
 import AdminEditServicePage from '@/app/admin/content/services/[id]/page'
+import NotFoundPage from '@/app/not-found'
 
 // ============================================================
 // КОМПОНЕНТ-ОБЁРТКА ДЛЯ СТРАНИЦ С ХЕДЕРОМ И ФУТЕРОМ
@@ -68,8 +69,11 @@ import AdminEditServicePage from '@/app/admin/content/services/[id]/page'
 function PageLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:px-4 focus:py-2 focus:bg-background focus:text-foreground focus:rounded-lg">
+        Перейти к содержимому
+      </a>
       <SiteHeader />
-      <main className="min-h-screen">{children}</main>
+      <main id="main-content" tabIndex={-1} className="min-h-screen">{children}</main>
       <SiteFooter />
     </>
   )
@@ -128,6 +132,7 @@ function App() {
         <Route path="/admin/content/services" element={<AdminLayout><AdminServicesPage /></AdminLayout>} />
         <Route path="/admin/content/services/create" element={<AdminLayout><AdminCreateServicePage /></AdminLayout>} />
         <Route path="/admin/content/services/:id" element={<AdminLayout><AdminEditServicePage /></AdminLayout>} />
+        <Route path="*" element={<PageLayout><NotFoundPage /></PageLayout>} />
       </Routes>
     </BrowserRouter>
   )

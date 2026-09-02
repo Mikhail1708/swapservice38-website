@@ -2,6 +2,7 @@
 
 let csrfToken: string | null = null;
 let lastFetchTime: number = 0;
+let csrfFetchPromise: Promise<string> | null = null;
 const TOKEN_TTL = 4 * 60 * 1000; // 4 минуты
 
 export const getCsrfToken = async (): Promise<string> => {
@@ -9,8 +10,9 @@ export const getCsrfToken = async (): Promise<string> => {
     return csrfToken;
   }
 
-  try {
-    console.log('🔄 Запрос CSRF токена...');
+  if (csrfFetchPromise) return csrfFetchPromise;
+
+  csrfFetchPromise = (async () => {
     const response = await fetch('/api/csrf-token', {
       credentials: 'include',
       cache: 'no-store',
@@ -31,22 +33,22 @@ export const getCsrfToken = async (): Promise<string> => {
     csrfToken = receivedToken;
     lastFetchTime = Date.now();
     return receivedToken;
-  } catch (error) {
-    console.error('❌ Ошибка получения CSRF токена:', error);
-    throw error;
-  }
+  })().finally(() => { csrfFetchPromise = null; });
+
+  return csrfFetchPromise;
 };
 
 export const clearCsrfToken = () => {
   csrfToken = null;
   lastFetchTime = 0;
+  csrfFetchPromise = null;
 };
 
 export const fetchWithCsrf = async (
   url: string,
   options: RequestInit = {}
 ): Promise<Response> => {
-  const token = await getCsrfToken();
+  const execute = async (token: string): Promise<Response> => {
 
   // ✅ БАЗОВЫЕ ЗАГОЛОВКИ
   const headers = new Headers(options.headers);
@@ -57,7 +59,7 @@ export const fetchWithCsrf = async (
   const isFormData = options.body instanceof FormData;
   
   // ✅ ДЛЯ FormData НЕ ДОБАВЛЯЕМ Content-Type
-  if (!isFormData) {
+  if (!isFormData && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -78,8 +80,9 @@ export const fetchWithCsrf = async (
 
   // ✅ ДЛЯ FormData — ДОБАВЛЯЕМ _csrf КАК ПОЛЕ
   if (isFormData) {
-    const formData = options.body as FormData;
-    formData.append('_csrf', token);
+    const formData = new FormData();
+    (options.body as FormData).forEach((value, key) => formData.append(key, value));
+    formData.set('_csrf', token);
     finalBody = formData;
   }
 
@@ -89,6 +92,14 @@ export const fetchWithCsrf = async (
     body: finalBody,
     credentials: 'include',
   });
+  };
+
+  let response = await execute(await getCsrfToken());
+  if (response.status === 403) {
+    clearCsrfToken();
+    response = await execute(await getCsrfToken());
+  }
+  return response;
 };
 
 export const deleteWithCsrf = async (url: string): Promise<Response> => {

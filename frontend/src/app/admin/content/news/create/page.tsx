@@ -29,7 +29,7 @@ export default function CreateNewsPage() {
       formData.append('file', file);
 
       try {
-        const response = await fetch('/api/upload', {
+        const response = await fetchWithCsrf('/api/upload', {
           method: 'POST',
           body: formData,
         });
@@ -62,9 +62,11 @@ export default function CreateNewsPage() {
       const payload = {
         ...form,
         imageUrl: imageUrls.length > 0 ? imageUrls[0] : '',
+        images: imageUrls.map((url, index) => ({ url, sortOrder: index, isMain: index === 0 })),
+        type: 'news',
       };
 
-      const response = await fetchWithCsrf('/api/admin/news', {
+      const response = await fetchWithCsrf('/api/admin/articles', {
         method: 'POST',
         body: JSON.stringify(payload),
       });

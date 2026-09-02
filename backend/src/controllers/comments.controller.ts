@@ -127,6 +127,6 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error: any) {
     console.error('❌ Create comment error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка создания комментария' });
+    res.status(500).json({ error: 'Ошибка создания комментария' });
   }
 };

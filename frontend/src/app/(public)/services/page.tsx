@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Image, Link } from '@/lib/next-shims';
-import { 
+import {
   ChevronRight, 
   ArrowRight, 
   Wrench, 
@@ -19,6 +19,7 @@ import {
   BadgeDollarSign, 
   HeartHandshake,   
 } from 'lucide-react';
+import { userMessageFromError } from '@/lib/api-error';
 
 // ============================================================
 // СТАТИЧНАЯ УСЛУГА — СВАПЫ (всегда есть)
@@ -74,7 +75,6 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 // API — ЗАГРУЗКА ДИНАМИЧЕСКИХ УСЛУГ ИЗ ПУБЛИЧНОГО ЭНДПОИНТА
 // ============================================================
 const fetchServices = async (): Promise<Service[]> => {
-  console.log('🔄 Загрузка услуг из публичного API...');
   
   const timestamp = Date.now();
   
@@ -92,7 +92,6 @@ const fetchServices = async (): Promise<Service[]> => {
   const data = await response.json();
   const services = data.services || [];
   
-  console.log(`✅ Загружено ${services.length} услуг`);
   return services;
 };
 
@@ -257,9 +256,8 @@ export default function ServicesPage() {
         const data = await fetchServices();
         setServices(data);
         
-      } catch (err: any) {
-        console.error('❌ Ошибка загрузки услуг:', err);
-        setError(err.message || 'Ошибка загрузки услуг');
+      } catch (err: unknown) {
+        setError(userMessageFromError(err, 'Не удалось загрузить услуги. Попробуйте позже.'));
       } finally {
         setLoading(false);
       }

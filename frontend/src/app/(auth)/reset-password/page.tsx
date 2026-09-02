@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Image, Link, useRouter } from '@/lib/next-shims';
 import { ArrowLeft, ArrowRight, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { getPasswordPolicyErrors } from '@/lib/password-policy';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -27,15 +29,11 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ email }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Ошибка');
-      }
+      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось отправить код. Попробуйте позже.'));
 
       setStep('verify');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось отправить код. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось отправить код. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -52,15 +50,11 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ email, code }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Неверный код');
-      }
+      if (!response.ok) throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
 
       setStep('confirm');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось проверить код. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось проверить код. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -75,8 +69,9 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (newPassword.length < 8) {
-      setError('Пароль должен быть минимум 8 символов');
+    const passwordErrors = getPasswordPolicyErrors(newPassword);
+    if (passwordErrors.length > 0) {
+      setError(`Пароль: ${passwordErrors.join(', ')}`);
       return;
     }
 
@@ -88,16 +83,12 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ email, code, newPassword }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Ошибка');
-      }
+      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось изменить пароль. Попробуйте позже.'));
 
       setSuccess(true);
       setTimeout(() => router.push('/login'), 2000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось изменить пароль. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось изменить пароль. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -226,7 +217,7 @@ export default function ResetPasswordPage() {
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Минимум 8 символов"
+                placeholder="Минимум 8 символов, латинские буквы и цифра"
                 className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition"
                 required
                 minLength={8}

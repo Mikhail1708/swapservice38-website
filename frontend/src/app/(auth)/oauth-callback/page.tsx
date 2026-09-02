@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams, Image, Link} from '@/lib/next-shims';
 import { Loader2, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { getSafeInternalRedirect } from '@/lib/safe-navigation';
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
@@ -10,23 +12,30 @@ export default function OAuthCallbackPage() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(3);
+  const { refresh } = useAuth();
+  const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
     if (errorParam) {
+      const oauthMessages: Record<string, string> = {
+        oauth_denied: 'Вход был отменён.',
+        oauth_link_required: 'Этот email уже используется. Войдите с паролем и подключите сервис в профиле.',
+        oauth_failed: 'Вход через сервис временно недоступен. Попробуйте позже.',
+      };
       setStatus('error');
-      setError(decodeURIComponent(errorParam));
-      setTimeout(() => {
+      setError(oauthMessages[errorParam] || oauthMessages.oauth_failed);
+      const timeout = window.setTimeout(() => {
         router.push('/login?error=' + encodeURIComponent(errorParam));
       }, 3000);
-      return;
+      return () => window.clearTimeout(timeout);
     }
 
+    let cancelled = false;
+    let redirectTimer: number | undefined;
+    let countdownTimer: number | undefined;
     const checkAuth = async () => {
       try {
-        // Обновляем CSRF токен
-        await fetch('/api/csrf-token', { credentials: 'include' });
-        
         // Проверяем авторизацию
         const response = await fetch('/api/auth/me', {
           credentials: 'include',
@@ -36,15 +45,15 @@ export default function OAuthCallbackPage() {
         if (response.ok) {
           const data = await response.json();
           if (data.user) {
+            await refresh();
             setStatus('success');
             
             // Таймер для редиректа
-            const interval = setInterval(() => {
+            countdownTimer = window.setInterval(() => {
               setCountdown((prev) => {
                 if (prev <= 1) {
-                  clearInterval(interval);
-                  router.push('/');
-                  router.refresh();
+                  if (countdownTimer) window.clearInterval(countdownTimer);
+                  router.replace(redirectTo);
                   return 0;
                 }
                 return prev - 1;
@@ -55,23 +64,29 @@ export default function OAuthCallbackPage() {
           }
         }
 
+        if (cancelled) return;
         setStatus('error');
         setError('Не удалось войти через сервис');
-        setTimeout(() => {
+        redirectTimer = window.setTimeout(() => {
           router.push('/login?error=' + encodeURIComponent('Ошибка входа'));
         }, 3000);
-      } catch (err) {
-        console.error('❌ Ошибка проверки авторизации:', err);
+      } catch {
+        if (cancelled) return;
         setStatus('error');
         setError('Ошибка проверки авторизации');
-        setTimeout(() => {
+        redirectTimer = window.setTimeout(() => {
           router.push('/login?error=' + encodeURIComponent('Ошибка входа'));
         }, 3000);
       }
     };
 
-    checkAuth();
-  }, [router, searchParams]);
+    void checkAuth();
+    return () => {
+      cancelled = true;
+      if (redirectTimer) window.clearTimeout(redirectTimer);
+      if (countdownTimer) window.clearInterval(countdownTimer);
+    };
+  }, [refresh, redirectTo, router, searchParams]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
@@ -141,13 +156,13 @@ export default function OAuthCallbackPage() {
               </div>
               <button
                 onClick={() => {
-                  router.push('/');
+                  router.replace(redirectTo);
                   router.refresh();
                 }}
                 className="mt-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
               >
                 <ArrowLeft className="w-4 h-4" />
-                Перейти на главную сейчас
+                Продолжить сейчас
               </button>
             </>
           )}

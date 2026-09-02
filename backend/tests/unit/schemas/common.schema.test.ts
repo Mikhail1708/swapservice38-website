@@ -89,6 +89,18 @@ describe('Common Schemas', () => {
       const result = passwordSchema.safeParse('12345678');
       expect(result.success).toBe(false);
     });
+
+    it('rejects Cyrillic characters even when complexity otherwise passes', () => {
+      expect(passwordSchema.safeParse('Password1Я').success).toBe(false);
+    });
+
+    it('rejects a short password', () => {
+      expect(passwordSchema.safeParse('Ab1!').success).toBe(false);
+    });
+
+    it('accepts Latin letters, digits and permitted ASCII special characters', () => {
+      expect(passwordSchema.safeParse('Valid-Pass_123!').success).toBe(true);
+    });
   });
 
   // ============================================================

@@ -1,6 +1,6 @@
 // backend/src/schemas/auth.schema.ts
 import { z } from 'zod';
-import { emailSchema, passwordSchema, nameSchema, codeSchema } from './common.schema';
+import { emailSchema, passwordSchema, optionalNameSchema, codeSchema } from './common.schema';
 
 // ============================================================
 // РЕГИСТРАЦИЯ
@@ -8,9 +8,9 @@ import { emailSchema, passwordSchema, nameSchema, codeSchema } from './common.sc
 export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
-  firstName: nameSchema.optional(),
-  lastName: nameSchema.optional(),
-  middleName: nameSchema.optional(), // ✅ ДОБАВЛЕНО
+  firstName: optionalNameSchema,
+  lastName: optionalNameSchema,
+  middleName: optionalNameSchema,
 });
 
 // ============================================================
@@ -59,9 +59,9 @@ export const resetPasswordConfirmSchema = z.object({
 // ОБНОВЛЕНИЕ ПРОФИЛЯ
 // ============================================================
 export const updateProfileSchema = z.object({
-  firstName: nameSchema.optional(),
-  lastName: nameSchema.optional(),
-  middleName: nameSchema.optional(), // ✅ ДОБАВЛЕНО
+  firstName: optionalNameSchema,
+  lastName: optionalNameSchema,
+  middleName: optionalNameSchema,
   phone: z.string().optional(),
   address: z.string().optional(),
 });

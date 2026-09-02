@@ -32,7 +32,6 @@ const PLACEHOLDER_IMAGE = '/images/logo/logo.png';
 // ЗАГРУЗКА УСЛУГ ИЗ АДМИНКИ
 // ============================================================
 const fetchServices = async (): Promise<Service[]> => {
-  console.log('🔄 [Главная] Загрузка услуг...');
   
   const timestamp = Date.now();
   const response = await fetch(`/api/services?_t=${timestamp}`, {
@@ -48,7 +47,6 @@ const fetchServices = async (): Promise<Service[]> => {
   const data = await response.json();
   const services = data.services || [];
   
-  console.log(`✅ [Главная] Загружено ${services.length} услуг`);
   return services;
 };
 

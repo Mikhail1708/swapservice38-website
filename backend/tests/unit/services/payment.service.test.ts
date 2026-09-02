@@ -306,7 +306,7 @@ describe('Payment Service', () => {
         mockAxios.post.mockRejectedValue(apiError);
 
         await expect(createPayment('order-1', 'http://localhost:3001/success')).rejects.toThrow(
-          'Недостаточно средств на карте'
+          'Ошибка платёжного провайдера'
         );
       });
 

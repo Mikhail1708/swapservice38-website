@@ -44,11 +44,9 @@ export default function CreateArticlePage() {
         }
       } else {
         const text = await response.text();
-        console.error('❌ Ошибка загрузки:', response.status, text);
         alert(`Ошибка загрузки: ${response.status}`);
       }
     } catch (error) {
-      console.error('❌ Ошибка загрузки:', error);
       alert('Ошибка загрузки файла');
     }
   }
@@ -110,10 +108,8 @@ export default function CreateArticlePage() {
         router.push('/admin/content/articles');
       } else {
         alert(result.error || 'Ошибка создания статьи');
-        console.error('❌ Ошибка:', result);
       }
     } catch (error) {
-      console.error('❌ Ошибка:', error);
       alert('Ошибка создания статьи');
     } finally {
       setLoading(false);

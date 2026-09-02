@@ -18,6 +18,7 @@ import {
 import { useCart }  from '@/lib/context/CartContext';
 import { AddToCartButton } from '@/components/AddToCartButton';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { userMessageFromError } from '@/lib/api-error';
 
 interface Product {
   id: string | number;
@@ -42,8 +43,6 @@ const ITEMS_PER_PAGE = 16;
 // API ФУНКЦИИ — БЕЗ КЕША!
 // ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
-  console.log('🔄 Загрузка товаров из CRM (без кеша)...');
-  
   const timestamp = Date.now();
   const response = await fetchWithCsrf(`/api/products?limit=999&_t=${timestamp}`, {
     method: 'GET',
@@ -57,25 +56,10 @@ const fetchProducts = async (): Promise<Product[]> => {
   const data = await response.json();
   const items = data.items || data || [];
   
-  console.log(`✅ Загружено ${items.length} товаров`);
-  
-  if (items.length > 0) {
-    console.log('📸 Первый товар из CRM:', {
-      id: items[0].id,
-      name: items[0].name,
-      hasImages: !!items[0].images,
-      imagesLength: items[0].images?.length || 0,
-      image: items[0].images?.[0],
-      stock: items[0].stock,
-    });
-  }
-  
   return items;
 };
 
 const fetchCategories = async (): Promise<string[]> => {
-  console.log('🔄 Загрузка категорий из CRM...');
-  
   const timestamp = Date.now();
   const response = await fetchWithCsrf(`/api/products/categories?_t=${timestamp}`, {
     method: 'GET',
@@ -89,7 +73,6 @@ const fetchCategories = async (): Promise<string[]> => {
   const data = await response.json();
   const categories = data.categories || [];
   
-  console.log(`✅ Загружено ${categories.length} категорий`);
   return categories;
 };
 
@@ -285,9 +268,8 @@ export default function CatalogPage() {
       const cats = await fetchCategories();
       setCategories(cats);
       
-    } catch (err: any) {
-      console.error('❌ Ошибка загрузки:', err);
-      setError(err.message || 'Ошибка загрузки товаров');
+    } catch (err: unknown) {
+      setError(userMessageFromError(err, 'Не удалось загрузить товары. Попробуйте позже.'));
     } finally {
       setLoading(false);
       setRefreshing(false);

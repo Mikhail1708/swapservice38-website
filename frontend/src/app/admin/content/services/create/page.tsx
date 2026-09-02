@@ -43,11 +43,9 @@ export default function CreateServicePage() {
         }
       } else {
         const text = await response.text();
-        console.error('❌ Ошибка загрузки:', response.status, text);
         alert(`Ошибка загрузки: ${response.status}`);
       }
     } catch (error) {
-      console.error('❌ Ошибка загрузки:', error);
       alert('Ошибка загрузки файла');
     }
   }
@@ -76,7 +74,6 @@ export default function CreateServicePage() {
         isActive: form.isActive,
       };
 
-      console.log('📤 Отправка создания услуги:', payload);
 
       const response = await fetchWithCsrf('/api/admin/content/services', {
         method: 'POST',
@@ -91,7 +88,6 @@ export default function CreateServicePage() {
         setError(result.error || 'Ошибка создания услуги');
       }
     } catch (error: any) {
-      console.error('❌ Ошибка:', error);
       setError(error.message || 'Ошибка создания услуги');
     }
     setLoading(false);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Image, Link, useRouter } from '@/lib/next-shims';
 import {
   Trash2,
@@ -26,6 +26,8 @@ import {
 import { useAuth } from '@/lib/hooks/useAuth';
 import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
+import { getSafePaymentRedirect } from '@/lib/safe-navigation';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
 import {
@@ -44,7 +46,7 @@ interface CartItem {
 }
 
 export default function CartPage() {
-  const { cart, isLoading, updateQuantity, clearCart, refetch: refetchCart } = useCart();
+  const { cart, isLoading, loadError, updateQuantity, clearCart, refetch: refetchCart } = useCart();
   const { user } = useAuth();
   const router = useRouter();
 
@@ -66,6 +68,8 @@ export default function CartPage() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const checkoutInFlightRef = useRef(false);
+  const [updatingProducts, setUpdatingProducts] = useState<Set<string>>(new Set());
 
   const items = cart?.items || [];
   const total = items.reduce((sum: number, item: CartItem) => sum + (item.price || 0) * (item.quantity || 0), 0);
@@ -86,15 +90,25 @@ export default function CartPage() {
   }, [user]);
 
   const handleUpdateQuantity = async (productId: string, newQuantity: number) => {
-    if (newQuantity < 0) return;
-    await updateQuantity(productId, newQuantity);
-    await refetchCart();
+    if (newQuantity < 0 || updatingProducts.has(productId)) return;
+    setUpdatingProducts((current) => new Set(current).add(productId));
+    try {
+      await updateQuantity(productId, newQuantity);
+      setOrderError(null);
+    } catch (error) {
+      setOrderError(error instanceof Error ? error.message : 'Не удалось обновить корзину. Попробуйте ещё раз.');
+    } finally {
+      setUpdatingProducts((current) => {
+        const next = new Set(current);
+        next.delete(productId);
+        return next;
+      });
+    }
   };
 
   const handleRemoveItem = async (productId: string) => {
     if (confirm('Удалить товар из корзины?')) {
-      await updateQuantity(productId, 0);
-      await refetchCart();
+      await handleUpdateQuantity(productId, 0);
     }
   };
 
@@ -181,16 +195,15 @@ export default function CartPage() {
     if (!confirm('Вы уверены, что хотите очистить корзину?')) return;
     try {
       await clearCart();
-      await refetchCart();
     } catch (error) {
-      console.error('Ошибка очистки:', error);
+      setOrderError(error instanceof Error ? error.message : 'Не удалось очистить корзину. Попробуйте ещё раз.');
     }
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isCheckingOut) return;
+    if (checkoutInFlightRef.current) return;
     if (!user) {
       setOrderError('Для оформления заказа необходимо авторизоваться');
       router.push('/login?redirect=/cart');
@@ -202,6 +215,7 @@ export default function CartPage() {
       return;
     }
 
+    checkoutInFlightRef.current = true;
     setIsCheckingOut(true);
     setOrderError(null);
 
@@ -232,7 +246,7 @@ export default function CartPage() {
         deliveryAddress: deliveryMethod === 'post'
           ? formData.address.trim()
           : pickupAddress,
-        comment: finalComment || null,
+        ...(finalComment ? { comment: finalComment } : {}),
         contactMethod,
         source: 'website',
       };
@@ -242,24 +256,15 @@ export default function CartPage() {
         body: JSON.stringify(orderData),
       });
 
-      let data;
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error('Ошибка сервера: ' + text.substring(0, 100));
-      }
-
       if (!response.ok) {
-        throw new Error(data.error || data.message || 'Ошибка создания заказа');
+        throw new Error(await readApiError(response, 'Не удалось создать заказ. Попробуйте ещё раз позже.'));
       }
+      const data = await response.json();
 
       if (data.paymentUrl) {
-        if (/^https?:\/\//i.test(data.paymentUrl)) {
-          window.location.assign(data.paymentUrl);
-        } else {
-          router.push(data.paymentUrl);
-        }
+        const safePaymentUrl = getSafePaymentRedirect(data.paymentUrl);
+        if (!safePaymentUrl) throw new Error('Платёжный сервис вернул небезопасный адрес');
+        window.location.assign(safePaymentUrl);
       } else if (data.order?.id) {
         router.push(`/payment/${data.order.id}`);
       } else if (data.orderId) {
@@ -273,9 +278,11 @@ export default function CartPage() {
       void refetchCart();
 
     } catch (error: any) {
-      console.error('❌ Ошибка оформления заказа:', error);
-      setOrderError(error.message || 'Ошибка оформления заказа');
+      setOrderError(error instanceof TypeError
+        ? userMessageFromError(error, 'Не удалось создать заказ. Попробуйте ещё раз позже.')
+        : error.message || 'Не удалось создать заказ. Попробуйте ещё раз позже.');
     } finally {
+      checkoutInFlightRef.current = false;
       setIsCheckingOut(false);
     }
   };
@@ -290,6 +297,19 @@ export default function CartPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center pt-32">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (loadError && items.length === 0) {
+    return (
+      <div className="min-h-screen bg-background pt-32 pb-20">
+        <div className="container-custom max-w-4xl text-center py-16">
+          <p role="alert" className="text-red-500 mb-4">{loadError}</p>
+          <button type="button" onClick={() => void refetchCart()} className="px-6 py-3 bg-primary text-primary-foreground rounded-lg">
+            Попробовать снова
+          </button>
+        </div>
       </div>
     );
   }
@@ -375,7 +395,8 @@ export default function CartPage() {
                         <button
                           onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
                           className="p-2 hover:bg-muted rounded-l-lg transition disabled:opacity-50"
-                          disabled={item.quantity <= 1}
+                          disabled={item.quantity <= 1 || updatingProducts.has(item.productId)}
+                          aria-label={`Уменьшить количество ${item.name}`}
                         >
                           <Minus className="w-4 h-4 text-foreground" />
                         </button>
@@ -384,7 +405,9 @@ export default function CartPage() {
                         </span>
                         <button
                           onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-                          className="p-2 hover:bg-muted rounded-r-lg transition"
+                          className="p-2 hover:bg-muted rounded-r-lg transition disabled:opacity-50"
+                          disabled={updatingProducts.has(item.productId)}
+                          aria-label={`Увеличить количество ${item.name}`}
                         >
                           <Plus className="w-4 h-4 text-foreground" />
                         </button>
@@ -392,6 +415,8 @@ export default function CartPage() {
 
                       <button
                         onClick={() => handleRemoveItem(item.productId)}
+                        disabled={updatingProducts.has(item.productId)}
+                        aria-label={`Удалить ${item.name} из корзины`}
                         className="text-muted-foreground/50 hover:text-red-500 transition p-2 hover:bg-red-500/10 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />

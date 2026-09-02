@@ -13,11 +13,17 @@ const prisma = new PrismaClient();
 // GET /api/articles — список статей с фильтром по типу
 export const getArticles = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { published, type, page = '1', limit = '20' } = req.query;
+    const { published, type, search, page = '1', limit = '20' } = req.query;
     
     const where: any = {};
     if (published === 'true') where.isPublished = true;
     if (type) where.type = type as string;
+    if (typeof search === 'string' && search.trim()) {
+      where.OR = [
+        { title: { contains: search.trim(), mode: 'insensitive' } },
+        { description: { contains: search.trim(), mode: 'insensitive' } },
+      ];
+    }
 
     const pageNum = parseInt(page as string);
     const limitNum = parseInt(limit as string);
@@ -72,7 +78,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
     });
   } catch (error: any) {
     console.error('❌ Get articles error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения статей' });
+    res.status(500).json({ error: 'Ошибка получения статей' });
   }
 };
 
@@ -158,7 +164,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
     res.json(formatted);
   } catch (error: any) {
     console.error('❌ Get article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения статьи' });
+    res.status(500).json({ error: 'Ошибка получения статьи' });
   }
 };
 
@@ -270,7 +276,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error: any) {
     console.error('❌ Create article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка создания статьи' });
+    res.status(500).json({ error: 'Ошибка создания статьи' });
   }
 };
 
@@ -422,7 +428,7 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error: any) {
     console.error('❌ Update article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обновления статьи' });
+    res.status(500).json({ error: 'Ошибка обновления статьи' });
   }
 };
 
@@ -450,7 +456,7 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
     res.json({ success: true, message: 'Статья удалена' });
   } catch (error: any) {
     console.error('❌ Delete article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка удаления статьи' });
+    res.status(500).json({ error: 'Ошибка удаления статьи' });
   }
 };
 
@@ -469,7 +475,7 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
     res.json({ services });
   } catch (error: any) {
     console.error('❌ Get services error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения услуг' });
+    res.status(500).json({ error: 'Ошибка получения услуг' });
   }
 };
 
@@ -490,7 +496,7 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
     res.json({ service });
   } catch (error: any) {
     console.error('❌ Get service error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения услуги' });
+    res.status(500).json({ error: 'Ошибка получения услуги' });
   }
 };
 
@@ -518,7 +524,7 @@ export const createService = async (req: Request, res: Response): Promise<void> 
     res.status(201).json({ service });
   } catch (error: any) {
     console.error('❌ Create service error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка создания услуги' });
+    res.status(500).json({ error: 'Ошибка создания услуги' });
   }
 };
 
@@ -552,7 +558,7 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
     res.json({ service });
   } catch (error: any) {
     console.error('❌ Update service error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обновления услуги' });
+    res.status(500).json({ error: 'Ошибка обновления услуги' });
   }
 };
 
@@ -578,6 +584,6 @@ export const deleteService = async (req: Request, res: Response): Promise<void> 
     res.json({ success: true, message: 'Услуга удалена' });
   } catch (error: any) {
     console.error('❌ Delete service error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка удаления услуги' });
+    res.status(500).json({ error: 'Ошибка удаления услуги' });
   }
 };

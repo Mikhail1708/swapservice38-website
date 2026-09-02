@@ -72,7 +72,7 @@ router.post(
       const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5001}`;
       const url = `${baseUrl}/uploads/${file.filename}`;
 
-      log.info(`📤 Файл загружен: ${file.filename} (${file.size} bytes) пользователем ${(req as any).user?.email}`);
+      log.info('File uploaded', { filename: file.filename, size: file.size });
 
       res.json({
         success: true,
@@ -87,7 +87,6 @@ router.post(
       res.status(500).json({
         error: 'Ошибка загрузки файла',
         code: 'UPLOAD_ERROR',
-        details: error.message,
       });
     }
   }
@@ -105,7 +104,7 @@ router.use((error: any, req: any, res: any, next: any) => {
       });
     }
     return res.status(400).json({
-      error: error.message,
+      error: 'Файл не соответствует требованиям загрузки',
       code: error.code,
     });
   }

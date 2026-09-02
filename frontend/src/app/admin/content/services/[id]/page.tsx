@@ -25,7 +25,6 @@ export default function EditServicePage() {
   useEffect(() => {
     const fetchService = async () => {
       try {
-        console.log(`🔄 Загрузка услуги ${id}...`);
         
         const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
           method: 'GET',
@@ -37,7 +36,6 @@ export default function EditServicePage() {
         }
 
         const data = await response.json();
-        console.log('📦 Получены данные:', data);
         
         const service = data.service;
         setForm({
@@ -74,7 +72,7 @@ export default function EditServicePage() {
       formData.append('file', file);
 
       try {
-        const response = await fetch('/api/upload', {
+        const response = await fetchWithCsrf('/api/upload', {
           method: 'POST',
           body: formData,
         });
@@ -113,7 +111,6 @@ export default function EditServicePage() {
         isActive: form.isActive,
       };
 
-      console.log('📤 Отправка обновления услуги:', payload);
 
       const response = await fetchWithCsrf(`/api/admin/content/services/${id}`, {
         method: 'PUT',

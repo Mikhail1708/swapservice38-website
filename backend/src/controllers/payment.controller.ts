@@ -13,6 +13,7 @@ import {
 import { CheckoutInventoryError } from '../services/checkoutInventory.service';
 import { PaymentPreparationError } from '../services/paymentAttempt.service';
 import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
+import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
 
@@ -42,9 +43,6 @@ export const createPaymentController = async (req: Request, res: Response): Prom
     const { orderId } = req.body;
     const userId = (req as any).user?.id;
 
-    console.log('💳 Создание платежа для заказа:', orderId);
-    console.log('  userId:', userId);
-
     if (!orderId) {
       res.status(400).json({ error: 'Не указан ID заказа' });
       return;
@@ -65,21 +63,22 @@ export const createPaymentController = async (req: Request, res: Response): Prom
     });
 
     if (!order) {
-      console.error('❌ Заказ не найден или не принадлежит пользователю');
       res.status(404).json({ error: 'Заказ не найден' });
       return;
     }
 
-    console.log('✅ Заказ найден:', { 
-      id: order.id, 
-      total: order.total, 
-      status: order.status,
-      crmOrderId: order.crmOrderId 
-    });
+    const latestAttempt = order.paymentAttempts?.[0];
+    const hasConfirmedPayment = latestAttempt && [
+      'succeeded',
+      'compensation_required',
+      'refund_required',
+      'refund_failed',
+      'refunded',
+    ].includes(latestAttempt.status);
 
-    // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОПЛАЧЕН
-    if (order.status === 'paid' || order.status === 'confirmed') {
-      console.log('✅ Заказ уже оплачен, редирект на успех');
+    // PaymentAttempt is payment truth. Order.status='paid' is retained only as
+    // a backward-compatible fallback for rows that predate PaymentAttempt.
+    if (hasConfirmedPayment || (!latestAttempt && order.status === 'paid')) {
       res.json({
         success: true,
         paymentId: 'already_paid',
@@ -102,7 +101,7 @@ export const createPaymentController = async (req: Request, res: Response): Prom
       status: payment.status,
     });
   } catch (error: any) {
-    console.error('❌ Ошибка создания платежа:', error);
+    log.error('Payment creation failed', { error: error instanceof Error ? error.message : 'unknown' });
     if (error instanceof CheckoutInventoryError) {
       res.status(error.status).json({
         error: error.message,
@@ -115,7 +114,7 @@ export const createPaymentController = async (req: Request, res: Response): Prom
       res.status(error.status).json({ error: error.message, code: error.code });
       return;
     }
-    res.status(400).json({ error: error.message || 'Ошибка создания платежа' });
+    res.status(500).json({ code: 'PAYMENT_CREATE_FAILED', error: 'Не удалось начать оплату. Попробуйте ещё раз' });
   }
 };
 
@@ -127,7 +126,6 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
     const { orderId, paymentId } = req.body;
     const userId = (req as any).user?.id;
 
-    console.log(`💳 Подтверждение оплаты заказа ${orderId} для пользователя ${userId}`);
 
     if (!orderId || !paymentId) {
       res.status(400).json({ error: 'Не указаны ID заказа или платежа' });
@@ -160,7 +158,6 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
 
     // ✅ ЕСЛИ ЗАКАЗ УЖЕ ОБРАБОТАН — ВОЗВРАЩАЕМ УСПЕХ
     if (order.status === 'paid' && order.crmOrderId) {
-      console.log(`ℹ️ Заказ ${orderId} уже оплачен и отправлен в CRM`);
       res.json({ 
         success: true, 
         orderId, 
@@ -203,8 +200,8 @@ export const confirmPaymentController = async (req: Request, res: Response): Pro
 
     res.json(result);
   } catch (error: any) {
-    console.error('❌ Ошибка подтверждения оплаты:', error);
-    res.status(500).json({ error: error.message || 'Ошибка подтверждения оплаты' });
+    log.error('Payment confirmation failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ code: 'PAYMENT_CONFIRM_FAILED', error: 'Не удалось проверить оплату. Попробуйте позже' });
   }
 };
 
@@ -218,7 +215,6 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
       : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     const body = rawBody.toString('utf8');
 
-    console.log('📥 Получен webhook от ЮKassa');
 
     const event = JSON.parse(body);
     const notifiedPaymentId = event?.object?.id;
@@ -312,8 +308,8 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
     
     res.json(result);
   } catch (error: any) {
-    console.error('❌ Ошибка обработки webhook:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обработки webhook' });
+    log.error('Payment webhook failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ error: 'Ошибка обработки webhook' });
   }
 };
 
@@ -323,8 +319,8 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
 export const getPaymentStatusController = async (req: Request, res: Response): Promise<void> => {
   try {
     const { paymentId } = req.params;
+    const userId = (req as any).user?.id;
 
-    console.log('📊 Проверка статуса платежа:', paymentId);
     
     if (!paymentId) {
       res.status(400).json({ error: 'Не указан ID платежа' });
@@ -332,12 +328,20 @@ export const getPaymentStatusController = async (req: Request, res: Response): P
     }
 
     const id = Array.isArray(paymentId) ? paymentId[0] : paymentId;
+    const attempt = await prisma.paymentAttempt.findFirst({
+      where: { providerPaymentId: id, order: { userId } },
+      select: { providerPaymentId: true },
+    });
+    if (!attempt) {
+      res.status(404).json({ error: 'Платёж не найден' });
+      return;
+    }
     const status = await getPaymentStatus(id);
     
-    res.json(status);
+    res.json({ paymentId: status.id, status: status.status, paid: status.paid === true });
   } catch (error: any) {
-    console.error('❌ Ошибка получения статуса платежа:', error);
-    res.status(400).json({ error: error.message || 'Ошибка получения статуса платежа' });
+    log.error('Payment status lookup failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(503).json({ code: 'PAYMENT_STATUS_UNAVAILABLE', error: 'Не удалось получить статус платежа' });
   }
 };
 
@@ -349,7 +353,6 @@ export const resendPaymentController = async (req: Request, res: Response): Prom
     const { orderId } = req.body;
     const userId = (req as any).user?.id;
 
-    console.log(`🔄 Принудительная отправка заказа ${orderId} в CRM`);
 
     if (!orderId) {
       res.status(400).json({ error: 'Не указан ID заказа' });
@@ -375,8 +378,8 @@ export const resendPaymentController = async (req: Request, res: Response): Prom
     const result = await resendOrderToCRM(orderId);
     res.json(result);
   } catch (error: any) {
-    console.error('❌ Ошибка принудительной отправки:', error);
-    res.status(500).json({ error: error.message || 'Ошибка принудительной отправки' });
+    log.error('CRM resend failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ error: 'Не удалось повторить отправку заказа' });
   }
 };
 

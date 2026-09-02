@@ -64,10 +64,8 @@ export const createOrderInCRM = async (orderData: any) => {
     });
     return response.data;
   } catch (error: any) {
-    console.error('❌ Ошибка создания заказа в CRM:', error.message);
     if (axios.isAxiosError(error) && error.response) {
-      console.error('📦 Статус:', error.response.status);
-      throw new Error(error.response.data?.message || 'Ошибка создания заказа в CRM');
+      throw new Error('Ошибка создания заказа в CRM');
     }
     throw new Error('Ошибка создания заказа в CRM');
   }
@@ -86,7 +84,6 @@ export const getOrderStatusFromCRM = async (crmOrderId: number) => {
     );
     return response.data;
   } catch (error) {
-    console.error(`❌ Ошибка получения статуса заказа ${crmOrderId}:`, error);
     return { orderStatus: 'unknown' };
   }
 };

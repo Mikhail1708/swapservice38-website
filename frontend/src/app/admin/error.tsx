@@ -24,7 +24,7 @@ export default function AdminError({
         </div>
         <h1 className="text-2xl font-bold text-foreground">Ошибка в админ-панели</h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          {error.message || 'Произошла ошибка. Попробуйте обновить страницу.'}
+          Произошла ошибка. Попробуйте обновить страницу.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
           <button

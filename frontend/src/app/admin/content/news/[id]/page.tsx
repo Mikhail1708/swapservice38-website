@@ -24,7 +24,7 @@ export default function EditNewsPage() {
   useEffect(() => {
     const fetchNews = async () => {
       try {
-        const response = await fetch(`/api/admin/news/${id}`, {
+        const response = await fetch(`/api/admin/articles/${id}`, {
           credentials: 'include',
         });
 
@@ -33,16 +33,14 @@ export default function EditNewsPage() {
         }
 
         const data = await response.json();
-        const news = data.news;
+        const news = data;
         setForm({
           title: news.title || '',
           content: news.content || '',
           imageUrl: news.imageUrl || '',
           isPublished: news.isPublished || false,
         });
-        if (news.imageUrl) {
-          setImageUrls([news.imageUrl]);
-        }
+        setImageUrls(news.images?.length ? news.images : (news.imageUrl ? [news.imageUrl] : []));
       } catch (error) {
         console.error('Ошибка загрузки:', error);
         alert('Ошибка загрузки новости');
@@ -66,7 +64,7 @@ export default function EditNewsPage() {
       formData.append('file', file);
 
       try {
-        const response = await fetch('/api/upload', {
+        const response = await fetchWithCsrf('/api/upload', {
           method: 'POST',
           body: formData,
         });
@@ -99,9 +97,11 @@ export default function EditNewsPage() {
       const payload = {
         ...form,
         imageUrl: imageUrls.length > 0 ? imageUrls[0] : '',
+        images: imageUrls.map((url, index) => ({ url, sortOrder: index, isMain: index === 0 })),
+        type: 'news',
       };
 
-      const response = await fetchWithCsrf(`/api/admin/news/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/articles/${id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });

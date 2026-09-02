@@ -1,10 +1,9 @@
-// frontend/lib/hooks/useAuth.ts
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { getCsrfToken, clearCsrfToken, fetchWithCsrf } from '../csrf';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { clearCsrfToken, fetchWithCsrf, getCsrfToken } from '../csrf';
 
-interface User {
+export interface AuthUser {
   id: string;
   email: string;
   firstName: string;
@@ -16,118 +15,74 @@ interface User {
   isVerified: boolean;
 }
 
+interface AuthSnapshot { user: AuthUser | null; loading: boolean }
+
+let snapshot: AuthSnapshot = { user: null, loading: true };
+let fetchPromise: Promise<void> | null = null;
+const listeners = new Set<() => void>();
+
+const emit = (next: AuthSnapshot) => {
+  snapshot = next;
+  listeners.forEach((listener) => listener());
+};
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+const loadUser = async (force = false): Promise<void> => {
+  if (fetchPromise) {
+    await fetchPromise;
+    if (force) return loadUser(true);
+    return;
+  }
+  if (!force && !snapshot.loading) return;
+
+  emit({ ...snapshot, loading: true });
+  fetchPromise = (async () => {
+    try {
+      await getCsrfToken();
+      const response = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        emit({ user: data.user || null, loading: false });
+      } else {
+        emit({ user: null, loading: false });
+      }
+    } catch (error) {
+      console.error('Auth request failed:', error);
+      emit({ user: null, loading: false });
+    } finally {
+      fetchPromise = null;
+    }
+  })();
+  return fetchPromise;
+};
+
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const fetchedRef = useRef(false);
-  const userCache = useRef<User | null>(null);
-  const isMounted = useRef(true);
-  const fetchPromise = useRef<Promise<void> | null>(null);
+  const state = useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 
-  const fetchUser = useCallback(async (force: boolean = false) => {
-    if (userCache.current && !force) {
-      if (isMounted.current) {
-        setUser(userCache.current);
-        setLoading(false);
-      }
-      return;
-    }
-
-    if (fetchPromise.current) {
-      return fetchPromise.current;
-    }
-
-    fetchPromise.current = (async () => {
-      try {
-        // ✅ Получаем CSRF токен
-        await getCsrfToken();
-
-        const response = await fetch('/api/auth/me', {
-          cache: 'no-store',
-          credentials: 'include',
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            userCache.current = data.user;
-            if (isMounted.current) {
-              setUser(data.user);
-            }
-          } else {
-            userCache.current = null;
-            if (isMounted.current) {
-              setUser(null);
-            }
-          }
-        } else {
-          if (response.status === 401) {
-            userCache.current = null;
-            if (isMounted.current) {
-              setUser(null);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('❌ Auth error:', error);
-      } finally {
-        if (isMounted.current) {
-          setLoading(false);
-        }
-        fetchPromise.current = null;
-      }
-    })();
-
-    return fetchPromise.current;
-  }, []);
+  useEffect(() => { void loadUser(); }, []);
 
   const logout = useCallback(async () => {
-    try {
-      const response = await fetchWithCsrf('/api/auth/logout', {
-        method: 'POST',
-      });
-
-      userCache.current = null;
-      if (isMounted.current) {
-        setUser(null);
-      }
-
-      clearCsrfToken();
-      localStorage.removeItem('token');
-
-      window.location.href = '/';
-    } catch (error) {
-      console.error('❌ Logout error:', error);
+    const response = await fetchWithCsrf('/api/auth/logout', { method: 'POST' });
+    if (!response.ok) {
+      throw new Error('Не удалось завершить сессию');
     }
+    clearCsrfToken();
+    localStorage.removeItem('token');
+    emit({ user: null, loading: false });
   }, []);
 
-  const refresh = useCallback(async () => {
-    userCache.current = null;
-    fetchPromise.current = null;
-    await fetchUser(true);
-  }, [fetchUser]);
-
-  useEffect(() => {
-    isMounted.current = true;
-
-    if (fetchedRef.current) {
-      return;
-    }
-
-    fetchedRef.current = true;
-    fetchUser();
-
-    return () => {
-      isMounted.current = false;
-    };
-  }, [fetchUser]);
+  const refresh = useCallback(async () => loadUser(true), []);
 
   return {
-    user,
-    loading,
-    isLoading: loading,
+    user: state.user,
+    loading: state.loading,
+    isLoading: state.loading,
     logout,
-    refetch: fetchUser,
+    refetch: loadUser,
     refresh,
   };
 }

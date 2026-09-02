@@ -1,7 +1,7 @@
 // backend/src/routes/admin.routes.ts
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
-import { requireAdmin } from '../middleware/role.middleware';
+import { requireAdmin, requireAdminOnly } from '../middleware/role.middleware';
 import { log } from '../config/logger';
 
 // Dashboard
@@ -85,14 +85,14 @@ router.post('/orders/mass-delete-with-password', massDeleteOrdersWithPassword);
 // ===== USERS =====
 router.get('/users', getUsers);
 router.get('/users/:id', getUserById);
-router.post('/users', createUser);
-router.put('/users/:id', updateUser);
-router.delete('/users/:id', deleteUser);
-router.patch('/users/:id/role', updateUserRole);
-router.post('/users/:id/block', blockUser);
-router.post('/users/:id/unblock', unblockUser);
-router.put('/users/:id/password', changeUserPassword);
-router.post('/users/mass-delete', massDeleteUsers);
+router.post('/users', requireAdminOnly, createUser);
+router.put('/users/:id', requireAdminOnly, updateUser);
+router.delete('/users/:id', requireAdminOnly, deleteUser);
+router.patch('/users/:id/role', requireAdminOnly, updateUserRole);
+router.post('/users/:id/block', requireAdminOnly, blockUser);
+router.post('/users/:id/unblock', requireAdminOnly, unblockUser);
+router.put('/users/:id/password', requireAdminOnly, changeUserPassword);
+router.post('/users/mass-delete', requireAdminOnly, massDeleteUsers);
 
 // ===== ARTICLES =====
 router.get('/articles', getArticles);
@@ -135,7 +135,7 @@ router.get('/queue/stats', async (req, res) => {
     res.json(stats);
   } catch (error: any) {
     log.error('❌ Ошибка получения статистики очереди', { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Не удалось получить статистику очереди' });
   }
 });
 
@@ -146,7 +146,7 @@ router.post('/queue/retry', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error: any) {
     log.error('❌ Ошибка повторной отправки задач', { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Не удалось повторно отправить задачи' });
   }
 });
 

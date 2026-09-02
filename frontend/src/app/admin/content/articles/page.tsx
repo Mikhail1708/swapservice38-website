@@ -16,9 +16,11 @@ import {
   FileText,
   Calendar
 } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface Article {
   id: string;
+  slug: string;
   title: string;
   description: string;
   imageUrl: string;
@@ -52,9 +54,10 @@ export default function AdminArticlesPage() {
       const params = new URLSearchParams();
       params.set('page', String(page));
       params.set('limit', String(limit));
+      params.set('type', 'swap');
       if (search) params.set('search', search);
 
-      const response = await fetch(`/api/articles?${params}`, {
+      const response = await fetch(`/api/admin/articles?${params}`, {
         credentials: 'include',
       });
 
@@ -89,9 +92,8 @@ export default function AdminArticlesPage() {
     if (!confirm('Удалить статью?')) return;
 
     try {
-      const response = await fetch(`/api/articles/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/articles/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (response.ok) {
@@ -256,19 +258,22 @@ export default function AdminArticlesPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
-                          onClick={() => router.push(`/swaps/${article.id}`)}
+                          onClick={() => router.push(`/swaps/${article.slug}`)}
+                          aria-label={`Открыть статью ${article.title}`}
                           className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => router.push(`/admin/content/articles/${article.id}`)}
+                          aria-label={`Редактировать статью ${article.title}`}
                           className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(article.id)}
+                          aria-label={`Удалить статью ${article.title}`}
                           className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
                         >
                           <Trash2 className="w-4 h-4" />

@@ -13,8 +13,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
   try {
     const { published, page = '1', limit = '20', search, type } = req.query;
     
-    const where: any = {};
-    if (published === 'true') where.isPublished = true;
+    const where: any = { isPublished: true };
     if (type) where.type = type as string;
     if (search) {
       where.OR = [
@@ -73,7 +72,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
     });
   } catch (error: any) {
     console.error('❌ Get articles error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения статей' });
+    res.status(500).json({ error: 'Ошибка получения статей' });
   }
 };
 
@@ -85,7 +84,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
     const { id } = req.params; // это slug
 
     const article = await prisma.article.findUnique({
-      where: { slug: id }, // ✅ ИЩЕМ ПО SLUG
+      where: { slug: id, isPublished: true },
       include: {
         author: { select: { firstName: true, lastName: true } },
         tags: { include: { tag: true } },
@@ -144,7 +143,6 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
           select: { views: true },
         });
         viewsCount = updated.views;
-        console.log(`📊 Новый просмотр статьи ${article.id} (IP: ${ip})`);
       }
     } catch (error) {
       console.warn('⚠️ Redis error:', error);
@@ -169,7 +167,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       slug: article.slug,
       title: article.title,
       description: article.description,
-      content: article.content,
+      content: sanitizeArticleHtml(article.content),
       imageUrl: article.imageUrl || article.images?.[0]?.url || '',
       images: article.images?.map((img: any) => img.url) || [],
       date: article.createdAt,
@@ -188,7 +186,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
     res.json(formatted);
   } catch (error: any) {
     console.error('❌ Get article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения статьи' });
+    res.status(500).json({ error: 'Ошибка получения статьи' });
   }
 };
 
@@ -293,7 +291,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error: any) {
     console.error('❌ Create article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка создания статьи' });
+    res.status(500).json({ error: 'Ошибка создания статьи' });
   }
 };
 
@@ -415,7 +413,7 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error: any) {
     console.error('❌ Update article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обновления статьи' });
+    res.status(500).json({ error: 'Ошибка обновления статьи' });
   }
 };
 
@@ -450,6 +448,6 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
     res.json({ success: true, message: 'Статья удалена' });
   } catch (error: any) {
     console.error('❌ Delete article error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка удаления статьи' });
+    res.status(500).json({ error: 'Ошибка удаления статьи' });
   }
 };

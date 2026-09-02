@@ -4,6 +4,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter, Image, Link } from '@/lib/next-shims';
 import { ArrowRight, ArrowLeft } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function ResetPasswordVerifyPage() {
   const [code, setCode] = useState(['', '', '', '', '', '']);
@@ -58,22 +60,20 @@ export default function ResetPasswordVerifyPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/reset-password/verify', {
+      const response = await fetchWithCsrf('/api/auth/reset-password/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code: fullCode }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Неверный код');
+        throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
       }
 
       // ✅ КОД ВЕРНЫЙ — ПЕРЕХОДИМ К УСТАНОВКЕ НОВОГО ПАРОЛЯ
-      router.push(`/reset-password/new?email=${encodeURIComponent(email)}&code=${fullCode}`);
-    } catch (err: any) {
-      setError(err.message);
+      sessionStorage.setItem('passwordResetCode', fullCode);
+      router.push(`/reset-password/new?email=${encodeURIComponent(email)}`);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось проверить код. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось проверить код. Попробуйте позже.');
     } finally {
       setLoading(false);
     }
@@ -84,21 +84,18 @@ export default function ResetPasswordVerifyPage() {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/reset-password/request', {
+      const response = await fetchWithCsrf('/api/auth/reset-password/request', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка отправки');
+        throw new Error(await readApiError(response, 'Не удалось отправить код. Попробуйте позже.'));
       }
 
       setTimer(60);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof TypeError ? userMessageFromError(err, 'Не удалось отправить код. Попробуйте позже.') : err instanceof Error ? err.message : 'Не удалось отправить код. Попробуйте позже.');
     } finally {
       setResendLoading(false);
     }

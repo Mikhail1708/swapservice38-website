@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Image, Link, usePathname, useSearchParams } from '@/lib/next-shims';
+import { Image, Link, usePathname, useRouter, useSearchParams } from '@/lib/next-shims';
 import { Menu, Phone, X, ShoppingCart, User, ChevronDown, LogOut, Settings, Package } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { useCart }  from '@/lib/context/CartContext';
@@ -38,6 +38,7 @@ export function SiteHeader() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading, logout } = useAuth();
   const { itemsCount, refetch: refetchCart } = useCart();
@@ -70,8 +71,14 @@ export function SiteHeader() {
   };
 
   const handleLogout = async () => {
-    await logout();
-    setIsDropdownOpen(false);
+    try {
+      await logout();
+      setIsDropdownOpen(false);
+      setOpen(false);
+      router.replace('/');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Не удалось выйти');
+    }
   };
 
   // Закрытие меню при клике вне
@@ -289,7 +296,7 @@ export function SiteHeader() {
                       <Package className="h-4 w-4" />
                       Мои заказы
                     </Link>
-                    {user.role === 'admin' && (
+                    {['admin', 'manager'].includes(user.role) && (
                       <Link
                         href="/admin"
                         className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition"
@@ -420,7 +427,7 @@ export function SiteHeader() {
                 >
                   Мои заказы
                 </Link>
-                {user.role === 'admin' && (
+                {['admin', 'manager'].includes(user.role) && (
                   <Link
                     href="/admin"
                     onClick={() => setOpen(false)}
@@ -431,8 +438,7 @@ export function SiteHeader() {
                 )}
                 <button
                   onClick={() => {
-                    handleLogout();
-                    setOpen(false);
+                    void handleLogout();
                   }}
                   className="text-sm text-red-500 hover:text-red-400 transition text-left"
                 >

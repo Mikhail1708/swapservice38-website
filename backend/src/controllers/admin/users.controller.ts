@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { passwordSchema } from '../../schemas/common.schema';
 
 const prisma = new PrismaClient();
 
@@ -22,9 +23,19 @@ export const getUsers = async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const where = search ? {
+      OR: [
+        { email: { contains: search, mode: 'insensitive' as const } },
+        { firstName: { contains: search, mode: 'insensitive' as const } },
+        { lastName: { contains: search, mode: 'insensitive' as const } },
+        { phone: { contains: search } },
+      ],
+    } : {};
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -45,7 +56,7 @@ export const getUsers = async (req: Request, res: Response) => {
           },
         },
       }),
-      prisma.user.count(),
+      prisma.user.count({ where }),
     ]);
 
     res.json({
@@ -108,17 +119,22 @@ export const createUser = async (req: Request, res: Response) => {
     if (!email || !email.trim()) {
       return res.status(400).json({ error: 'Email обязателен' });
     }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (role && !['user', 'manager', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Некорректная роль' });
+    }
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
+    const passwordResult = passwordSchema.safeParse(password);
+    if (!passwordResult.success) {
+      return res.status(400).json({ error: passwordResult.error.issues[0]?.message || 'Пароль не соответствует требованиям' });
     }
 
     if (phone && !validatePhone(phone)) {
       return res.status(400).json({ error: 'Некорректный номер телефона' });
     }
 
-    const existing = await prisma.user.findUnique({
-      where: { email: email.trim() },
+    const existing = await prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
     });
 
     if (existing) {
@@ -129,7 +145,7 @@ export const createUser = async (req: Request, res: Response) => {
 
     const user = await prisma.user.create({
       data: {
-        email: email.trim(),
+        email: normalizedEmail,
         passwordHash: hashedPassword,
         firstName: firstName?.trim() || null,
         lastName: lastName?.trim() || null,
@@ -167,6 +183,10 @@ export const updateUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { firstName, lastName, phone, address, role, isVerified } = req.body;
+
+    if (role && !['user', 'manager', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Некорректная роль' });
+    }
 
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) {
@@ -408,8 +428,9 @@ export const changeUserPassword = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { password } = req.body;
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
+    const passwordResult = passwordSchema.safeParse(password);
+    if (!passwordResult.success) {
+      return res.status(400).json({ error: passwordResult.error.issues[0]?.message || 'Пароль не соответствует требованиям' });
     }
 
     const existing = await prisma.user.findUnique({ where: { id } });

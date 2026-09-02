@@ -26,7 +26,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.PAYMENT_PROVIDER === 'm
 }
 
 // ✅ ПРОВЕРКА СТАТУСА
-router.get('/status/:paymentId', getPaymentStatusController);
+router.get('/status/:paymentId', requireAuth, getPaymentStatusController);
 
 // ✅ ПРИНУДИТЕЛЬНАЯ ОТПРАВКА В CRM (ДЛЯ АДМИНОВ)
 router.post('/resend', requireAuth, resendPaymentController);

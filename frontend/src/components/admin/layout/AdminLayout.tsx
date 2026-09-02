@@ -23,7 +23,7 @@ import { useAuth }  from '@/lib/hooks/useAuth';
 const menuItems = [
   { icon: LayoutDashboard, label: 'Дашборд', href: '/admin' },
   { icon: ShoppingBag, label: 'Заказы', href: '/admin/orders' },
-  { icon: Users, label: 'Пользователи', href: '/admin/users' },
+  { icon: Users, label: 'Пользователи', href: '/admin/users', adminOnly: true },
   { 
     icon: FileText, 
     label: 'Контент', 
@@ -47,10 +47,14 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
   // Проверяем права доступа
   useEffect(() => {
-    if (!isLoading && user && user.role !== 'admin') {
-      router.push('/');
+    if (!isLoading && !user) {
+      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+    } else if (!isLoading && user && !['admin', 'manager'].includes(user.role)) {
+      router.replace('/');
+    } else if (!isLoading && user?.role === 'manager' && pathname.startsWith('/admin/users')) {
+      router.replace('/admin');
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, pathname, router]);
 
   const toggleMenu = (href: string) => {
     setExpandedMenus(prev => ({
@@ -60,8 +64,12 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   };
 
   const handleLogout = async () => {
-    await logout();
-    router.push('/');
+    try {
+      await logout();
+      router.replace('/');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Не удалось выйти');
+    }
   };
 
   // Адаптивная ширина
@@ -87,7 +95,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user || user.role !== 'admin') {
+  if (!user || !['admin', 'manager'].includes(user.role)) {
     return null;
   }
 
@@ -120,7 +128,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
           {/* Навигация */}
           <nav className="flex-1 overflow-y-auto">
             <div className="space-y-1">
-              {menuItems.map((item) => {
+              {menuItems.filter((item) => !item.adminOnly || user.role === 'admin').map((item) => {
                 const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
                 const isExpanded = expandedMenus[item.href] || false;
                 const hasSubItems = item.subItems && item.subItems.length > 0;

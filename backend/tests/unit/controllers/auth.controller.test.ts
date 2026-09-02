@@ -1,5 +1,6 @@
 // backend/tests/unit/controllers/auth.controller.test.ts
 import { Request, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
 import {
   registerController,
   loginController,
@@ -13,10 +14,12 @@ import {
   verifyResetCodeController,
   confirmResetPasswordController,
   resendVerificationController,
+  mergeCart,
 } from '../../../src/controllers/auth.controller';
 import * as authService from '../../../src/services/auth.service';
 
 jest.mock('../../../src/services/auth.service');
+const prisma = new PrismaClient() as any;
 
 const mockRequest = (body: any = {}, user: any = null, cookies: any = {}): Partial<Request> => {
   const req: Partial<Request> = {
@@ -66,7 +69,7 @@ describe('Auth Controller', () => {
       });
     });
 
-    it('should return 400 on error', async () => {
+    it('does not expose an unexpected registration failure', async () => {
       const req = mockRequest({ email: 'test@example.com' });
       const res = mockResponse();
 
@@ -76,9 +79,26 @@ describe('Auth Controller', () => {
 
       await registerController(req as Request, res as Response);
 
-      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.status).toHaveBeenCalledWith(503);
       expect(res.json).toHaveBeenCalledWith({
-        error: 'Пользователь уже существует',
+        code: 'REGISTRATION_UNAVAILABLE',
+        error: 'Регистрация временно недоступна. Попробуйте позже',
+      });
+    });
+
+    it('returns a stable business code for an existing email', async () => {
+      const req = mockRequest({ email: 'test@example.com' });
+      const res = mockResponse();
+      (authService.register as jest.Mock).mockRejectedValue(
+        new Error('Пользователь с таким email уже зарегистрирован')
+      );
+
+      await registerController(req as Request, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith({
+        code: 'EMAIL_ALREADY_REGISTERED',
+        error: 'Пользователь с таким email уже зарегистрирован',
       });
     });
   });
@@ -113,6 +133,26 @@ describe('Auth Controller', () => {
       await loginController(req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(401);
+    });
+
+    it('preserves the guest cookie when cart merge fails', async () => {
+      const req = mockRequest({ email: 'test@example.com', password: 'Test1234!' }, null, { guestId: 'guest-1' });
+      const res = mockResponse();
+      (authService.login as jest.Mock).mockResolvedValue({ token: 'mock-token', user: { id: 'user-1' } });
+      prisma.cart.findUnique.mockRejectedValueOnce(new Error('temporary database failure'));
+
+      await loginController(req as Request, res as Response);
+
+      expect(res.clearCookie).not.toHaveBeenCalledWith('guestId', expect.anything());
+      expect(res.cookie).toHaveBeenCalledWith('token', 'mock-token', expect.objectContaining({ path: '/' }));
+    });
+  });
+
+  describe('mergeCart', () => {
+    it('reports a failed merge without deleting the guest cart', async () => {
+      prisma.cart.findUnique.mockRejectedValueOnce(new Error('temporary database failure'));
+      await expect(mergeCart('user-1', 'guest-1')).resolves.toBe(false);
+      expect(prisma.cart.delete).not.toHaveBeenCalled();
     });
   });
 

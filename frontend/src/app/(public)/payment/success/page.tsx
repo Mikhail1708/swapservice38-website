@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter, Image, Link } from '@/lib/next-shims';
 import { CheckCircle, Package, Loader2, ShoppingBag, AlertCircle, ArrowRight } from 'lucide-react';
-import { getCsrfToken }  from '@/lib/csrf';
+import { fetchWithCsrf } from '@/lib/csrf';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
@@ -25,10 +26,6 @@ export default function PaymentSuccessPage() {
 
     const processPayment = async () => {
       try {
-        console.log(`🔄 Обработка оплаты заказа ${orderId}...`);
-
-        const csrfToken = await getCsrfToken();
-
         let confirmedPaymentId = paymentId;
         const currentOrderResponse = await fetch(`/api/orders/${orderId}`, {
           credentials: 'include',
@@ -45,45 +42,25 @@ export default function PaymentSuccessPage() {
         }
 
         if (isMockPayment) {
-          const mockResponse = await fetch('/api/payment/mock/complete', {
+          const mockResponse = await fetchWithCsrf('/api/payment/mock/complete', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': csrfToken,
-            },
             body: JSON.stringify({ orderId, paymentId: confirmedPaymentId }),
-            credentials: 'include',
           });
           if (!mockResponse.ok) {
-            const mockError = await mockResponse.json();
-            throw new Error(mockError.error || 'Не удалось завершить тестовый платёж');
+            throw new Error(await readApiError(mockResponse, 'Не удалось завершить тестовый платёж'));
           }
         }
 
-        const response = await fetch('/api/payment/confirm', {
+        const response = await fetchWithCsrf('/api/payment/confirm', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          body: JSON.stringify({ 
-            orderId, 
-            paymentId: confirmedPaymentId,
-            _csrf: csrfToken,
-          }),
-          credentials: 'include',
+          body: JSON.stringify({ orderId, paymentId: confirmedPaymentId }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          console.error('❌ Ошибка обработки оплаты:', data);
-          setError(data.error || 'Ошибка обработки оплаты');
+          setError(await readApiError(response, 'Не удалось проверить оплату. Попробуйте позже.'));
           setLoading(false);
           return;
         }
-
-        console.log('✅ Оплата обработана:', data);
 
         const orderResponse = await fetch(`/api/orders/${orderId}`, {
           credentials: 'include',
@@ -96,9 +73,10 @@ export default function PaymentSuccessPage() {
           setOrder({ id: orderId, status: 'paid' });
         }
 
-      } catch (error: any) {
-        console.error('❌ Ошибка:', error);
-        setError(error.message || 'Ошибка обработки оплаты');
+      } catch (error: unknown) {
+        setError(error instanceof TypeError
+          ? userMessageFromError(error, 'Не удалось проверить оплату. Попробуйте позже.')
+          : error instanceof Error ? error.message : 'Не удалось проверить оплату. Попробуйте позже.');
       } finally {
         setLoading(false);
       }
@@ -123,21 +101,27 @@ export default function PaymentSuccessPage() {
       <div className="container-custom max-w-2xl">
         <div className="bg-card border border-border rounded-2xl p-8 text-center">
           <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-              <CheckCircle className="w-10 h-10 text-green-500" />
+            <div className={`w-20 h-20 rounded-full border flex items-center justify-center ${error ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-green-500/10 border-green-500/20'}`}>
+              {error
+                ? <AlertCircle className="w-10 h-10 text-yellow-500" />
+                : <CheckCircle className="w-10 h-10 text-green-500" />}
             </div>
           </div>
           
-          <h1 className="text-3xl font-bold text-foreground mb-2">Оплата прошла успешно! 🎉</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            {error ? 'Проверяем статус оплаты' : 'Оплата подтверждена! 🎉'}
+          </h1>
           <p className="text-muted-foreground mb-6">
-            Спасибо за заказ! Мы уже начали его обработку.
+            {error
+              ? 'Не удалось получить окончательное подтверждение. Проверьте заказ в личном кабинете.'
+              : 'Спасибо за заказ! Мы уже начали его обработку.'}
           </p>
 
           {error && (
             <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-sm text-yellow-500 mb-6 text-left flex items-start gap-2">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium">Оплата прошла, но есть нюанс:</p>
+                <p className="font-medium">Подтверждение ещё не получено:</p>
                 <p>{error}</p>
                 <p className="text-xs mt-1 text-muted-foreground">Наш менеджер свяжется с вами в ближайшее время.</p>
               </div>
@@ -160,7 +144,9 @@ export default function PaymentSuccessPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Статус</span>
-              <span className="text-green-500 font-medium">✅ Оплачен</span>
+              <span className={error ? 'text-yellow-500 font-medium' : 'text-green-500 font-medium'}>
+                {error ? 'Ожидает проверки' : '✅ Оплачен'}
+              </span>
             </div>
           </div>
 

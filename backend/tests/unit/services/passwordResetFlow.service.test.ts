@@ -15,12 +15,18 @@ const mockRedis = redis as jest.Mocked<typeof redis>;
 const mockSendEmail = sendPasswordResetEmail as jest.Mock;
 
 describe('Password reset flow', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      id: 'user-1', email: 'user@example.com', passwordHash: 'hash',
+    });
+    (prisma.user.findMany as jest.Mock).mockResolvedValue([]);
+  });
 
   it('returns the same generic response for missing and OAuth-only accounts', async () => {
     (prisma.user.findUnique as jest.Mock)
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ email: 'oauth@example.com', passwordHash: null });
+      .mockResolvedValueOnce({ id: 'oauth-1', email: 'oauth@example.com', passwordHash: null });
 
     const missing = await requestPasswordReset('missing@example.com');
     const oauth = await requestPasswordReset('oauth@example.com');
@@ -32,6 +38,7 @@ describe('Password reset flow', () => {
 
   it('sends email only when the atomic issue operation creates a code', async () => {
     (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      id: 'user-1',
       email: 'user@example.com',
       passwordHash: 'hash',
     });
@@ -90,7 +97,7 @@ describe('Password reset flow', () => {
 
   it('does not consume a code for an invalid new password', async () => {
     await expect(confirmResetPassword('user@example.com', '123456', 'short'))
-      .rejects.toThrow('Пароль должен быть минимум 8 символов');
+      .rejects.toThrow('Минимум 8 символов');
     expect(mockRedis.eval).not.toHaveBeenCalled();
   });
 });

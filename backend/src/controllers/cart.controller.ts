@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
+import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
 
@@ -46,7 +47,6 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.error('❌ Товар не найден в CRM:', productId);
       return null;
     }
 
@@ -63,7 +63,6 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
       inStock: (data as any).inStock !== undefined ? (data as any).inStock : ((data as any).stock || 0) > 0,
     };
   } catch (error) {
-    console.error('❌ Ошибка получения товара из CRM:', error);
     return null;
   }
 };
@@ -94,7 +93,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
     const userId = (req as any).user?.id;
     let guestId = req.cookies?.guestId;
 
-    console.log('📦 GET /api/cart:', { userId, guestId });
 
     let cart = null;
 
@@ -104,7 +102,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       });
 
       if (!cart && guestId) {
-        console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
 
         const guestCart = await prisma.cart.findUnique({
           where: { guestId: guestId },
@@ -129,7 +126,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
             path: '/',
           });
 
-          console.log(`✅ Корзина перенесена, товаров: ${(guestCart.items as any[]).length}`);
         } else {
           cart = await prisma.cart.create({
             data: {
@@ -137,7 +133,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
               items: [],
             },
           });
-          console.log('🆕 Создана пустая корзина для пользователя (перенос пустой)');
         }
       }
 
@@ -148,7 +143,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
             items: [],
           },
         });
-        console.log('🆕 Создана пустая корзина для пользователя (новый)');
       }
     } else if (guestId) {
       cart = await prisma.cart.findUnique({
@@ -162,7 +156,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
             items: [],
           },
         });
-        console.log('🆕 Создана пустая корзина для гостя');
       }
     } else {
       guestId = uuidv4();
@@ -180,12 +173,11 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
       });
-      console.log('🆕 Создан новый guestId:', guestId);
     }
 
     res.json(formatCartResponse(cart));
   } catch (error) {
-    console.error('❌ Get cart error:', error);
+    log.error('Cart load failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ error: 'Ошибка получения корзины' });
   }
 };
@@ -199,7 +191,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     const userId = (req as any).user?.id;
     let guestId = req.cookies?.guestId;
 
-    console.log('🛒 Добавление в корзину:', { productId, quantity, userId, guestId });
 
     // ✅ 1. ПОЛУЧАЕМ ТОВАР ИЗ CRM С ОСТАТКОМ
     const product = await getProductFromCRM(productId);
@@ -209,7 +200,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     }
 
     const availableStock = product.stock || 0;
-    console.log(`📦 Остаток товара ${productId}: ${availableStock} шт.`);
 
     if (availableStock <= 0) {
       res.status(400).json({ 
@@ -260,7 +250,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
           },
         });
       }
-      console.log('🆕 Создана новая корзина');
     }
 
     currentItems = Array.isArray(cart.items) ? cart.items : [];
@@ -289,7 +278,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     // ✅ 5. ОБНОВЛЯЕМ КОРЗИНУ
     if (existingItemIndex !== -1) {
       currentItems[existingItemIndex].quantity = newQuantity;
-      console.log('🔄 Обновлено количество:', productId, '->', newQuantity);
     } else {
       const newItem: CartItem = {
         productId: String(productId),
@@ -301,7 +289,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
         maxStock: availableStock,
       };
       currentItems.push(newItem);
-      console.log('➕ Добавлен новый товар:', productId);
     }
 
     let updatedCart;
@@ -319,7 +306,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     res.json(formatCartResponse(updatedCart));
   } catch (error) {
-    console.error('❌ Add to cart error:', error);
+    log.error('Cart add failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ error: 'Ошибка добавления в корзину' });
   }
 };
@@ -333,7 +320,6 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
     const userId = (req as any).user?.id;
     const guestId = req.cookies?.guestId;
 
-    console.log('🔄 Обновление корзины:', { productId, quantity, userId, guestId });
 
     if (!userId && !guestId) {
       res.status(401).json({ error: 'Не авторизован' });
@@ -348,7 +334,6 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
     }
 
     const availableStock = product.stock || 0;
-    console.log(`📦 Остаток товара ${productId}: ${availableStock} шт.`);
 
     // ✅ 2. НАХОДИМ КОРЗИНУ
     let cart = null;
@@ -363,7 +348,6 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
     }
 
     if (!cart) {
-      console.log('❌ Корзина не найдена');
       res.status(404).json({ error: 'Корзина не найдена' });
       return;
     }
@@ -383,7 +367,6 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
     // ✅ 4. ЕСЛИ quantity === 0 — УДАЛЯЕМ
     if (quantity === 0) {
       items.splice(existingItemIndex, 1);
-      console.log('🗑️ Товар удалён из корзины:', productId);
       
       let updatedCart;
       if (userId) {
@@ -416,7 +399,6 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
 
     // ✅ 6. ОБНОВЛЯЕМ КОЛИЧЕСТВО
     items[existingItemIndex].quantity = quantity;
-    console.log('🔄 Количество обновлено:', productId, '->', quantity);
 
     let updatedCart;
     if (userId) {
@@ -433,7 +415,7 @@ export const updateCart = async (req: Request, res: Response): Promise<void> => 
 
     res.json(formatCartResponse(updatedCart));
   } catch (error) {
-    console.error('❌ Update cart error:', error);
+    log.error('Cart update failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ error: 'Ошибка обновления корзины' });
   }
 };
@@ -446,7 +428,6 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
     const userId = (req as any).user?.id;
     const guestId = req.cookies?.guestId;
 
-    console.log('🧹 Очистка корзины:', { userId, guestId });
 
     if (!userId && !guestId) {
       res.status(401).json({ error: 'Не авторизован' });
@@ -459,13 +440,11 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
         where: { userId: String(userId) },
         data: { items: [] },
       });
-      console.log('✅ Корзина очищена для userId:', userId);
     } else if (guestId) {
       updatedCart = await prisma.cart.update({
         where: { guestId: guestId },
         data: { items: [] },
       });
-      console.log('✅ Корзина очищена для guestId:', guestId);
     } else {
       res.status(400).json({ error: 'Не удалось определить корзину' });
       return;
@@ -473,7 +452,7 @@ export const clearCart = async (req: Request, res: Response): Promise<void> => {
 
     res.json(formatCartResponse(updatedCart));
   } catch (error) {
-    console.error('❌ Clear cart error:', error);
+    log.error('Cart clear failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ error: 'Ошибка очистки корзины' });
   }
 };

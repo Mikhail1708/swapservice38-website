@@ -1,6 +1,12 @@
 // frontend/src/lib/next-shims.tsx
-import React from 'react';
-import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
+import React, { useCallback, useMemo } from 'react';
+import {
+  Link as RouterLink,
+  useLocation,
+  useNavigate,
+  useParams as useRouterParams,
+  useSearchParams as useRouterSearchParams,
+} from 'react-router-dom';
 
 // ============================================================
 // Image — НЕ МЕНЯЕМ
@@ -74,14 +80,23 @@ export const useRouter = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  return {
-    push: (path: string) => navigate(path),
-    replace: (path: string) => navigate(path, { replace: true }),
-    back: () => navigate(-1),
-    refresh: () => window.location.reload(),
+  const push = useCallback((path: string) => navigate(path), [navigate]);
+  const replace = useCallback((path: string) => navigate(path, { replace: true }), [navigate]);
+  const back = useCallback(() => navigate(-1), [navigate]);
+  const refresh = useCallback(() => window.location.reload(), []);
+  const query = useMemo(
+    () => Object.fromEntries(new URLSearchParams(location.search)),
+    [location.search],
+  );
+
+  return useMemo(() => ({
+    push,
+    replace,
+    back,
+    refresh,
     pathname: location.pathname,
-    query: Object.fromEntries(new URLSearchParams(location.search)),
-  };
+    query,
+  }), [back, location.pathname, push, query, refresh, replace]);
 };
 
 export const usePathname = () => {
@@ -91,25 +106,16 @@ export const usePathname = () => {
 
 // ✅ ИСПРАВЛЕНО: useSearchParams — теперь это ХУК, а не просто функция
 export const useSearchParams = () => {
-  const location = useLocation();
-  const params = new URLSearchParams(location.search);
-
-  return {
-    get: (key: string) => params.get(key),
-    getAll: (key: string) => params.getAll(key),
-    toString: () => params.toString(),
-    entries: () => params.entries(),
-  };
+  const [params] = useRouterSearchParams();
+  return params;
 };
 
 export const useParams = () => {
-  const location = useLocation();
-  const pathname = location.pathname;
-  const parts = pathname.split('/').filter(Boolean);
-  
-  return {
-    id: parts[parts.length - 1] || '',
-  };
+  const params = useRouterParams();
+  return useMemo(() => ({
+    ...params,
+    id: params.id || params.orderId || '',
+  }), [params.id, params.orderId]);
 };
 
 export default {

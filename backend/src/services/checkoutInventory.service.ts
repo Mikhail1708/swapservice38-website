@@ -110,7 +110,7 @@ const fetchProductForCheckout = async (productId: number): Promise<CRMCheckoutPr
     }
   }
 
-  console.error(`Не удалось проверить товар ${productId} в CRM:`, lastError);
+  // Do not serialize Axios errors: request headers may contain internal credentials.
   throw new CheckoutInventoryError(
     'Не удалось проверить цены и остатки. Повторите попытку позже',
     503,

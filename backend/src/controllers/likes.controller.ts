@@ -69,7 +69,7 @@ export const toggleLike = async (req: Request, res: Response): Promise<void> => 
     }
   } catch (error: any) {
     console.error('❌ Toggle like error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка изменения лайка' });
+    res.status(500).json({ error: 'Ошибка изменения лайка' });
   }
 };
 
@@ -93,6 +93,6 @@ export const getUserLikes = async (req: Request, res: Response): Promise<void> =
     });
   } catch (error: any) {
     console.error('❌ Get user likes error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения лайков' });
+    res.status(500).json({ error: 'Ошибка получения лайков' });
   }
 };

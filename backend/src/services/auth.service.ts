@@ -2,15 +2,36 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import redis from '@config/redis';
 import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeEmail } from './email.service';
 import {
   checkPasswordResetCode,
   generatePasswordResetCode,
   issuePasswordResetCode,
 } from './passwordResetSecurity.service';
+import { passwordSchema } from '../schemas/common.schema';
+import { credentialVersion } from '../utils/credentialVersion';
+import {
+  checkEmailVerificationCode,
+  generateEmailVerificationCode,
+  issueEmailVerificationCode,
+} from './emailVerificationSecurity.service';
 
 const prisma = new PrismaClient();
+const DUMMY_PASSWORD_HASH = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+
+const findUserByEmailIdentity = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const exact = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const matches = await prisma.user.findMany({
+    where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+    take: 2,
+  });
+  // Resolve legacy mixed-case identities only when unambiguous. A real exact
+  // row is included in this case-insensitive query; the fallback supports
+  // isolated Prisma mocks without weakening production behavior.
+  if (exact) return matches.length > 1 ? null : (matches[0] || exact);
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const getJwtSecret = (): string => {
   const secret = process.env.JWT_SECRET;
@@ -20,9 +41,6 @@ const getJwtSecret = (): string => {
 
 const jwtExpiresIn = (): SignOptions['expiresIn'] =>
   (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
-
-// Генерация 6-значного кода
-const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ============================================================
 // РЕГИСТРАЦИЯ
@@ -34,7 +52,10 @@ export const register = async (
   lastName?: string,
   middleName?: string
 ) => {
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = email.trim().toLowerCase();
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+  });
   if (existing) {
     throw new Error('Пользователь с таким email уже зарегистрирован');
   }
@@ -43,7 +64,7 @@ export const register = async (
 
   const user = await prisma.user.create({
     data: {
-      email,
+      email: normalizedEmail,
       passwordHash,
       firstName,
       lastName,
@@ -53,10 +74,10 @@ export const register = async (
     },
   });
 
-  const code = generateCode();
-  await redis.setex(`verify:${email}`, 600, code);
+  const code = generateEmailVerificationCode();
+  await issueEmailVerificationCode(user.id, code);
 
-  await sendVerificationEmail(email, code);
+  await sendVerificationEmail(normalizedEmail, code);
 
   return { message: 'Код отправлен на почту' };
 };
@@ -65,40 +86,55 @@ export const register = async (
 // ПОДТВЕРЖДЕНИЕ EMAIL
 // ============================================================
 export const verifyEmail = async (email: string, code: string) => {
-  const stored = await redis.get(`verify:${email}`);
-  if (!stored || stored !== code) {
+  const user = await findUserByEmailIdentity(email);
+  if (!user) {
     throw new Error('Неверный или просроченный код');
   }
+  // A verified address must not be distinguishable from an unknown address by
+  // submitting an arbitrary code to this public endpoint.
+  if (user.isVerified) throw new Error('Неверный или просроченный код');
+  const verification = await checkEmailVerificationCode(user.id, code, false);
+  if (verification !== 'valid') throw new Error('Неверный или просроченный код');
 
   await prisma.user.update({
-    where: { email },
+    where: { id: user.id },
     data: { isVerified: true },
   });
 
-  await redis.del(`verify:${email}`);
+  await checkEmailVerificationCode(user.id, code, true);
 
   return { message: 'Email подтверждён' };
+};
+
+export const resendVerification = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await findUserByEmailIdentity(normalizedEmail);
+  const code = generateEmailVerificationCode();
+  const accountId = user && !user.isVerified ? user.id : `non-actionable:${normalizedEmail}`;
+  const issue = await issueEmailVerificationCode(accountId, code);
+  if (user && !user.isVerified && issue === 'issued') {
+    await sendVerificationEmail(user.email, code);
+  }
+  return { message: 'Если подтверждение требуется, письмо отправлено' };
 };
 
 // ============================================================
 // ЛОГИН
 // ============================================================
 export const login = async (email: string, password: string) => {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
+  const user = await findUserByEmailIdentity(email);
+  const valid = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
+  if (!user || !user.passwordHash || !valid || user.blockedAt) {
     throw new Error('Неверный email или пароль');
   }
   if (!user.isVerified) {
-    throw new Error('Email не подтверждён');
-  }
-
-  const valid = await bcrypt.compare(password, user.passwordHash!);
-  if (!valid) {
-    throw new Error('Неверный email или пароль');
+    const error = new Error('Email не подтверждён') as Error & { code?: string };
+    error.code = 'EMAIL_UNVERIFIED';
+    throw error;
   }
 
   const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, cv: credentialVersion(user.passwordHash) },
     getJwtSecret(),
     { expiresIn: jwtExpiresIn() }
   );
@@ -201,6 +237,11 @@ export const changePassword = async (
   currentPassword: string,
   newPassword: string
 ) => {
+  const passwordResult = passwordSchema.safeParse(newPassword);
+  if (!passwordResult.success) {
+    throw new Error(passwordResult.error.issues[0]?.message || 'Пароль не соответствует требованиям');
+  }
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw new Error('Пользователь не найден');
@@ -233,7 +274,7 @@ export const requestPasswordChange = async (userId: string, email: string) => {
     throw new Error('Пользователь не найден');
   }
 
-  if (user.email !== email) {
+  if (user.email.trim().toLowerCase() !== email.trim().toLowerCase()) {
     throw new Error('Email не совпадает с email пользователя');
   }
 
@@ -241,8 +282,9 @@ export const requestPasswordChange = async (userId: string, email: string) => {
     throw new Error('У этого аккаунта нет пароля (используйте OAuth)');
   }
 
-  const code = generateCode();
-  await redis.setex(`change-password:${userId}`, 900, code);
+  const code = generatePasswordResetCode();
+  const issueResult = await issuePasswordResetCode(`password-change:${userId}`, code);
+  if (issueResult !== 'issued') throw new Error('Новый код можно запросить позже');
 
   await sendPasswordChangeEmail(email, code);
 
@@ -257,13 +299,14 @@ export const confirmPasswordChange = async (
   code: string,
   newPassword: string
 ) => {
-  const stored = await redis.get(`change-password:${userId}`);
-  if (!stored || stored !== code) {
-    throw new Error('Неверный или просроченный код');
+  const passwordResult = passwordSchema.safeParse(newPassword);
+  if (!passwordResult.success) {
+    throw new Error(passwordResult.error.issues[0]?.message || 'Пароль не соответствует требованиям');
   }
 
-  if (newPassword.length < 8) {
-    throw new Error('Пароль должен быть минимум 8 символов');
+  const codeResult = await checkPasswordResetCode(`password-change:${userId}`, code, true);
+  if (codeResult !== 'valid') {
+    throw new Error('Неверный или просроченный код');
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -272,7 +315,6 @@ export const confirmPasswordChange = async (
     data: { passwordHash },
   });
 
-  await redis.del(`change-password:${userId}`);
   return { message: 'Пароль успешно изменён' };
 };
 
@@ -282,21 +324,24 @@ export const confirmPasswordChange = async (
 
 // 1. Запрос кода восстановления
 export const requestPasswordReset = async (email: string) => {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await findUserByEmailIdentity(email);
   const response = { message: 'Если аккаунт существует, код для восстановления отправлен на почту' };
   if (!user?.passwordHash) return response;
 
   const code = generatePasswordResetCode();
-  const issueResult = await issuePasswordResetCode(email, code);
+  const issueResult = await issuePasswordResetCode(user.id, code);
   if (issueResult === 'issued') {
-    await sendPasswordResetEmail(email, code);
+    await sendPasswordResetEmail(user.email, code);
   }
   return response;
 };
 
 // 2. Проверка кода восстановления
 export const verifyResetCode = async (email: string, code: string) => {
-  const result = await checkPasswordResetCode(email, code, false);
+  const user = await findUserByEmailIdentity(email);
+  const result = user?.passwordHash
+    ? await checkPasswordResetCode(user.id, code, false)
+    : 'expired';
   if (result !== 'valid') {
     throw new Error('Неверный или просроченный код');
   }
@@ -310,18 +355,22 @@ export const confirmResetPassword = async (
   code: string,
   newPassword: string
 ) => {
-  if (newPassword.length < 8) {
-    throw new Error('Пароль должен быть минимум 8 символов');
+  const passwordResult = passwordSchema.safeParse(newPassword);
+  if (!passwordResult.success) {
+    throw new Error(passwordResult.error.issues[0]?.message || 'Пароль не соответствует требованиям');
   }
 
-  const result = await checkPasswordResetCode(email, code, true);
+  const user = await findUserByEmailIdentity(email);
+  if (!user?.passwordHash) throw new Error('Неверный или просроченный код');
+
+  const result = await checkPasswordResetCode(user.id, code, true);
   if (result !== 'valid') {
     throw new Error('Неверный или просроченный код');
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({
-    where: { email },
+    where: { id: user.id },
     data: { passwordHash },
   });
   return { message: 'Пароль успешно изменён' };
@@ -330,9 +379,14 @@ export const confirmResetPassword = async (
 // ============================================================
 // ГЕНЕРАЦИЯ JWT ТОКЕНА (используется для OAuth)
 // ============================================================
-export const generateToken = (userId: string): string => {
+export const generateToken = async (userId: string): Promise<string> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { passwordHash: true },
+  });
+  if (!user) throw new Error('Пользователь не найден');
   return jwt.sign(
-    { id: userId },
+    { id: userId, cv: credentialVersion(user.passwordHash) },
     getJwtSecret(),
     { expiresIn: jwtExpiresIn() }
   );

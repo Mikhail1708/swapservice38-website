@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Calendar
 } from 'lucide-react';
+import { fetchWithCsrf } from '@/lib/csrf';
 
 interface NewsItem {
   id: string;
@@ -40,7 +41,7 @@ export default function AdminNewsPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/admin/news?page=${page}&limit=${limit}`, {
+      const response = await fetch(`/api/admin/articles?type=news&page=${page}&limit=${limit}`, {
         credentials: 'include',
       });
 
@@ -49,7 +50,7 @@ export default function AdminNewsPage() {
       }
 
       const data = await response.json();
-      setNews(data.news || []);
+      setNews(data.items || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
     } catch (err: any) {
@@ -63,9 +64,8 @@ export default function AdminNewsPage() {
     if (!confirm('Удалить новость?')) return;
 
     try {
-      const response = await fetch(`/api/admin/news/${id}`, {
+      const response = await fetchWithCsrf(`/api/admin/articles/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (response.ok) {
@@ -174,12 +174,14 @@ export default function AdminNewsPage() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => router.push(`/admin/content/news/${item.id}`)}
+                          aria-label={`Редактировать новость ${item.title}`}
                           className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(item.id)}
+                          aria-label={`Удалить новость ${item.title}`}
                           className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
                         >
                           <Trash2 className="w-4 h-4" />

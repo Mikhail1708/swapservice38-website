@@ -1,6 +1,7 @@
 // swapservice38-website/backend/src/controllers/product.controller.ts
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { log } from '../config/logger';
 
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
@@ -68,8 +69,6 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
   try {
     const { category, search, page = '1', limit = '16', sort } = req.query;
     
-    console.log('📦 Запрос товаров из CRM (без кеша)');
-
     const response = await axios.get(`${CRM_API_URL}/api/public/products`, {
       params: { category, search, page, limit },
       timeout: 10000,
@@ -77,14 +76,11 @@ export const getProducts = async (req: Request, res: Response): Promise<void> =>
 
     const normalizedData = normalizeProducts(response.data);
     
-    console.log('✅ Товары получены из CRM');
-    
     res.json(normalizedData);
   } catch (error: any) {
-    console.error('❌ Ошибка получения товаров:', error);
+    log.error('CRM product list request failed', { status: error?.response?.status });
     res.status(500).json({ 
-      error: 'Ошибка получения товаров',
-      details: error.message 
+      error: 'Ошибка получения товаров'
     });
   }
 };
@@ -96,19 +92,15 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
   try {
     const { id } = req.params;
     
-    console.log(`📦 Запрос товара ${id} из CRM (без кеша)`);
-
     const response = await axios.get(`${CRM_API_URL}/api/public/products/${id}`, {
       timeout: 10000,
     });
 
     const normalizedProduct = normalizeProduct(response.data);
     
-    console.log(`✅ Товар ${id} получен из CRM`);
-
     res.json(normalizedProduct);
   } catch (error: any) {
-    console.error(`❌ Ошибка получения товара ${req.params.id}:`, error);
+    log.error('CRM product request failed', { status: error?.response?.status });
     
     if (error.response?.status === 404) {
       res.status(404).json({ error: 'Товар не найден' });
@@ -116,8 +108,7 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
     }
     
     res.status(500).json({ 
-      error: 'Ошибка получения товара',
-      details: error.message 
+      error: 'Ошибка получения товара'
     });
   }
 };
@@ -127,8 +118,6 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
 // ============================================================
 export const getCategories = async (req: Request, res: Response): Promise<void> => {
   try {
-    console.log('📦 Запрос категорий из CRM (без кеша)');
-
     let categories: string[] = [];
 
     try {
@@ -148,7 +137,6 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
         categories = data.items.map((c: any) => c.name || c).filter(Boolean);
       }
       
-      console.log(`✅ Получено ${categories.length} категорий из CRM`);
     } catch (error: any) {
       console.warn('⚠️ CRM недоступна, получаем категории из товаров');
       
@@ -161,7 +149,6 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
         const products = productsResponse.data?.items || productsResponse.data || [];
         const uniqueCategories = [...new Set(products.map((p: any) => p.category).filter(Boolean))] as string[];
         categories = uniqueCategories;
-        console.log(`✅ Получено ${categories.length} категорий из товаров`);
       } catch (fallbackError) {
         console.warn('⚠️ Не удалось получить категории');
         categories = [];
@@ -170,7 +157,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
 
     res.json({ categories });
   } catch (error: any) {
-    console.error('❌ Ошибка получения категорий:', error);
+    log.error('CRM category request failed', { status: error?.response?.status });
     res.json({ categories: [] });
   }
 };
@@ -190,7 +177,7 @@ export const getProductsByCategory = async (req: Request, res: Response): Promis
     const normalizedData = normalizeProducts(response.data);
     res.json(normalizedData);
   } catch (error: any) {
-    console.error(`❌ Ошибка получения товаров по категории ${req.params.category}:`, error);
+    log.error('CRM category product request failed', { status: error?.response?.status });
     res.status(500).json({ error: 'Ошибка получения товаров' });
   }
 };

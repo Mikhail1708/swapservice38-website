@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { getSafePaymentRedirect } from '@/lib/safe-navigation';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 interface OrderItem {
   productId: string;
@@ -54,6 +56,12 @@ interface Order {
   cancellationResolvedAt?: string;
   cancellationReason?: string;
   cancellationDecisionReason?: string;
+  paymentAttempts?: Array<{
+    status: string;
+    refundReason?: string;
+    refundRequestedAt?: string;
+    refundedAt?: string;
+  }>;
 }
 
 const cancellationLabels: Record<string, string> = {
@@ -61,6 +69,13 @@ const cancellationLabels: Record<string, string> = {
   requested: 'Запрошена, ожидает решения',
   accepted: 'Отмена принята',
   rejected: 'Отмена отклонена',
+};
+
+const cancellationDecisionLabels: Record<string, string> = {
+  FULFILLMENT_ALREADY_SHIPPED: 'Заказ уже передан в доставку, поэтому отмена невозможна.',
+  CANCELLATION_NOT_ALLOWED: 'На текущем этапе заказ отменить нельзя.',
+  CANCELLATION_ACCEPTED: 'CRM подтвердила отмену заказа.',
+  ALREADY_CANCELLED: 'Заказ уже отменён.',
 };
 
 const statusMap: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -159,14 +174,14 @@ export default function OrderDetailPage() {
         }
 
         if (!response.ok) {
-          throw new Error(`Ошибка: ${response.status}`);
+          throw new Error(await readApiError(response, 'Не удалось загрузить заказ.'));
         }
 
         const data = await response.json();
         setOrder(data.order || data);
         setError(null);
-      } catch (error: any) {
-        setError(error.message || 'Не удалось загрузить заказ');
+      } catch (error: unknown) {
+        setError(error instanceof TypeError ? userMessageFromError(error, 'Не удалось загрузить заказ.') : error instanceof Error ? error.message : 'Не удалось загрузить заказ.');
       } finally {
         setLoading(false);
       }
@@ -187,7 +202,7 @@ export default function OrderDetailPage() {
   const canPay = (): boolean => {
     if (!order) return false;
     return order.status === 'pending'
-      && (!order.cancellationState || order.cancellationState === 'none');
+      && (!order.cancellationState || ['none', 'rejected'].includes(order.cancellationState));
   };
 
 const handleCancelOrder = async () => {
@@ -199,16 +214,16 @@ const handleCancelOrder = async () => {
       body: JSON.stringify({ reason: 'customer_request' }),
     });
 
-    const data = await response.json();
+    const data = await response.clone().json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.error || 'Ошибка запроса отмены заказа');
+      throw new Error(await readApiError(response, 'Не удалось запросить отмену заказа.'));
     }
 
     setOrder(data.order || data);
     setError(null);
-  } catch (error: any) {
-    setError(error.message || 'Не удалось запросить отмену заказа');
+  } catch (error: unknown) {
+    setError(error instanceof TypeError ? userMessageFromError(error, 'Не удалось запросить отмену заказа.') : error instanceof Error ? error.message : 'Не удалось запросить отмену заказа.');
   } finally {
     setIsCancelling(false);
     setShowCancelConfirm(false);
@@ -224,19 +239,21 @@ const handleCancelOrder = async () => {
         body: JSON.stringify({ orderId: order.id }),
       });
 
-      const data = await response.json();
+      const data = await response.clone().json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || 'Ошибка создания платежа');
+        throw new Error(await readApiError(response, 'Не удалось начать оплату. Попробуйте ещё раз.'));
       }
 
       if (data.paymentUrl) {
-        window.location.href = data.paymentUrl;
+        const safePaymentUrl = getSafePaymentRedirect(data.paymentUrl);
+        if (!safePaymentUrl) throw new Error('Платёжный сервис вернул небезопасный адрес');
+        window.location.href = safePaymentUrl;
       } else {
         router.push(`/payment/${order.id}`);
       }
-    } catch (error: any) {
-      setError(error.message || 'Не удалось создать платёж');
+    } catch (error: unknown) {
+      setError(error instanceof TypeError ? userMessageFromError(error, 'Не удалось начать оплату. Попробуйте ещё раз.') : error instanceof Error ? error.message : 'Не удалось начать оплату. Попробуйте ещё раз.');
     } finally {
       setIsPaying(false);
     }
@@ -399,7 +416,9 @@ const handleCancelOrder = async () => {
               Отмена: {cancellationLabels[order.cancellationState || 'none'] || order.cancellationState}
             </p>
             {order.cancellationDecisionReason && (
-              <p className="text-muted-foreground mt-1">{order.cancellationDecisionReason}</p>
+              <p className="text-muted-foreground mt-1">
+                {cancellationDecisionLabels[order.cancellationDecisionReason] || 'CRM завершила рассмотрение запроса на отмену.'}
+              </p>
             )}
             {order.cancellationRequestedAt && (
               <p className="text-xs text-muted-foreground mt-2">
@@ -412,6 +431,19 @@ const handleCancelOrder = async () => {
               </p>
             )}
         </div>
+
+        {order.paymentAttempts?.[0] && ['compensation_required', 'refund_required', 'refund_failed', 'refunded'].includes(order.paymentAttempts[0].status) && (
+          <div className={`border rounded-lg p-4 mb-6 text-sm ${order.paymentAttempts[0].status === 'refund_failed' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 'bg-blue-500/10 border-blue-500/20 text-foreground'}`}>
+            <p className="font-medium">
+              {order.paymentAttempts[0].status === 'refunded' && 'Возврат выполнен'}
+              {['compensation_required', 'refund_required'].includes(order.paymentAttempts[0].status) && 'Возврат средств обрабатывается'}
+              {order.paymentAttempts[0].status === 'refund_failed' && 'Возврат требует вмешательства менеджера'}
+            </p>
+            {order.paymentAttempts[0].refundedAt && (
+              <p className="text-xs text-muted-foreground mt-1">Возвращено: {formatDate(order.paymentAttempts[0].refundedAt)}</p>
+            )}
+          </div>
+        )}
 
         {/* Основная сетка */}
         <div className="grid lg:grid-cols-3 gap-6">

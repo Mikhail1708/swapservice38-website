@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { fetchWithCsrf }  from '@/lib/csrf';
+import { readApiError, userMessageFromError } from '@/lib/api-error';
 
 // ✅ НОВЫЙ STATUSMAP С ИКОНКАМИ И ЦВЕТАМИ
 const statusMap: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -98,13 +99,11 @@ export default function OrdersPage() {
     const fetchOrders = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Загрузка заказов для пользователя:', user.id);
         
         const response = await fetchWithCsrf('/api/orders', {
           method: 'GET',
         });
 
-        console.log('📦 Статус ответа:', response.status);
 
         if (response.status === 401) {
           setError('Необходимо авторизоваться');
@@ -113,16 +112,14 @@ export default function OrdersPage() {
         }
 
         if (!response.ok) {
-          throw new Error(`Ошибка: ${response.status}`);
+          throw new Error(await readApiError(response, 'Не удалось загрузить заказы.'));
         }
 
         const data = await response.json();
-        console.log('✅ Заказы загружены:', data);
         setOrders(data.orders || []);
         setError(null);
-      } catch (error: any) {
-        console.error('❌ Ошибка загрузки заказов:', error);
-        setError(error.message || 'Не удалось загрузить заказы');
+      } catch (error: unknown) {
+        setError(error instanceof TypeError ? userMessageFromError(error, 'Не удалось загрузить заказы.') : error instanceof Error ? error.message : 'Не удалось загрузить заказы.');
       } finally {
         setLoading(false);
       }

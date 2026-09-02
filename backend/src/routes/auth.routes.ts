@@ -33,17 +33,43 @@ import {
 } from '../middleware/passwordResetLimiter.middleware';
 import * as oauthService from '../services/oauth.service';
 import { log } from '../config/logger';
+import { authLimiter, verificationLimiter } from '../middleware/rateLimiter.middleware';
+import { randomBytes, timingSafeEqual } from 'crypto';
 
 const router = Router();
+const oauthCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 10 * 60 * 1000,
+  path: '/api/auth',
+};
+const createOAuthState = () => randomBytes(32).toString('base64url');
+const validOAuthState = (received: unknown, stored: unknown): boolean => {
+  if (typeof received !== 'string' || typeof stored !== 'string') return false;
+  const left = Buffer.from(received);
+  const right = Buffer.from(stored);
+  return left.length === right.length && timingSafeEqual(left, right);
+};
+const oauthFailureUrl = (code = 'oauth_failed') =>
+  `${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(code)}`;
+const safeOAuthRedirect = (value: unknown): string =>
+  typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+const oauthCallbackUrl = (redirect: string, errorCode?: string) => {
+  const url = new URL('/oauth-callback', process.env.CLIENT_URL);
+  url.searchParams.set('redirect', safeOAuthRedirect(redirect));
+  if (errorCode) url.searchParams.set('error', errorCode);
+  return url.toString();
+};
 
 // ============================================================
 // СТАНДАРТНАЯ АУТЕНТИФИКАЦИЯ (С ВАЛИДАЦИЕЙ)
 // ============================================================
 
-router.post('/register', validate(registerSchema), registerController);
-router.post('/verify', validate(verifySchema), verifyController);
-router.post('/resend-verification', validate(resetPasswordRequestSchema), resendVerificationController);
-router.post('/login', validate(loginSchema), loginController);
+router.post('/register', verificationLimiter, validate(registerSchema), registerController);
+router.post('/verify', verificationLimiter, validate(verifySchema), verifyController);
+router.post('/resend-verification', verificationLimiter, validate(resetPasswordRequestSchema), resendVerificationController);
+router.post('/login', authLimiter, validate(loginSchema), loginController);
 router.post('/logout', logoutController);
 router.get('/me', requireAuth, meController);
 
@@ -75,33 +101,41 @@ router.post('/reset-password/confirm', passwordResetAttemptLimiter, validate(res
 
 router.get('/yandex', (req, res) => {
   try {
-    const url = oauthService.getYandexAuthUrl();
+    const state = createOAuthState();
+    res.cookie('oauth_state', state, oauthCookieOptions);
+    res.cookie('oauth_redirect', safeOAuthRedirect(req.query.redirect), oauthCookieOptions);
+    const url = oauthService.getYandexAuthUrl(state);
     res.redirect(url);
   } catch (error: any) {
     log.error('Yandex OAuth redirect error', { error: error.message });
-    res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Ошибка входа через Яндекс')}`);
+    res.redirect(oauthFailureUrl());
   }
 });
 
 router.get('/yandex/callback', async (req, res) => {
   try {
-    const { code, error } = req.query;
+    const { code, error, state } = req.query;
+    if (!validOAuthState(state, req.cookies?.oauth_state)) {
+      res.clearCookie('oauth_state', { ...oauthCookieOptions, maxAge: undefined });
+      res.clearCookie('oauth_redirect', { ...oauthCookieOptions, maxAge: undefined });
+      return res.redirect(oauthFailureUrl());
+    }
+    const oauthRedirect = safeOAuthRedirect(req.cookies?.oauth_redirect);
+    res.clearCookie('oauth_state', { ...oauthCookieOptions, maxAge: undefined });
+    res.clearCookie('oauth_redirect', { ...oauthCookieOptions, maxAge: undefined });
 
     if (error) {
-      const message = typeof error === 'string' ? error : 'Ошибка авторизации';
-      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(message)}`);
+      return res.redirect(oauthCallbackUrl(oauthRedirect, 'oauth_denied'));
     }
 
     if (!code) {
-      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent('Не получен код авторизации')}`);
+      return res.redirect(oauthFailureUrl());
     }
 
     const guestId = req.cookies?.guestId;
-    log.info('OAuth callback', { guestId: guestId || 'нет' });
+    const { token, cartMerged } = await oauthService.handleYandexCallback(code as string, guestId);
 
-    const { token } = await oauthService.handleYandexCallback(code as string, guestId);
-
-    if (guestId) {
+    if (guestId && cartMerged) {
       res.clearCookie('guestId', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -115,14 +149,13 @@ router.get('/yandex/callback', async (req, res) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
     });
 
-    log.info('OAuth успешен, редирект', { url: `${process.env.CLIENT_URL}/oauth-callback` });
-    res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
+    res.redirect(oauthCallbackUrl(oauthRedirect));
   } catch (error: any) {
     log.error('Yandex OAuth callback error', { error: error.message });
-    const message = encodeURIComponent(error.message || 'Ошибка входа через Яндекс');
-    res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
+    res.redirect(oauthFailureUrl(error.message === 'OAUTH_LINK_REQUIRED' ? 'oauth_link_required' : 'oauth_failed'));
   }
 });
 
@@ -132,33 +165,41 @@ router.get('/yandex/callback', async (req, res) => {
 
 router.get('/max', (req, res) => {
   try {
-    const url = oauthService.getMaxAuthUrl();
+    const state = createOAuthState();
+    res.cookie('oauth_state', state, oauthCookieOptions);
+    res.cookie('oauth_redirect', safeOAuthRedirect(req.query.redirect), oauthCookieOptions);
+    const url = oauthService.getMaxAuthUrl(state);
     res.redirect(url);
   } catch (error: any) {
     log.error('MAX OAuth redirect error', { error: error.message });
-    res.redirect(`${process.env.CLIENT_URL}/login?error=${encodeURIComponent('Ошибка входа через MAX')}`);
+    res.redirect(oauthFailureUrl());
   }
 });
 
 router.get('/max/callback', async (req, res) => {
   try {
-    const { code, error } = req.query;
+    const { code, error, state } = req.query;
+    if (!validOAuthState(state, req.cookies?.oauth_state)) {
+      res.clearCookie('oauth_state', { ...oauthCookieOptions, maxAge: undefined });
+      res.clearCookie('oauth_redirect', { ...oauthCookieOptions, maxAge: undefined });
+      return res.redirect(oauthFailureUrl());
+    }
+    const oauthRedirect = safeOAuthRedirect(req.cookies?.oauth_redirect);
+    res.clearCookie('oauth_state', { ...oauthCookieOptions, maxAge: undefined });
+    res.clearCookie('oauth_redirect', { ...oauthCookieOptions, maxAge: undefined });
 
     if (error) {
-      const message = typeof error === 'string' ? error : 'Ошибка авторизации';
-      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(message)}`);
+      return res.redirect(oauthCallbackUrl(oauthRedirect, 'oauth_denied'));
     }
 
     if (!code) {
-      return res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent('Не получен код авторизации')}`);
+      return res.redirect(oauthFailureUrl());
     }
 
     const guestId = req.cookies?.guestId;
-    log.info('OAuth callback MAX', { guestId: guestId || 'нет' });
+    const { token, cartMerged } = await oauthService.handleMaxCallback(code as string, guestId);
 
-    const { token } = await oauthService.handleMaxCallback(code as string, guestId);
-
-    if (guestId) {
+    if (guestId && cartMerged) {
       res.clearCookie('guestId', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -172,14 +213,13 @@ router.get('/max/callback', async (req, res) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
     });
 
-    log.info('OAuth MAX успешен, редирект', { url: `${process.env.CLIENT_URL}/oauth-callback` });
-    res.redirect(`${process.env.CLIENT_URL}/oauth-callback`);
+    res.redirect(oauthCallbackUrl(oauthRedirect));
   } catch (error: any) {
     log.error('MAX OAuth callback error', { error: error.message });
-    const message = encodeURIComponent(error.message || 'Ошибка входа через MAX');
-    res.redirect(`${process.env.CLIENT_URL}/oauth-callback?error=${message}`);
+    res.redirect(oauthFailureUrl(error.message === 'OAUTH_LINK_REQUIRED' ? 'oauth_link_required' : 'oauth_failed'));
   }
 });
 

@@ -13,37 +13,49 @@ import {
   confirmPasswordChange,
   requestPasswordReset,
   verifyResetCode,
-  confirmResetPassword
+  confirmResetPassword,
+  generateToken,
+  resendVerification,
 } from '../services/auth.service';
-import { sendVerificationEmail } from '../services/email.service';
-import redis from '@config/redis';
 import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
+
+const AUTH_BUSINESS_ERRORS = [
+  'Неверный или просроченный код',
+  'Пользователь не найден',
+  'Неверный текущий пароль',
+  'Email не совпадает с email пользователя',
+  'У этого аккаунта нет пароля (используйте OAuth)',
+  'Новый код можно запросить позже',
+];
+
+const sendAuthError = (res: Response, error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : '';
+  const isPasswordValidation = /парол|латин|заглавн|строчн|цифр|символ/i.test(message);
+  if (AUTH_BUSINESS_ERRORS.includes(message) || isPasswordValidation) {
+    return res.status(400).json({ code: 'AUTH_VALIDATION_ERROR', error: message });
+  }
+  log.error('Authentication operation failed', { errorName: error instanceof Error ? error.name : 'unknown' });
+  return res.status(503).json({ code: 'AUTH_UNAVAILABLE', error: fallback });
+};
 
 // ============================================================
 // ПЕРЕНОС КОРЗИНЫ ПРИ АВТОРИЗАЦИИ
 // ============================================================
 export const mergeCart = async (userId: string, guestId: string | undefined) => {
-  if (!guestId) {
-    console.log('ℹ️ Нет guestId, корзина не переносится');
-    return;
-  }
+  if (!guestId) return true;
 
   try {
-    console.log(`🔄 Перенос корзины: guestId=${guestId} -> userId=${userId}`);
-
     const guestCart = await prisma.cart.findUnique({
       where: { guestId: guestId },
     });
 
     if (!guestCart || !guestCart.items || (guestCart.items as any[]).length === 0) {
-      console.log('ℹ️ Корзина гостя пуста');
-      return;
+      return true;
     }
 
     const guestItems = guestCart.items as any[];
-    console.log(`📦 Товаров в гостевой корзине: ${guestItems.length}`);
 
     let userCart = await prisma.cart.findUnique({
       where: { userId: userId },
@@ -60,10 +72,8 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
 
         if (existingIndex !== -1) {
           mergedItems[existingIndex].quantity += guestItem.quantity;
-          console.log(`🔄 Обновлено количество: ${guestItem.name} -> ${mergedItems[existingIndex].quantity}`);
         } else {
           mergedItems.push(guestItem);
-          console.log(`➕ Добавлен товар: ${guestItem.name}`);
         }
       }
 
@@ -71,7 +81,6 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
         where: { userId: userId },
         data: { items: mergedItems },
       });
-      console.log(`✅ Корзина пользователя обновлена, ${mergedItems.length} товаров`);
     } else {
       await prisma.cart.create({
         data: {
@@ -79,16 +88,16 @@ export const mergeCart = async (userId: string, guestId: string | undefined) => 
           items: guestItems,
         },
       });
-      console.log(`✅ Создана корзина пользователя, ${guestItems.length} товаров`);
     }
 
     await prisma.cart.delete({
       where: { guestId: guestId },
     });
+    return true;
 
-    console.log(`✅ Корзина успешно перенесена!`);
   } catch (error) {
-    console.error('❌ Ошибка переноса корзины:', error);
+    log.error('Cart merge failed', { userId, error: error instanceof Error ? error.message : 'unknown' });
+    return false;
   }
 };
 
@@ -103,15 +112,15 @@ export const loginController = async (req: Request, res: Response) => {
     const guestId = req.cookies?.guestId;
 
     if (guestId) {
-      console.log(`🔄 Перенос корзины при логине: guestId=${guestId} -> userId=${user.id}`);
-      await mergeCart(user.id, guestId);
-
-      res.clearCookie('guestId', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
+      const cartMerged = await mergeCart(user.id, guestId);
+      if (cartMerged) {
+        res.clearCookie('guestId', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+        });
+      }
     }
 
     const isProduction = process.env.NODE_ENV === 'production';
@@ -123,11 +132,12 @@ export const loginController = async (req: Request, res: Response) => {
       path: '/',
     });
 
-    console.log('✅ Логин успешен, токен установлен');
     res.json({ user });
   } catch (error: any) {
-    console.error('❌ Ошибка логина:', error);
-    res.status(401).json({ error: error.message });
+    if (error.code === 'EMAIL_UNVERIFIED') {
+      return res.status(403).json({ code: 'EMAIL_UNVERIFIED', error: 'Email не подтверждён' });
+    }
+    res.status(401).json({ code: 'INVALID_CREDENTIALS', error: 'Неверный email или пароль' });
   }
 };
 
@@ -140,7 +150,11 @@ export const registerController = async (req: Request, res: Response) => {
     const result = await register(email, password, firstName, lastName, middleName);
     res.status(201).json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (error?.message === 'Пользователь с таким email уже зарегистрирован') {
+      return res.status(409).json({ code: 'EMAIL_ALREADY_REGISTERED', error: error.message });
+    }
+    log.error('Registration failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(503).json({ code: 'REGISTRATION_UNAVAILABLE', error: 'Регистрация временно недоступна. Попробуйте позже' });
   }
 };
 
@@ -153,7 +167,7 @@ export const verifyController = async (req: Request, res: Response) => {
     const result = await verifyEmail(email, code);
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось подтвердить email. Попробуйте позже');
   }
 };
 
@@ -163,30 +177,11 @@ export const verifyController = async (req: Request, res: Response) => {
 export const resendVerificationController = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email обязателен' });
-    }
-
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: 'Пользователь не найден' });
-    }
-
-    if (user.isVerified) {
-      return res.status(400).json({ error: 'Email уже подтверждён' });
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    await redis.setex(`verify:${email}`, 600, code);
-
-    await sendVerificationEmail(email, code);
-
-    console.log(`📧 Код подтверждения отправлен повторно на ${email}`);
-    res.json({ message: 'Код отправлен повторно' });
+    const result = await resendVerification(email);
+    res.json(result);
   } catch (error: any) {
-    console.error('❌ Ошибка повторной отправки кода:', error);
-    res.status(400).json({ error: error.message || 'Ошибка отправки кода' });
+    log.error('Verification resend failed', { error: error.message });
+    res.status(503).json({ code: 'VERIFICATION_UNAVAILABLE', error: 'Не удалось отправить письмо. Попробуйте позже' });
   }
 };
 
@@ -230,7 +225,8 @@ export const meController = async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    log.error('Current user lookup failed', { error: error instanceof Error ? error.message : 'unknown' });
+    res.status(500).json({ code: 'AUTH_UNAVAILABLE', error: 'Не удалось проверить сессию' });
   }
 };
 
@@ -254,7 +250,7 @@ export const updateProfileController = async (req: Request, res: Response) => {
     });
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось сохранить изменения. Попробуйте позже');
   }
 };
 
@@ -270,9 +266,17 @@ export const changePasswordController = async (req: Request, res: Response) => {
 
     const { currentPassword, newPassword } = req.body;
     const result = await changePassword(userId, currentPassword, newPassword);
+    const token = await generateToken(userId);
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось изменить пароль. Попробуйте позже');
   }
 };
 
@@ -287,7 +291,7 @@ export const requestPasswordChangeController = async (req: Request, res: Respons
     const result = await requestPasswordChange(userId, email);
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось отправить код. Попробуйте позже');
   }
 };
 
@@ -300,9 +304,17 @@ export const confirmPasswordChangeController = async (req: Request, res: Respons
 
     const { code, newPassword } = req.body;
     const result = await confirmPasswordChange(userId, code, newPassword);
+    const token = await generateToken(userId);
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось изменить пароль. Попробуйте позже');
   }
 };
 
@@ -329,7 +341,7 @@ export const verifyResetCodeController = async (req: Request, res: Response) => 
     const result = await verifyResetCode(email, code);
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось проверить код. Попробуйте позже');
   }
 };
 
@@ -339,6 +351,6 @@ export const confirmResetPasswordController = async (req: Request, res: Response
     const result = await confirmResetPassword(email, code, newPassword);
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    sendAuthError(res, error, 'Не удалось изменить пароль. Попробуйте позже');
   }
 };

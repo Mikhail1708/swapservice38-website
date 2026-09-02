@@ -19,9 +19,6 @@ interface Product {
   images: string[];
   sku: string;
   characteristics?: Record<string, string | string[]>;
-  views?: number;
-  ordersCount?: number;
-  popularity?: number;
   rating?: number;
 }
 
@@ -197,7 +194,7 @@ export function Products() {
         setLoading(true);
         setError(null);
         
-        const response = await fetchWithCsrf('/api/products?limit=20&sort=popular', {
+        const response = await fetchWithCsrf('/api/products?limit=5', {
           method: 'GET',
         });
         
@@ -208,22 +205,7 @@ export function Products() {
         const data = await response.json();
         const items = data.items || data || [];
         
-        const sorted = [...items]
-          .sort((a, b) => {
-            if (a.popularity !== undefined && b.popularity !== undefined) {
-              return b.popularity - a.popularity;
-            }
-            if (a.ordersCount !== undefined && b.ordersCount !== undefined) {
-              return b.ordersCount - a.ordersCount;
-            }
-            if (a.views !== undefined && b.views !== undefined) {
-              return b.views - a.views;
-            }
-            return 0;
-          })
-          .slice(0, 5);
-        
-        setProducts(sorted);
+        setProducts(items.slice(0, 5));
       } catch (err) {
         console.error('❌ Ошибка загрузки товаров:', err);
         setError('Не удалось загрузить товары');
@@ -284,10 +266,10 @@ export function Products() {
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
               <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-                Популярные товары
+                Новые поступления
               </span>
               <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-                Хиты продаж
+                Свежие товары
               </h2>
             </div>
             <Link
@@ -323,10 +305,10 @@ export function Products() {
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
               <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-                Популярные товары
+                Новые поступления
               </span>
               <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-                Хиты продаж
+                Свежие товары
               </h2>
             </div>
             <Link
@@ -353,10 +335,10 @@ export function Products() {
         <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
           <div>
             <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-              Популярные товары
+              Новые поступления
             </span>
             <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-              Хиты продаж
+              Свежие товары
             </h2>
             {error && (
               <p className="text-xs text-red-500 mt-2">{error}</p>

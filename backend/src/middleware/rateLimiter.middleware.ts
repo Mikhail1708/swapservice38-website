@@ -9,11 +9,6 @@ export const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false,
-  keyGenerator: (req) => {
-    return (req.headers['x-forwarded-for'] as string)?.split(',')[0] || 
-           req.socket.remoteAddress || 
-           'unknown';
-  }
 });
 
 // Строгий лимит для авторизации (защита от брутфорса)
@@ -24,11 +19,14 @@ export const authLimiter = rateLimit({
   message: { error: 'Слишком много попыток входа. Попробуйте через 15 минут' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return (req.headers['x-forwarded-for'] as string)?.split(',')[0] || 
-           req.socket.remoteAddress || 
-           'unknown';
-  }
+});
+
+export const verificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { code: 'VERIFICATION_RATE_LIMITED', error: 'Слишком много попыток. Попробуйте позже' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // Лимит для API запросов

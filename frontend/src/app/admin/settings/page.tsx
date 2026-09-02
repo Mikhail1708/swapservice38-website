@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Save, Loader2, CheckCircle, AlertCircle, RefreshCw, Shield, Globe, Phone, Mail, MapPin, Clock } from 'lucide-react';
+import { Save, Loader2, CheckCircle, AlertCircle, Shield, Globe, Phone, Mail, MapPin, Clock } from 'lucide-react';
 import { fetchWithCsrf }  from '@/lib/csrf';
 
 interface Settings {
@@ -86,20 +86,6 @@ export default function SettingsPage() {
       setError('Ошибка сохранения настроек');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleClearCache = async () => {
-    if (!confirm('Очистить кэш сайта?')) return;
-    try {
-      // Очищаем кэш в браузере
-      localStorage.clear();
-      sessionStorage.clear();
-      // Очищаем кэш через API
-      await fetch('/api/admin/settings/clear-cache', { method: 'POST' });
-      alert('✅ Кэш очищен');
-    } catch (err) {
-      alert('❌ Ошибка очистки кэша');
     }
   };
 
@@ -289,13 +275,6 @@ export default function SettingsPage() {
           <div className="bg-card border border-border rounded-2xl p-6">
             <h3 className="text-sm font-semibold text-foreground mb-4">Действия</h3>
             <div className="space-y-2">
-              <button
-                onClick={handleClearCache}
-                className="w-full flex items-center gap-3 px-4 py-2.5 bg-muted rounded-lg text-sm text-foreground hover:bg-muted/80 transition"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Очистить кэш
-              </button>
               <button
                 onClick={handleResetSettings}
                 className="w-full flex items-center gap-3 px-4 py-2.5 bg-red-500/10 rounded-lg text-sm text-red-500 hover:bg-red-500/20 transition"

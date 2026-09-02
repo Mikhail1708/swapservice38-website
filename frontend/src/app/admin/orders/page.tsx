@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, Image, Link } from '@/lib/next-shims';
+import { useRouter, useSearchParams, Image, Link } from '@/lib/next-shims';
 import { 
   Eye, 
   ChevronLeft, 
@@ -50,13 +50,14 @@ const statusColors: Record<string, string> = {
 
 export default function AdminOrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const limit = 20;

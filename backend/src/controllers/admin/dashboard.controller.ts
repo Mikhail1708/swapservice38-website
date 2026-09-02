@@ -133,6 +133,6 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     console.error('❌ Dashboard stats error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка получения статистики' });
+    res.status(500).json({ error: 'Ошибка получения статистики' });
   }
 };

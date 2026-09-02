@@ -84,7 +84,6 @@ const sendEmailSync = async (to: string, subject: string, html: string) => {
 // ============================================================
 emailQueue.process(async (job) => {
   const { to, subject, html } = job.data;
-  console.log(`📧 Отправка письма на ${to}`);
   try {
     const info = await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
@@ -92,7 +91,6 @@ emailQueue.process(async (job) => {
       subject,
       html,
     });
-    console.log(`✅ Письмо отправлено: ${info.messageId}`);
     return info;
   } catch (error) {
     console.error('❌ Ошибка отправки письма:', error);

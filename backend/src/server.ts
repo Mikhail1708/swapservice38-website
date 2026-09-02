@@ -29,6 +29,7 @@ import commentsRoutes from './routes/comments.routes';
 import likesRoutes from './routes/likes.routes';
 import csrfRoutes from './routes/csrf.routes';
 import servicesRoutes from './routes/services.routes';
+import addressRoutes from './routes/address.routes';
 import uploadRoutes from './routes/upload.routes'; // ✅ ДОБАВЛЯЕМ
 
 if (process.env.PAYMENT_PROVIDER !== 'mock' && process.env.PAYMENT_PROVIDER !== 'yookassa') {
@@ -181,6 +182,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/csrf-token', csrfRoutes);
 app.use('/api/services', servicesRoutes);
+app.use('/api/address', addressRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({
