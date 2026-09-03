@@ -24,6 +24,7 @@ interface Order {
   guestEmail?: string;
   total: number;
   status: string;
+  paymentStarted?: boolean;
   createdAt: string;
   crmOrderId?: string;
 }
@@ -157,6 +158,7 @@ export default function AdminOrdersPage() {
     
     const ids = Array.from(selectedOrders);
     const selectedOrdersData = orders.filter(o => ids.includes(o.id));
+    const hasStartedPayment = selectedOrdersData.some(o => o.paymentStarted);
     
     // Проверяем, есть ли заказы, которые нельзя удалить без пароля
     const hasNonDeletable = selectedOrdersData.some(o => 
@@ -169,7 +171,10 @@ export default function AdminOrdersPage() {
       setMassDeletePassword('');
     } else {
       // Можно удалить без пароля
-      if (!confirm(`Удалить ${selectedOrders.size} заказов? Это действие нельзя отменить.`)) return;
+      const paymentWarning = hasStartedPayment
+        ? ' Заказы с начатой оплатой будут пропущены.'
+        : '';
+      if (!confirm(`Удалить ${selectedOrders.size} заказов? Это действие нельзя отменить.${paymentWarning}`)) return;
       await executeMassDelete(null);
     }
   };
@@ -177,6 +182,7 @@ export default function AdminOrdersPage() {
   // ✅ ВЫПОЛНЕНИЕ МАССОВОГО УДАЛЕНИЯ
   const executeMassDelete = async (password: string | null) => {
     setIsMassAction(true);
+    setIsMassDeletingWithPassword(Boolean(password));
     try {
       const ids = Array.from(selectedOrders);
       const body: any = { ids };
@@ -193,14 +199,53 @@ export default function AdminOrdersPage() {
         body: JSON.stringify(body),
       });
       
+      const data = await response.json().catch(() => null) as {
+        error?: unknown;
+        message?: unknown;
+        skipped?: unknown;
+        reasons?: unknown;
+      } | null;
+
       if (response.ok) {
         setSelectedOrders(new Set());
         setShowPasswordModal(false);
         setMassDeletePassword('');
-        fetchOrders();
+        await fetchOrders();
+
+        const skippedDetails = Array.isArray(data?.skipped)
+          ? data.skipped
+          : Array.isArray(data?.reasons)
+            ? data.reasons
+            : [];
+        const skippedCount = Array.isArray(data?.skipped)
+          ? data.skipped.length
+          : typeof data?.skipped === 'number'
+            ? data.skipped
+            : skippedDetails.length;
+
+        if (skippedCount > 0) {
+          const reasons = skippedDetails.map((item) => {
+            if (typeof item === 'string') return item;
+            if (!item || typeof item !== 'object') return null;
+            const skipped = item as { id?: unknown; orderNumber?: unknown; reason?: unknown };
+            const orderLabel = typeof skipped.orderNumber === 'string'
+              ? `Заказ ${skipped.orderNumber}`
+              : typeof skipped.id === 'string'
+                ? `Заказ ${skipped.id}`
+                : 'Заказ';
+            return typeof skipped.reason === 'string'
+              ? `${orderLabel}: ${skipped.reason}`
+              : orderLabel;
+          }).filter((item): item is string => Boolean(item));
+          const summary = typeof data?.message === 'string'
+            ? data.message
+            : `Не удалено заказов: ${skippedCount}`;
+          alert([summary, ...reasons].join('\n'));
+        }
       } else {
-        const data = await response.json();
-        alert(data.error || 'Ошибка массового удаления');
+        alert(typeof data?.error === 'string' && data.error
+          ? data.error
+          : 'Ошибка массового удаления');
       }
     } catch (error) {
       alert('Ошибка массового удаления');
@@ -450,6 +495,11 @@ export default function AdminOrdersPage() {
               Вы пытаетесь удалить заказы в статусах, требующих подтверждения. 
               Введите пароль администратора для подтверждения.
             </p>
+            {orders.some(order => selectedOrders.has(order.id) && order.paymentStarted) && (
+              <p className="text-sm text-red-500 mb-4">
+                Заказы с начатой оплатой будут пропущены независимо от введённого пароля.
+              </p>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">

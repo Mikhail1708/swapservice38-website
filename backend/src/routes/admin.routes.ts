@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireAdmin, requireAdminOnly } from '../middleware/role.middleware';
+import { asyncHandler } from '../middleware/async.middleware';
 import { log } from '../config/logger';
 
 // Dashboard
@@ -75,12 +76,12 @@ router.get('/orders', getOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/status', updateOrderStatus);
 router.put('/orders/:id', updateOrder);
-router.delete('/orders/:id', deleteOrder);
-router.post('/orders/:id/delete-with-password', deleteOrderWithPassword);
+router.delete('/orders/:id', asyncHandler(deleteOrder));
+router.post('/orders/:id/delete-with-password', asyncHandler(deleteOrderWithPassword));
 router.post('/orders/:id/retry', retryOrderToCRM);
 router.post('/orders/:id/refund/retry', retryFailedRefund);
-router.post('/orders/mass-delete', massDeleteOrders);
-router.post('/orders/mass-delete-with-password', massDeleteOrdersWithPassword);
+router.post('/orders/mass-delete', asyncHandler(massDeleteOrders));
+router.post('/orders/mass-delete-with-password', asyncHandler(massDeleteOrdersWithPassword));
 
 // ===== USERS =====
 router.get('/users', getUsers);

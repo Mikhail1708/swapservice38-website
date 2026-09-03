@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { AdminLayout } from '@/components/admin/layout/AdminLayout'
+import { EmailVerificationBanner } from '@/components/email-verification-banner'
 
 // ============================================================
 // ПУБЛИЧНЫЕ СТРАНИЦЫ
@@ -73,6 +74,7 @@ function PageLayout({ children }: { children: React.ReactNode }) {
         Перейти к содержимому
       </a>
       <SiteHeader />
+      <EmailVerificationBanner />
       <main id="main-content" tabIndex={-1} className="min-h-screen">{children}</main>
       <SiteFooter />
     </>
@@ -108,6 +110,7 @@ function App() {
         {/* ===== АВТОРИЗАЦИЯ — БЕЗ ХЕДЕРА (полноэкранные) ===== */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyPage />} />
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/reset-password/new" element={<ResetPasswordNewPage />} />

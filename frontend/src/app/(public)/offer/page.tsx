@@ -26,7 +26,7 @@ export default function OfferPage() {
             Публичный договор оферты
           </h1>
           <p className="text-muted-foreground mt-4 max-w-2xl">
-            Настоящий документ является официальной офертой интернет-магазина SWAP SERVICE 38
+            Настоящий документ является официальной офертой интернет-магазина SWAPSERVICE 38
             и определяет условия заказа, оплаты, доставки и возврата товаров.
           </p>
           <p className="text-sm text-muted-foreground/60 mt-2">
@@ -165,23 +165,23 @@ export default function OfferPage() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between py-2 border-b border-border/50">
                 <span className="text-muted-foreground">Индивидуальный предприниматель</span>
-                <span className="text-foreground font-medium">ИП Иванов Иван Иванович</span>
+                <span className="text-foreground font-medium">ИП Батвенко Николай Сергеевич</span>
               </div>
               <div className="flex justify-between py-2 border-b border-border/50">
                 <span className="text-muted-foreground">ИНН</span>
-                <span className="text-foreground font-medium">381212345678</span>
+                <span className="text-foreground font-medium">381011379046</span>
               </div>
               <div className="flex justify-between py-2 border-b border-border/50">
                 <span className="text-muted-foreground">ОГРНИП</span>
-                <span className="text-foreground font-medium">321380000123456</span>
+                <span className="text-foreground font-medium">315385000059546</span>
               </div>
               <div className="flex justify-between py-2 border-b border-border/50">
                 <span className="text-muted-foreground">Расчётный счёт</span>
-                <span className="text-foreground font-medium">40802810123456789012</span>
+                <span className="text-foreground font-medium">40802810900000298096</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-muted-foreground">Банк</span>
-                <span className="text-foreground font-medium">Байкальский Банк ПАО Сбербанк</span>
+                <span className="text-foreground font-medium">АО «ТБанк»</span>
               </div>
             </div>
           </section>

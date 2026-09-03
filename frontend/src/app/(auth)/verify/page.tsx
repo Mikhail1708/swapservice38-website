@@ -1,257 +1,191 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from '@/lib/next-shims';
-import { Image, Link } from '@/lib/next-shims';
-import { 
-  Loader2, 
-  CheckCircle, 
-  XCircle, 
-  ArrowLeft, 
-  ArrowRight,
-  Mail,
-  AlertCircle
-} from 'lucide-react';
-import { fetchWithCsrf }  from '@/lib/csrf';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Mail, RotateCcw } from 'lucide-react';
+import { Image, Link, useRouter, useSearchParams } from '@/lib/next-shims';
+import { fetchWithCsrf } from '@/lib/csrf';
 import { readApiError, userMessageFromError } from '@/lib/api-error';
+import { useAuth } from '@/lib/hooks/useAuth';
+import { getSafeInternalRedirect } from '@/lib/safe-navigation';
 
-export default function VerifyPage() {
+const maskEmail = (email: string): string => {
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${'•'.repeat(Math.max(3, Math.min(6, local.length - visible.length)))}@${domain}`;
+};
+
+export default function VerifyEmailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const emailFromUrl = searchParams.get('email') || '';
-  
-  const [email, setEmail] = useState(emailFromUrl);
+  const { user, isLoading: authLoading, refresh } = useAuth();
+  const returnUrl = getSafeInternalRedirect(
+    searchParams.get('returnUrl') || searchParams.get('redirect'),
+    '/profile',
+  );
+  const [email, setEmail] = useState(searchParams.get('email')?.trim() || '');
   const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [success, setSuccess] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
-  const [resendSuccess, setResendSuccess] = useState(false);
-  const [countdown, setCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(searchParams.get('sent') === '1' ? 60 : 0);
 
-  // Таймер для редиректа после успеха
+  const verificationEmail = user?.email || email;
+  const maskedEmail = useMemo(() => maskEmail(verificationEmail), [verificationEmail]);
+
   useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => {
-        router.push('/login?verified=true');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, router]);
+    if (!authLoading && user?.isVerified) router.replace(returnUrl);
+  }, [authLoading, returnUrl, router, user?.isVerified]);
 
-  // Таймер для повторной отправки
   useEffect(() => {
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [countdown]);
+    if (countdown <= 0) return;
+    const timer = window.setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [countdown > 0]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!verificationEmail || code.length !== 6) return;
+    setSubmitting(true);
     setError('');
-    setLoading(true);
+    setNotice('');
 
     try {
       const response = await fetchWithCsrf('/api/auth/verify', {
         method: 'POST',
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email: verificationEmail, code }),
       });
-
       if (!response.ok) {
-        throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
+        throw new Error(await readApiError(response, 'Неверный или просроченный код. Запросите новый код.'));
       }
 
+      const hadSession = Boolean(user);
+      await refresh();
       setSuccess(true);
-    } catch (err: unknown) {
-      setError(err instanceof TypeError
-        ? userMessageFromError(err, 'Не удалось подтвердить email. Попробуйте позже.')
-        : err instanceof Error ? err.message : 'Не удалось подтвердить email. Попробуйте позже.');
+      window.setTimeout(() => {
+        const destination = hadSession
+          ? returnUrl
+          : `/login?verified=true&redirect=${encodeURIComponent(returnUrl)}`;
+        router.replace(destination);
+      }, 1600);
+    } catch (caught) {
+      setError(caught instanceof Error && !(caught instanceof TypeError)
+        ? caught.message
+        : userMessageFromError(caught, 'Не удалось подтвердить почту. Попробуйте ещё раз.'));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   const handleResend = async () => {
-    if (countdown > 0) return;
-    
-    setResendLoading(true);
+    if (!verificationEmail || countdown > 0) return;
+    setResending(true);
     setError('');
-    setResendSuccess(false);
-
+    setNotice('');
     try {
       const response = await fetchWithCsrf('/api/auth/resend-verification', {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: verificationEmail }),
       });
-
       if (!response.ok) {
-        throw new Error(await readApiError(response, 'Не удалось отправить письмо. Попробуйте позже.'));
+        throw new Error(await readApiError(response, 'Не удалось отправить код. Попробуйте позже.'));
       }
-
-      setResendSuccess(true);
       setCountdown(60);
-    } catch (err: unknown) {
-      setError(err instanceof TypeError
-        ? userMessageFromError(err, 'Не удалось отправить письмо. Попробуйте позже.')
-        : err instanceof Error ? err.message : 'Не удалось отправить письмо. Попробуйте позже.');
+      setNotice('Если подтверждение требуется, новый код отправлен на почту.');
+    } catch (caught) {
+      setError(caught instanceof Error && !(caught instanceof TypeError)
+        ? caught.message
+        : userMessageFromError(caught, 'Не удалось отправить код. Попробуйте позже.'));
     } finally {
-      setResendLoading(false);
+      setResending(false);
     }
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
-      {/* Фоновые эффекты */}
-      <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
-        <div className="absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]" />
-      </div>
+  if (authLoading) {
+    return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  }
 
-      <div className="relative z-10 w-full max-w-md px-6">
-        {/* Логотип */}
-        <div className="text-center mb-10">
-          <Link href="/" className="inline-block">
-            <Image 
-              src="/images/logo/logo.png" 
-              alt="SWAP SERVICE 38" 
-              width={220} 
-              height={55} 
-              className="h-12 w-auto brightness-0 invert mx-auto"
-            />
+  return (
+    <div className="min-h-screen bg-background px-5 py-24 flex items-center justify-center">
+      <div className="w-full max-w-lg">
+        <div className="mb-10 text-center">
+          <Link href="/" aria-label="На главную">
+            <Image src="/images/logo/logo.png" alt="SWAPSERVICE38" width={72} height={72} className="mx-auto h-16 w-16 object-contain brightness-0 invert" />
           </Link>
-          <p className="text-muted-foreground text-sm mt-3 font-light">
-            Подтверждение email
-          </p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Безопасность аккаунта</p>
         </div>
 
-        {success ? (
-          // Успешное подтверждение
-          <div className="bg-card border border-border rounded-2xl p-8 text-center">
-            <div className="flex justify-center mb-6">
-              <div className="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-                <CheckCircle className="w-10 h-10 text-green-500" />
+        <section className="rounded-lg border border-border bg-card p-6 sm:p-9" aria-live="polite">
+          {success ? (
+            <div className="py-5 text-center">
+              <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full border border-border bg-muted">
+                <Check className="h-6 w-6 text-foreground" />
               </div>
-            </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              Email подтверждён! ✅
-            </h1>
-            <p className="text-muted-foreground">
-              Спасибо за регистрацию! Теперь вы можете войти в аккаунт.
-            </p>
-            <p className="text-sm text-muted-foreground/70 mt-2">
-              Перенаправление на страницу входа...
-            </p>
-            <div className="mt-6 w-full bg-muted rounded-full h-1.5 overflow-hidden">
-              <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }} />
-            </div>
-            <Link
-              href="/login"
-              className="mt-6 inline-flex items-center gap-2 text-sm text-foreground hover:text-muted-foreground transition"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Перейти к входу
-            </Link>
-          </div>
-        ) : (
-          // Форма подтверждения
-          <>
-            {/* Информация о письме */}
-            <div className="bg-card border border-border rounded-lg p-4 mb-6 flex items-start gap-3">
-              <Mail className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm text-foreground">
-                  Код отправлен на <strong>{email || 'ваш email'}</strong>
-                </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
-                  Проверьте почту и введите 6-значный код подтверждения
-                </p>
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {resendSuccess && (
-              <div className="bg-green-500/10 border border-green-500/20 text-green-500 px-4 py-3 rounded-lg text-sm mb-6 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span>Код отправлен повторно!</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label htmlFor="code" className="block text-sm text-muted-foreground font-medium mb-2">
-                  Код подтверждения
-                </label>
-                <input
-                  id="code"
-                  type="text"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000"
-                  className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition text-center text-2xl font-bold tracking-[0.5em]"
-                  required
-                  maxLength={6}
-                  autoFocus
-                />
-                <p className="text-xs text-muted-foreground/50 mt-2 text-center">
-                  Введите 6-значный код из письма
-                </p>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || code.length < 6}
-                className="w-full py-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    Подтвердить email
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Повторная отправка */}
-            <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Не пришло письмо?{' '}
-                <button
-                  onClick={handleResend}
-                  disabled={resendLoading || countdown > 0}
-                  className="text-foreground hover:text-muted-foreground transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {resendLoading ? (
-                    <Loader2 className="w-4 h-4 inline animate-spin" />
-                  ) : countdown > 0 ? (
-                    `Отправить повторно (${countdown})`
-                  ) : (
-                    'Отправить повторно'
-                  )}
-                </button>
-              </p>
-              <p className="text-xs text-muted-foreground/50 mt-1">
-                Проверьте папку «Спам», если письмо не пришло
-              </p>
-            </div>
-
-            {/* Ссылка назад */}
-            <div className="text-center mt-6">
-              <Link href="/register" className="text-sm text-muted-foreground hover:text-foreground transition font-light inline-flex items-center gap-1">
-                <ArrowLeft className="w-4 h-4" />
-                Вернуться к регистрации
+              <h1 className="text-2xl font-bold uppercase tracking-[0.08em] text-foreground">Почта подтверждена</h1>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">Данные аккаунта обновлены. Сейчас вернём вас в интерфейс сайта.</p>
+              <Link href={user ? returnUrl : `/login?verified=true&redirect=${encodeURIComponent(returnUrl)}`} className="mt-7 inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                Продолжить <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-          </>
-        )}
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold uppercase tracking-[0.08em] text-foreground sm:text-3xl">Подтверждение почты</h1>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">Введите шестизначный код из письма SWAPSERVICE38.</p>
+
+              {verificationEmail ? (
+                <div className="mt-6 flex items-center gap-3 rounded-md border border-border bg-muted px-4 py-3">
+                  <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="text-sm text-foreground">{maskedEmail}</span>
+                </div>
+              ) : (
+                <div className="mt-6">
+                  <label htmlFor="verification-email" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Email</label>
+                  <input id="verification-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="name@example.com" className="w-full rounded-md border border-border bg-muted px-4 py-3 text-foreground outline-none transition focus:border-foreground/50" />
+                </div>
+              )}
+
+              {error && <div role="alert" className="mt-5 rounded-md border border-border bg-background px-4 py-3 text-sm leading-5 text-foreground">{error}</div>}
+              {notice && <div className="mt-5 rounded-md border border-border bg-muted px-4 py-3 text-sm leading-5 text-muted-foreground">{notice}</div>}
+
+              <form onSubmit={handleSubmit} className="mt-6">
+                <label htmlFor="verification-code" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Код из письма</label>
+                <input
+                  id="verification-code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                  placeholder="000000"
+                  aria-describedby="code-hint"
+                  className="w-full rounded-md border border-border bg-background px-4 py-4 text-center font-mono text-3xl font-bold tracking-[0.42em] text-foreground outline-none transition placeholder:text-muted-foreground/30 focus:border-foreground/60"
+                />
+                <p id="code-hint" className="mt-2 text-center text-xs text-muted-foreground">Можно вставить весь код из письма</p>
+
+                <button type="submit" disabled={submitting || code.length !== 6 || !verificationEmail} className="mt-6 flex w-full items-center justify-center gap-2 rounded-sm bg-primary px-5 py-4 text-xs font-bold uppercase tracking-[0.14em] text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                  {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Проверяем</> : <>Подтвердить почту <ArrowRight className="h-4 w-4" /></>}
+                </button>
+              </form>
+
+              <div className="mt-7 border-t border-border pt-6 text-center">
+                <button type="button" onClick={handleResend} disabled={resending || countdown > 0 || !verificationEmail} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">
+                  {resending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  {countdown > 0 ? `Отправить код повторно через ${countdown} с` : 'Отправить код повторно'}
+                </button>
+                <p className="mt-3 text-xs text-muted-foreground/70">Если письма нет, проверьте папку «Спам».</p>
+              </div>
+            </>
+          )}
+        </section>
+
+        <div className="mt-6 text-center">
+          <Link href={returnUrl} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Вернуться назад</Link>
+        </div>
       </div>
     </div>
   );

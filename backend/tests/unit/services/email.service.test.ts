@@ -13,7 +13,6 @@ jest.mock('nodemailer', () => ({
 jest.mock('bull', () => {
   return jest.fn().mockImplementation(() => ({
     add: jest.fn().mockImplementation((data) => {
-      // Сразу вызываем отправку
       const nodemailer = require('nodemailer');
       const transporter = nodemailer.createTransport({});
       return transporter.sendMail(data);
@@ -24,6 +23,14 @@ jest.mock('bull', () => {
 });
 
 describe('Email Service', () => {
+  beforeAll(() => {
+    process.env.PUBLIC_APP_URL = 'https://example.test';
+  });
+
+  afterAll(() => {
+    delete process.env.PUBLIC_APP_URL;
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

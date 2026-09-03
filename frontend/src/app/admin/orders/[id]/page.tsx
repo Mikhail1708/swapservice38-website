@@ -37,6 +37,7 @@ interface Order {
   }>;
   total: number;
   status: string;
+  paymentStarted?: boolean;
   deliveryMethod: string;
   deliveryAddress?: string;
   comment?: string;
@@ -170,6 +171,11 @@ export default function AdminOrderDetailsPage() {
   // ✅ УДАЛЕНИЕ С ПАРОЛЕМ ДЛЯ ЛЮБЫХ СТАТУСОВ
   const handleDeleteOrder = async () => {
     if (!order) return;
+
+    if (order.paymentStarted) {
+      alert('Нельзя удалить заказ после начала оплаты');
+      return;
+    }
     
     // Если заказ можно удалить без пароля (pending, crm_failed, paid)
     const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
@@ -200,8 +206,10 @@ export default function AdminOrderDetailsPage() {
         setDeletePassword('');
         router.push('/admin/orders?deleted=true');
       } else {
-        const data = await response.json();
-        alert(data.error || 'Ошибка удаления заказа');
+        const data = await response.json().catch(() => null) as { error?: unknown } | null;
+        alert(typeof data?.error === 'string' && data.error
+          ? data.error
+          : 'Ошибка удаления заказа');
       }
     } catch (error) {
       alert('Ошибка удаления заказа');
@@ -263,7 +271,7 @@ export default function AdminOrderDetailsPage() {
   const delivery = getDeliveryLabel(order.deliveryMethod);
   const latestPaymentAttempt = order.paymentAttempts?.[0];
   const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
-  const requiresPassword = !allowedWithoutPassword.includes(order.status);
+  const requiresPassword = !order.paymentStarted && !allowedWithoutPassword.includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -489,14 +497,18 @@ export default function AdminOrderDetailsPage() {
               <Trash2 className="w-4 h-4" />
               Опасная зона
             </h3>
-            {requiresPassword && (
+            {order.paymentStarted ? (
+              <p className="text-xs text-red-500 mb-3">
+                Нельзя удалить заказ после начала оплаты.
+              </p>
+            ) : requiresPassword && (
               <p className="text-xs text-muted-foreground mb-3">
                 ⚠️ Для удаления заказа в статусе <strong>{status.label}</strong> требуется ввод пароля.
               </p>
             )}
             <button
               onClick={handleDeleteOrder}
-              disabled={isDeleting}
+              disabled={isDeleting || order.paymentStarted}
               className="w-full px-4 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isDeleting ? (

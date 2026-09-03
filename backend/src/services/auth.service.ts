@@ -2,7 +2,12 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangeEmail } from './email.service';
+import {
+  sendPasswordChangedEmail,
+  sendPasswordChangeEmail,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from './email.service';
 import {
   checkPasswordResetCode,
   generatePasswordResetCode,
@@ -42,6 +47,12 @@ const getJwtSecret = (): string => {
 const jwtExpiresIn = (): SignOptions['expiresIn'] =>
   (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
 
+const notifyPasswordChanged = (email: string): void => {
+  void Promise.resolve()
+    .then(() => sendPasswordChangedEmail(email))
+    .catch(() => undefined);
+};
+
 // ============================================================
 // РЕГИСТРАЦИЯ
 // ============================================================
@@ -77,7 +88,7 @@ export const register = async (
   const code = generateEmailVerificationCode();
   await issueEmailVerificationCode(user.id, code);
 
-  await sendVerificationEmail(normalizedEmail, code);
+  await sendVerificationEmail(normalizedEmail, code, firstName);
 
   return { message: 'Код отправлен на почту' };
 };
@@ -113,7 +124,7 @@ export const resendVerification = async (email: string) => {
   const accountId = user && !user.isVerified ? user.id : `non-actionable:${normalizedEmail}`;
   const issue = await issueEmailVerificationCode(accountId, code);
   if (user && !user.isVerified && issue === 'issued') {
-    await sendVerificationEmail(user.email, code);
+    await sendVerificationEmail(user.email, code, user.firstName || undefined);
   }
   return { message: 'Если подтверждение требуется, письмо отправлено' };
 };
@@ -261,6 +272,7 @@ export const changePassword = async (
     where: { id: userId },
     data: { passwordHash },
   });
+  notifyPasswordChanged(user.email);
 
   return { message: 'Пароль успешно изменён' };
 };
@@ -310,10 +322,11 @@ export const confirmPasswordChange = async (
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({
+  const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: { passwordHash },
   });
+  if (updatedUser?.email) notifyPasswordChanged(updatedUser.email);
 
   return { message: 'Пароль успешно изменён' };
 };
@@ -373,6 +386,7 @@ export const confirmResetPassword = async (
     where: { id: user.id },
     data: { passwordHash },
   });
+  notifyPasswordChanged(user.email);
   return { message: 'Пароль успешно изменён' };
 };
 

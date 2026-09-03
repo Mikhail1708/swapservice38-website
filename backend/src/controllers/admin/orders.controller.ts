@@ -22,6 +22,82 @@ import { lockPaymentWorkflowOrder } from '../../services/paymentWorkflowLock.ser
 const prisma = new PrismaClient();
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
+const PAYMENT_STARTED_DELETE_MESSAGE = 'Нельзя удалить заказ после начала оплаты';
+
+const deletableOrderStatuses = (role?: string): string[] => (
+  role === 'admin'
+    ? ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled']
+    : ['pending', 'crm_failed']
+);
+
+type DeleteSkip = {
+  id: string;
+  code: 'NOT_FOUND' | 'STATUS_NOT_ALLOWED' | 'PAYMENT_STARTED' | 'STATE_CHANGED';
+  reason: string;
+};
+
+const deleteOrdersWithReasons = async (
+  rawIds: unknown[],
+  allowedStatuses: string[],
+): Promise<{ deleted: number; skipped: DeleteSkip[] }> => {
+  const ids = [...new Set(rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  const orders = await prisma.order.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      status: true,
+      paymentId: true,
+      paymentAttempts: { select: { id: true }, take: 1 },
+    },
+  });
+  const byId = new Map(orders.map((order) => [order.id, order]));
+  const skipped: DeleteSkip[] = [];
+  const eligible: string[] = [];
+
+  for (const id of ids) {
+    const order = byId.get(id);
+    if (!order) {
+      skipped.push({ id, code: 'NOT_FOUND', reason: 'Заказ не найден' });
+    } else if (!allowedStatuses.includes(order.status)) {
+      skipped.push({ id, code: 'STATUS_NOT_ALLOWED', reason: `Нельзя удалить заказ в статусе ${order.status}` });
+    } else if (order.paymentId || order.paymentAttempts.length > 0) {
+      skipped.push({ id, code: 'PAYMENT_STARTED', reason: PAYMENT_STARTED_DELETE_MESSAGE });
+    } else {
+      eligible.push(id);
+    }
+  }
+
+  if (eligible.length === 0) return { deleted: 0, skipped };
+
+  const result = await prisma.order.deleteMany({
+    where: {
+      id: { in: eligible },
+      status: { in: allowedStatuses },
+      ...noStartedPaymentWhere,
+    },
+  });
+
+  if (result.count !== eligible.length) {
+    const remaining = await prisma.order.findMany({
+      where: { id: { in: eligible } },
+      select: {
+        id: true,
+        paymentId: true,
+        paymentAttempts: { select: { id: true }, take: 1 },
+      },
+    });
+    const remainingById = new Map(remaining.map((order) => [order.id, order]));
+    for (const id of eligible) {
+      const order = remainingById.get(id);
+      skipped.push(order && (order.paymentId || order.paymentAttempts.length > 0)
+        ? { id, code: 'PAYMENT_STARTED', reason: PAYMENT_STARTED_DELETE_MESSAGE }
+        : { id, code: 'STATE_CHANGED', reason: 'Состояние заказа изменилось, удаление не выполнено' });
+    }
+  }
+
+  return { deleted: result.count, skipped };
+};
+
 // ============================================================
 // GET /api/admin/orders — список заказов
 // ============================================================
@@ -59,6 +135,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limitNum,
+        include: { _count: { select: { paymentAttempts: true } } },
       }),
       prisma.order.count({ where }),
     ]);
@@ -66,13 +143,17 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
     log.debug(`✅ Найдено ${orders.length} заказов, всего ${total}`);
 
     res.json({
-      orders: orders.map((o: any) => ({
-        ...o,
-        guestName: o.guestName || [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || 'Гость',
-        guestPhone: o.guestPhone || o.customerPhone,
-        guestEmail: o.guestEmail || o.customerEmail,
-        customerName: [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || o.guestName || 'Гость',
-      })),
+      orders: orders.map((o: any) => {
+        const { _count, ...order } = o;
+        return {
+          ...order,
+          paymentStarted: Boolean(o.paymentId || _count.paymentAttempts > 0),
+          guestName: o.guestName || [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || 'Гость',
+          guestPhone: o.guestPhone || o.customerPhone,
+          guestEmail: o.guestEmail || o.customerEmail,
+          customerName: [o.customerLastName, o.customerFirstName, o.customerMiddleName].filter(Boolean).join(' ') || o.guestName || 'Гость',
+        };
+      }),
       total,
       page: pageNum,
       limit: limitNum,
@@ -102,6 +183,7 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
     res.json({
       order: {
         ...order,
+        paymentStarted: Boolean(order.paymentId || order.paymentAttempts.length > 0),
         guestName: order.guestName || [order.customerLastName, order.customerFirstName, order.customerMiddleName].filter(Boolean).join(' '),
         guestPhone: order.guestPhone || order.customerPhone,
         guestEmail: order.guestEmail || order.customerEmail,
@@ -234,13 +316,7 @@ export const deleteOrder = async (req: Request, res: Response): Promise<void> =>
 
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
     const user = (req as any).user;
-    let allowedStatuses: string[];
-    
-    if (user?.role === 'admin') {
-      allowedStatuses = ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled'];
-    } else {
-      allowedStatuses = ['pending', 'crm_failed'];
-    }
+    const allowedStatuses = deletableOrderStatuses(user?.role);
 
     if (!allowedStatuses.includes(order.status)) {
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);
@@ -250,7 +326,7 @@ export const deleteOrder = async (req: Request, res: Response): Promise<void> =>
       where: { id, ...noStartedPaymentWhere },
     });
     if (deleted.count !== 1) {
-      throw new AppError('Нельзя удалить заказ после начала оплаты', 409);
+      throw new AppError(PAYMENT_STARTED_DELETE_MESSAGE, 409);
     }
 
     log.info(`🗑️ Заказ ${id} удалён`);
@@ -278,33 +354,20 @@ export const massDeleteOrders = async (req: Request, res: Response): Promise<voi
     
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
     const user = (req as any).user;
-    let allowedStatuses: string[];
+    const allowedStatuses = deletableOrderStatuses(user?.role);
+    const result = await deleteOrdersWithReasons(ids, allowedStatuses);
     
-    if (user?.role === 'admin') {
-      allowedStatuses = ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled'];
-    } else {
-      allowedStatuses = ['pending', 'crm_failed'];
-    }
-    
-    const result = await prisma.order.deleteMany({
-      where: {
-        id: { in: ids },
-        status: {
-          in: allowedStatuses,
-        },
-        ...noStartedPaymentWhere,
-      },
-    });
-    
-    log.info(`🗑️ Удалено ${result.count} заказов`);
+    log.info(`🗑️ Удалено ${result.deleted} заказов, пропущено ${result.skipped.length}`);
     res.json({ 
-      success: true, 
-      deleted: result.count,
-      message: `Удалено ${result.count} заказов` 
+      success: result.skipped.length === 0,
+      deleted: result.deleted,
+      skipped: result.skipped,
+      message: `Удалено ${result.deleted} заказов${result.skipped.length ? `, пропущено ${result.skipped.length}` : ''}`,
     });
   } catch (error: any) {
+    if (error instanceof AppError) throw error;
     log.error('❌ Mass delete orders error', { error: error.message });
-    res.status(500).json({ error: 'Ошибка массового удаления' });
+    throw new AppError('Ошибка массового удаления', 500);
   }
 };
 
@@ -346,35 +409,23 @@ export const massDeleteOrdersWithPassword = async (req: Request, res: Response):
     }
 
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    let allowedStatuses: string[];
-    if (user.role === 'admin') {
-      allowedStatuses = ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled'];
-    } else {
-      allowedStatuses = ['pending', 'crm_failed'];
-    }
+    const allowedStatuses = deletableOrderStatuses(user.role);
     
     log.info(`🗑️ Массовое удаление заказов с паролем: ${ids.length} шт. (роль: ${user.role})`);
     
-    const result = await prisma.order.deleteMany({
-      where: {
-        id: { in: ids },
-        status: {
-          in: allowedStatuses,
-        },
-        ...noStartedPaymentWhere,
-      },
-    });
+    const result = await deleteOrdersWithReasons(ids, allowedStatuses);
     
-    log.info(`🗑️ Удалено ${result.count} заказов пользователем ${userId}`);
+    log.info(`🗑️ Удалено ${result.deleted} заказов пользователем ${userId}, пропущено ${result.skipped.length}`);
     res.json({ 
-      success: true, 
-      deleted: result.count,
-      message: `Удалено ${result.count} заказов` 
+      success: result.skipped.length === 0,
+      deleted: result.deleted,
+      skipped: result.skipped,
+      message: `Удалено ${result.deleted} заказов${result.skipped.length ? `, пропущено ${result.skipped.length}` : ''}`,
     });
   } catch (error: any) {
     if (error instanceof AppError) throw error;
     log.error('❌ Mass delete orders with password error', { error: error.message });
-    res.status(500).json({ error: 'Ошибка массового удаления' });
+    throw new AppError('Ошибка массового удаления', 500);
   }
 };
 
@@ -424,12 +475,7 @@ export const deleteOrderWithPassword = async (req: Request, res: Response): Prom
     }
 
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    let allowedStatuses: string[];
-    if (user.role === 'admin') {
-      allowedStatuses = ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled'];
-    } else {
-      allowedStatuses = ['pending', 'crm_failed'];
-    }
+    const allowedStatuses = deletableOrderStatuses(user.role);
 
     if (!allowedStatuses.includes(order.status)) {
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);
@@ -439,7 +485,7 @@ export const deleteOrderWithPassword = async (req: Request, res: Response): Prom
       where: { id, ...noStartedPaymentWhere },
     });
     if (deleted.count !== 1) {
-      throw new AppError('Нельзя удалить заказ после начала оплаты', 409);
+      throw new AppError(PAYMENT_STARTED_DELETE_MESSAGE, 409);
     }
 
     log.info(`🗑️ Заказ ${id} удалён пользователем ${userId}`);

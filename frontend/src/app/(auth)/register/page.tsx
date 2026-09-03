@@ -20,11 +20,6 @@ export default function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [emailForVerification, setEmailForVerification] = useState('');
-  const [resendStatus, setResendStatus] = useState<'idle' | 'loading' | 'sent'>('idle');
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
@@ -59,9 +54,7 @@ export default function RegisterPage() {
         throw new Error(await readApiError(response, 'Не удалось зарегистрироваться. Попробуйте позже.'));
       }
 
-      setEmailForVerification(email);
-      setCodeSent(true);
-      setSuccess(true);
+      router.push(`/verify-email?email=${encodeURIComponent(email.trim())}&returnUrl=${encodeURIComponent(redirectTo)}&sent=1`);
     } catch (err: unknown) {
       setError(err instanceof TypeError
         ? userMessageFromError(err, 'Не удалось зарегистрироваться. Попробуйте позже.')
@@ -70,144 +63,6 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
-      const response = await fetchWithCsrf('/api/auth/verify', {
-        method: 'POST',
-        body: JSON.stringify({ email: emailForVerification, code: verificationCode }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Неверный или просроченный код.'));
-      }
-
-      router.push(`/login?verified=true&redirect=${encodeURIComponent(redirectTo)}`);
-    } catch (err: unknown) {
-      setError(err instanceof TypeError
-        ? userMessageFromError(err, 'Не удалось подтвердить email. Попробуйте позже.')
-        : err instanceof Error ? err.message : 'Не удалось подтвердить email. Попробуйте позже.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setError('');
-    setResendStatus('loading');
-    try {
-      const response = await fetchWithCsrf('/api/auth/resend-verification', {
-        method: 'POST',
-        body: JSON.stringify({ email: emailForVerification }),
-      });
-      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось отправить письмо. Попробуйте позже.'));
-      setResendStatus('sent');
-    } catch (err: unknown) {
-      setError(err instanceof TypeError
-        ? userMessageFromError(err, 'Не удалось отправить письмо. Попробуйте позже.')
-        : err instanceof Error ? err.message : 'Не удалось отправить письмо. Попробуйте позже.');
-      setResendStatus('idle');
-    }
-  };
-
-  // Если код отправлен — показываем форму подтверждения
-  if (codeSent) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
-        <div className="absolute inset-0">
-          <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
-          <div className="absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]" />
-        </div>
-
-        <div className="relative z-10 w-full max-w-md px-6">
-          <div className="text-center mb-10">
-            <Link href="/" className="inline-block">
-              <Image 
-                src="/images/logo/logo.png" 
-                alt="SWAP SERVICE 38" 
-                width={220} 
-                height={55} 
-                className="h-12 w-auto brightness-0 invert mx-auto"
-              />
-            </Link>
-            <p className="text-muted-foreground text-sm mt-3 font-light">
-              Подтверждение email
-            </p>
-          </div>
-
-          <div className="bg-card border border-border rounded-lg p-6 mb-6">
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-              <span>Код отправлен на <strong className="text-foreground">{emailForVerification}</strong></span>
-            </div>
-            <p className="text-xs text-muted-foreground/70 mt-2">
-              Проверьте почту и введите 6-значный код подтверждения
-            </p>
-          </div>
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm mb-6">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleVerify} className="space-y-5">
-            <div>
-              <label htmlFor="code" className="block text-sm text-muted-foreground font-medium mb-2">
-                Код подтверждения
-              </label>
-              <input
-                id="code"
-                type="text"
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="000000"
-                className="w-full px-5 py-3.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/50 focus:ring-1 focus:ring-foreground/20 transition text-center text-2xl font-bold tracking-[0.5em]"
-                required
-                maxLength={6}
-              />
-              <p className="text-xs text-muted-foreground/50 mt-2 text-center">
-                Введите код из письма
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || verificationCode.length < 6}
-              className="w-full py-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? 'Подтверждение...' : 'Подтвердить email'}
-              {!loading && <ArrowRight className="w-4 h-4" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={resendStatus !== 'idle'}
-              className="w-full py-2 text-sm text-muted-foreground underline disabled:opacity-50"
-            >
-              {resendStatus === 'loading' ? 'Отправляем…' : resendStatus === 'sent' ? 'Письмо для подтверждения отправлено' : 'Отправить письмо повторно'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setCodeSent(false);
-                setSuccess(false);
-              }}
-              className="w-full py-3 text-sm text-muted-foreground hover:text-foreground transition"
-            >
-              ← Вернуться назад
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden pt-20">
