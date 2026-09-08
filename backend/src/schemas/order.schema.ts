@@ -1,6 +1,7 @@
 // backend/src/schemas/order.schema.ts
 import { z } from 'zod';
 import { phoneSchema, emailSchema, nameSchema, addressSchema } from './common.schema';
+import { personalDataAcceptanceSchema, offerAcceptanceSchema } from '../services/consent.service';
 
 // ============================================================
 // ТОВАР В ЗАКАЗЕ
@@ -28,6 +29,8 @@ export const clientSchema = z.object({
 // СОЗДАНИЕ ЗАКАЗА
 // ============================================================
 export const createOrderSchema = z.object({
+  personalDataConsent: personalDataAcceptanceSchema.optional(),
+  offerAcceptance: offerAcceptanceSchema,
   client: clientSchema,
   deliveryMethod: z.enum(['pickup', 'courier', 'post']).default('courier'),
   deliveryAddress: addressSchema.optional(),

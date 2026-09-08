@@ -1,5 +1,7 @@
 // frontend/app/(public)/contacts/page.tsx
 import { Image, Link } from '@/lib/next-shims';
+import { SITE_CONTACTS } from '@/lib/site-contacts';
+import { useState } from 'react';
 import { 
   Phone, 
   Mail, 
@@ -21,6 +23,7 @@ import {
 
 
 export default function ContactsPage() {
+  const [mapEnabled, setMapEnabled] = useState(false);
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom">
@@ -183,7 +186,7 @@ export default function ContactsPage() {
           {/* Правая колонка — карта */}
           <div className="lg:col-span-2">
             <div className="bg-card border border-border rounded-lg overflow-hidden h-[600px] relative">
-              <iframe
+              {mapEnabled ? <iframe
                 src="https://yandex.ru/map-widget/v1/?um=constructor%3A8f2f6a0b8a1d4a0a9c9e8f7d6c5b4a3a&amp;source=constructor&amp;pt=104.216053,52.363528&amp;zoom=17"
                 width="100%"
                 height="100%"
@@ -192,7 +195,10 @@ export default function ContactsPage() {
                 allowFullScreen
                 loading="lazy"
                 title="Карта SWAP SERVICE 38"
-              />
+              /> : <div className="h-full flex flex-col items-center justify-center gap-5 p-8 text-center">
+                <p className="max-w-md text-sm leading-6 text-muted-foreground">Карта предоставляется Яндексом. После загрузки сервис получит технические данные соединения и может использовать свои cookie. Карту можно не загружать: наш адрес — г. Иркутск, ул. Новаторов, 36.</p>
+                <button type="button" onClick={() => setMapEnabled(true)} className="rounded-sm bg-foreground px-6 py-3 text-sm font-semibold text-background">Загрузить карту Яндекс</button>
+              </div>}
             </div>
 
             {/* Дополнительная информация — ТЕПЕРЬ В ОДНОМ СТИЛЕ */}
@@ -246,7 +252,7 @@ export default function ContactsPage() {
               Написать
             </a>
             <a
-              href="https://web.telegram.org/k/#@swap38"
+              href={SITE_CONTACTS.telegram}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-sm border border-border px-6 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-foreground transition-colors hover:bg-card"

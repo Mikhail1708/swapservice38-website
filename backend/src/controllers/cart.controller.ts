@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../config/logger';
+import { productAvailability } from '../utils/productAvailability';
 
 const prisma = new PrismaClient();
 
@@ -58,9 +59,8 @@ const getProductFromCRM = async (productId: string): Promise<CRMProduct | null> 
       price: (data as any).price || (data as any).retail_price || 0,
       retail_price: (data as any).retail_price || (data as any).price || 0,
       sku: (data as any).sku || (data as any).article || null,
-      stock: (data as any).stock || 0,
+      ...productAvailability(data as any),
       images: (data as any).images || [],
-      inStock: (data as any).inStock !== undefined ? (data as any).inStock : ((data as any).stock || 0) > 0,
     };
   } catch (error) {
     return null;

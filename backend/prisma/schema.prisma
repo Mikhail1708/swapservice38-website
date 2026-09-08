@@ -38,6 +38,23 @@ model User {
   articles Article[]
   comments Comment[]
   likes    Like[]
+  consents UserConsent[]
+}
+
+// Explicit evidence; legacy accounts are not backfilled.
+model UserConsent {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String
+  scopeVersion    String
+  documentVersion String
+  privacyVersion  String
+  acceptedAt      DateTime @default(now())
+  source          String
+  orders          Order[]
+
+  @@unique([userId, type, scopeVersion])
 }
 
 // ============================================================
@@ -161,6 +178,10 @@ model Order {
   id                 String           @id @default(cuid())
   userId             String
   user               User             @relation(fields: [userId], references: [id])
+  offerVersion       String?
+  offerAcceptedAt    DateTime?
+  personalDataConsentId String?
+  personalDataConsent UserConsent? @relation(fields: [personalDataConsentId], references: [id], onDelete: SetNull)
   guestName          String?
   guestMiddleName    String?
   guestEmail         String?

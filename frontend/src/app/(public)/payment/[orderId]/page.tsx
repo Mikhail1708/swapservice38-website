@@ -7,6 +7,7 @@ import { Loader2, CreditCard, ArrowLeft, AlertCircle, CheckCircle } from 'lucide
 import { getSafePaymentRedirect } from '@/lib/safe-navigation';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { readApiError, userMessageFromError } from '@/lib/api-error';
+import { OrderTransferNotice } from '@/components/OrderTransferNotice';
 
 export default function PaymentPage() {
   const params = useParams();
@@ -212,6 +213,7 @@ export default function PaymentPage() {
             </div>
           </div>
 
+          <OrderTransferNotice deliveryMethod={order?.deliveryMethod || ''} />
           <button
             onClick={handlePay}
             disabled={!paymentUrl || isCreatingPayment}

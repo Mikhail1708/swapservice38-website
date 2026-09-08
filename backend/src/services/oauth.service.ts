@@ -3,6 +3,7 @@ import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { mergeCart } from '../controllers/auth.controller';
 import { generateToken } from './auth.service';
+import { issuePendingOAuth } from './pendingOAuth.service';
 
 const prisma = new PrismaClient();
 
@@ -43,7 +44,7 @@ export function getYandexAuthUrl(state: string): string {
   return `${YANDEX_CONFIG.authUrl}?${params.toString()}`;
 }
 
-export async function handleYandexCallback(code: string, guestId?: string) {
+export async function handleYandexCallback(code: string, guestId?: string, redirect?: string) {
   try {
     // 1. Получаем токен доступа
     const tokenResponse = await axios.post(
@@ -70,7 +71,7 @@ export async function handleYandexCallback(code: string, guestId?: string) {
     });
 
     const { id: yandexId, default_email: email, first_name, last_name } = userInfo.data;
-    if (!email) {
+    if (typeof email !== 'string' || typeof yandexId !== 'string' || !yandexId) {
       throw new Error('Не удалось получить email от Яндекса');
     }
     const normalizedEmail = email.trim().toLowerCase();
@@ -83,16 +84,9 @@ export async function handleYandexCallback(code: string, guestId?: string) {
         where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
       });
       if (emailOwner) throw new Error('OAUTH_LINK_REQUIRED');
-      user = await prisma.user.create({
-        data: {
-          email: normalizedEmail,
-          firstName: first_name || '',
-          lastName: last_name || '',
-          yandexId,
-          isVerified: true,
-          role: 'user',
-        },
-      });
+      const pendingToken = await issuePendingOAuth({ provider: 'yandex', providerId: yandexId,
+        email: normalizedEmail, firstName: first_name || '', lastName: last_name || '' }, guestId, redirect);
+      return { pendingToken };
     }
     if (user.blockedAt) throw new Error('OAUTH_ACCOUNT_UNAVAILABLE');
 
@@ -123,7 +117,7 @@ export function getMaxAuthUrl(state: string): string {
   return `${MAX_CONFIG.authUrl}?${params.toString()}`;
 }
 
-export async function handleMaxCallback(code: string, guestId?: string) {
+export async function handleMaxCallback(code: string, guestId?: string, redirect?: string) {
   try {
     // 1. Получаем токен доступа
     const tokenResponse = await axios.post(
@@ -162,7 +156,7 @@ export async function handleMaxCallback(code: string, guestId?: string) {
       email_verified,
     } = userInfo.data;
     
-    if (!email || email_verified !== true) {
+    if (typeof email !== 'string' || email_verified !== true || typeof maxId !== 'string' || !maxId) {
       throw new Error('Не удалось получить email от MAX');
     }
     const normalizedEmail = email.trim().toLowerCase();
@@ -176,17 +170,9 @@ export async function handleMaxCallback(code: string, guestId?: string) {
         where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
       });
       if (emailOwner) throw new Error('OAUTH_LINK_REQUIRED');
-      user = await prisma.user.create({
-        data: {
-          email: normalizedEmail,
-          firstName: firstName || '',
-          lastName: lastName || '',
-          phone: phone || null,
-          maxId,
-          isVerified: true,
-          role: 'user',
-        },
-      });
+      const pendingToken = await issuePendingOAuth({ provider: 'max', providerId: maxId,
+        email: normalizedEmail, firstName: firstName || '', lastName: lastName || '', phone: phone || null }, guestId, redirect);
+      return { pendingToken };
     } else {
       // Обновляем данные
       user = await prisma.user.update({

@@ -457,22 +457,89 @@ export const changeUserPassword = async (req: Request, res: Response) => {
 export const massDeleteUsers = async (req: Request, res: Response) => {
   try {
     const { ids } = req.body;
-    
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'Не указаны ID пользователей' });
     }
 
-    const result = await prisma.user.deleteMany({
-      where: {
-        id: { in: ids },
-      },
-    });
+    const uniqueIds = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+    const currentUserId = (req as any).user?.id as string | undefined;
+    const skipped: Array<{ id: string; code: string; reason: string }> = [];
 
-    console.log(`🗑️ Массовое удаление пользователей: ${result.count} шт.`);
+    const users = await prisma.user.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    const existingIds = new Set(users.map((user) => user.id));
+    const eligibleIds: string[] = [];
+
+    for (const id of uniqueIds) {
+      if (!existingIds.has(id)) {
+        skipped.push({ id, code: 'NOT_FOUND', reason: 'Пользователь не найден' });
+      } else if (id === currentUserId) {
+        skipped.push({ id, code: 'SELF_DELETE', reason: 'Нельзя удалить самого себя' });
+      } else {
+        eligibleIds.push(id);
+      }
+    }
+
+    if (eligibleIds.length > 0) {
+      const protectedUsers = await prisma.order.findMany({
+        where: {
+          userId: { in: eligibleIds },
+          OR: [
+            { paymentId: { not: null } },
+            { paymentAttempts: { some: {} } },
+          ],
+        },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      const protectedIds = new Set(protectedUsers.map((order) => order.userId).filter((id): id is string => Boolean(id)));
+      for (const id of [...eligibleIds]) {
+        if (protectedIds.has(id)) {
+          skipped.push({
+            id,
+            code: 'PAYMENT_STARTED',
+            reason: 'Нельзя удалить пользователя с заказами, по которым начата оплата',
+          });
+        }
+      }
+      for (let i = eligibleIds.length - 1; i >= 0; i -= 1) {
+        if (protectedIds.has(eligibleIds[i])) eligibleIds.splice(i, 1);
+      }
+    }
+
+    let deleted = 0;
+    if (eligibleIds.length > 0) {
+      const articles = await prisma.article.findMany({
+        where: { authorId: { in: eligibleIds } },
+        select: { id: true },
+      });
+      const articleIds = articles.map((article) => article.id);
+
+      await prisma.$transaction([
+        prisma.articleTagRelation.deleteMany({ where: { articleId: { in: articleIds } } }),
+        prisma.articleImage.deleteMany({ where: { articleId: { in: articleIds } } }),
+        prisma.like.deleteMany({ where: { articleId: { in: articleIds } } }),
+        prisma.comment.deleteMany({ where: { articleId: { in: articleIds } } }),
+        prisma.article.deleteMany({ where: { authorId: { in: eligibleIds } } }),
+        prisma.session.deleteMany({ where: { userId: { in: eligibleIds } } }),
+        prisma.cart.deleteMany({ where: { userId: { in: eligibleIds } } }),
+        prisma.like.deleteMany({ where: { userId: { in: eligibleIds } } }),
+        prisma.comment.deleteMany({ where: { authorId: { in: eligibleIds } } }),
+        prisma.order.deleteMany({ where: { userId: { in: eligibleIds } } }),
+      ]);
+
+      const result = await prisma.user.deleteMany({ where: { id: { in: eligibleIds } } });
+      deleted = result.count;
+    }
+
+    console.log(`🗑️ Массовое удаление пользователей: удалено ${deleted}, пропущено ${skipped.length}`);
     res.json({
-      success: true,
-      deleted: result.count,
-      message: `Удалено ${result.count} пользователей`,
+      success: skipped.length === 0,
+      deleted,
+      skipped,
+      message: `Удалено ${deleted} пользователей${skipped.length ? `, пропущено ${skipped.length}` : ''}`,
     });
   } catch (error) {
     console.error('❌ Mass delete users error:', error);

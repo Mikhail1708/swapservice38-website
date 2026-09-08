@@ -1,8 +1,15 @@
 // backend/tests/unit/controllers/auth.controller.test.ts
 import { Request, Response } from 'express';
+import express from 'express';
+import supertest from 'supertest';
+import { validate } from '../../../src/middleware/validate.middleware';
+import { registerSchema } from '../../../src/schemas/auth.schema';
+import { personalDataAcceptance } from '../../helpers/consent';
 import { PrismaClient } from '@prisma/client';
 import {
   registerController,
+  consentStatusController,
+  consentDocumentsController,
   loginController,
   logoutController,
   meController,
@@ -39,6 +46,7 @@ const mockResponse = (): Partial<Response> => {
   res.json = jest.fn().mockReturnValue(res);
   res.cookie = jest.fn().mockReturnValue(res);
   res.clearCookie = jest.fn().mockReturnValue(res);
+  res.setHeader = jest.fn().mockReturnValue(res);
   return res;
 };
 
@@ -47,7 +55,50 @@ describe('Auth Controller', () => {
     jest.clearAllMocks();
   });
 
+  describe('consent status', () => {
+    it.each([null, { id: 'consent-1', userId: 'user-1', acceptedAt: new Date() }])('returns minimal authenticated status for %p', async (stored) => {
+      prisma.userConsent.findUnique.mockResolvedValue(stored);
+      const res = mockResponse();
+      await consentStatusController(mockRequest({}, { id: 'user-1' }) as Request, res as Response);
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+      expect(res.json).toHaveBeenCalledWith({ documents: expect.any(Object), requiresPersonalDataConsent: !stored });
+    });
+    it('denies anonymous status access and does not read any consent', async () => {
+      const res = mockResponse();
+      await consentStatusController(mockRequest() as Request, res as Response);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(prisma.userConsent.findUnique).not.toHaveBeenCalled();
+    });
+    it('fails closed with a safe response when consent storage is unavailable', async () => {
+      prisma.userConsent.findUnique.mockRejectedValueOnce(new Error('internal connection details'));
+      const res = mockResponse();
+      await consentStatusController(mockRequest({}, { id: 'user-1' }) as Request, res as Response);
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith({ code: 'CONSENT_UNAVAILABLE', error: expect.not.stringContaining('internal') });
+    });
+    it('provides public document versions without personal consent records', () => {
+      const res = mockResponse();
+      consentDocumentsController(mockRequest() as Request, res as Response);
+      expect(res.json).toHaveBeenCalledWith({ documents: expect.objectContaining({ personalDataVersion: '2026-09-07', offerVersion: '2026-09-07' }) });
+      expect(prisma.userConsent.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
   describe('registerController', () => {
+    it('HTTP registration rejects missing consent before the service and forwards explicit evidence', async () => {
+      const app = express();
+      app.use(express.json());
+      app.post('/api/auth/register', validate(registerSchema), registerController);
+      const body = { email: 'test@example.com', password: 'Test1234!' };
+      const denied = await supertest(app).post('/api/auth/register').send(body);
+      expect(denied.status).toBe(400);
+      expect(denied.body.details).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'personalDataConsent' })]));
+      expect(authService.register).not.toHaveBeenCalled();
+      (authService.register as jest.Mock).mockResolvedValue({ message: 'Код отправлен на почту' });
+      const accepted = await supertest(app).post('/api/auth/register').send({ ...body, personalDataConsent: personalDataAcceptance });
+      expect(accepted.status).toBe(201);
+      expect(authService.register).toHaveBeenCalledWith(body.email, body.password, undefined, undefined, undefined, personalDataAcceptance);
+    });
     it('should register user and return 201', async () => {
       const req = mockRequest({
         email: 'test@example.com',

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { ConsentCheckbox } from '@/components/ConsentCheckbox';
+import { useConsentStatus, personalDataAcceptance } from '@/lib/hooks/useConsentStatus';
 import { Image, Link, useRouter, useSearchParams } from '@/lib/next-shims';
 import { Eye, EyeOff, ArrowRight, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { OAuthButtons } from '@/components/OAuthButtons';
@@ -10,6 +12,8 @@ import { readApiError, userMessageFromError } from '@/lib/api-error';
 import { getSafeInternalRedirect } from '@/lib/safe-navigation';
 
 export default function RegisterPage() {
+  const [pdAccepted, setPdAccepted] = useState(false);
+  const { documents, error: consentError } = useConsentStatus();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -31,6 +35,10 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!pdAccepted || !documents) {
+      setError('Дайте согласие на обработку персональных данных после ознакомления с документами');
+      return;
+    }
 
     if (!isPasswordValid) {
       setError('Пароль не соответствует требованиям');
@@ -47,14 +55,15 @@ export default function RegisterPage() {
     try {
       const response = await fetchWithCsrf('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password, firstName, lastName, middleName }), // ✅ ДОБАВЛЕНО middleName
+        body: JSON.stringify({ email, password, firstName, lastName, middleName, personalDataConsent: personalDataAcceptance(documents) }),
       });
 
       if (!response.ok) {
         throw new Error(await readApiError(response, 'Не удалось зарегистрироваться. Попробуйте позже.'));
       }
 
-      router.push(`/verify-email?email=${encodeURIComponent(email.trim())}&returnUrl=${encodeURIComponent(redirectTo)}&sent=1`);
+      const result = await response.json();
+      router.push(`/verify-email?token=${encodeURIComponent(result.verificationToken)}&returnUrl=${encodeURIComponent(redirectTo)}&sent=1`);
     } catch (err: unknown) {
       setError(err instanceof TypeError
         ? userMessageFromError(err, 'Не удалось зарегистрироваться. Попробуйте позже.')
@@ -227,9 +236,11 @@ export default function RegisterPage() {
             )}
           </div>
 
+          <ConsentCheckbox variant="personalData" checked={pdAccepted} onChange={setPdAccepted} disabled={loading} />
+          {consentError && <p role="alert" className="text-sm text-muted-foreground">{consentError}</p>}
           <button
             type="submit"
-            disabled={loading || !isPasswordValid || !passwordsMatch}
+            disabled={loading || !isPasswordValid || !passwordsMatch || !pdAccepted || !documents}
             className="w-full py-4 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
           >
             {loading ? 'Регистрация...' : 'Зарегистрироваться'}

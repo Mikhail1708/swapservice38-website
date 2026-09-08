@@ -3,6 +3,7 @@ import { register, login, verifyEmail, changePassword, requestPasswordChange, co
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { personalDataAcceptance } from '../../helpers/consent';
 
 // ✅ МОКИ ДОЛЖНЫ БЫТЬ ПЕРВЫМИ!
 jest.mock('@prisma/client', () => {
@@ -40,6 +41,20 @@ describe('Auth Service', () => {
   // REGISTER
   // ============================================================
   describe('register', () => {
+    it.each([undefined, false, { ...personalDataAcceptance, accepted: false }])('rejects missing/false consent before creating a user: %p', async (acceptance) => {
+      await expect(register('test@example.com', 'Test1234!', undefined, undefined, undefined, acceptance))
+        .rejects.toMatchObject({ statusCode: 400, code: 'PERSONAL_DATA_CONSENT_REQUIRED' });
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('does not enqueue verification when the atomic nested user/consent write fails', async () => {
+      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.user.create as jest.Mock).mockRejectedValueOnce(new Error('write failed'));
+      const mail = require('../../../src/services/email.service');
+      await expect(register('test@example.com', 'Test1234!', undefined, undefined, undefined, personalDataAcceptance)).rejects.toThrow('write failed');
+      expect(mockPrisma.user.create).toHaveBeenCalledTimes(1);
+      expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+    });
     const registerData = {
       email: 'test@example.com',
       password: 'Test1234!',
@@ -67,11 +82,16 @@ describe('Auth Service', () => {
         registerData.email,
         registerData.password,
         registerData.firstName,
-        registerData.lastName
+        registerData.lastName, undefined, personalDataAcceptance
       );
 
-      expect(result).toEqual({ message: 'Код отправлен на почту' });
-      expect(mockPrisma.user.create).toHaveBeenCalled();
+      expect(result).toEqual({ message: 'Код отправлен на почту', verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ consents: { create: expect.objectContaining({
+          type: 'personal_data', scopeVersion: 'account-orders-v1',
+          documentVersion: personalDataAcceptance.documentVersion, source: 'registration',
+        }) } }),
+      }));
     });
 
     it('should throw error if user already exists', async () => {
@@ -82,7 +102,7 @@ describe('Auth Service', () => {
       });
 
       await expect(
-        register(registerData.email, registerData.password)
+        register(registerData.email, registerData.password, undefined, undefined, undefined, personalDataAcceptance)
       ).rejects.toThrow('Пользователь с таким email уже зарегистрирован');
 
       expect(mockPrisma.user.create).not.toHaveBeenCalled();

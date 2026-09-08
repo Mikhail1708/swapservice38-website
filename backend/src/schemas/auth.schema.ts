@@ -1,11 +1,13 @@
 // backend/src/schemas/auth.schema.ts
 import { z } from 'zod';
 import { emailSchema, passwordSchema, optionalNameSchema, codeSchema } from './common.schema';
+import { personalDataAcceptanceSchema } from '../services/consent.service';
 
 // ============================================================
 // РЕГИСТРАЦИЯ
 // ============================================================
 export const registerSchema = z.object({
+  personalDataConsent: personalDataAcceptanceSchema,
   email: emailSchema,
   password: passwordSchema,
   firstName: optionalNameSchema,
@@ -25,9 +27,16 @@ export const loginSchema = z.object({
 // ПОДТВЕРЖДЕНИЕ EMAIL
 // ============================================================
 export const verifySchema = z.object({
-  email: emailSchema,
+  email: emailSchema.optional(),
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
   code: codeSchema,
-});
+}).refine((data) => Boolean(data.email) !== Boolean(data.token), { message: 'Укажите ссылку подтверждения или email' });
+
+export const verificationContextSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
+export const resendVerificationSchema = z.object({
+  email: emailSchema.optional(),
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
+}).refine((data) => Boolean(data.email) !== Boolean(data.token), { message: 'Укажите ссылку подтверждения или email' });
 
 // ============================================================
 // СМЕНА ПАРОЛЯ (АВТОРИЗОВАННЫЙ)

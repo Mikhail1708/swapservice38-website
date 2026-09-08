@@ -16,10 +16,30 @@ import {
   confirmResetPassword,
   generateToken,
   resendVerification,
+  getVerificationContext,
 } from '../services/auth.service';
+import { AppError } from '../middleware/error.middleware';
+import { CONSENT_DOCUMENTS, findPersonalDataConsent } from '../services/consent.service';
 import { log } from '../config/logger';
 
 const prisma = new PrismaClient();
+
+export const consentDocumentsController = (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ documents: CONSENT_DOCUMENTS });
+};
+
+export const consentStatusController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: 'Необходимо авторизоваться' });
+  try {
+    const consent = await findPersonalDataConsent(prisma, userId);
+    res.json({ documents: CONSENT_DOCUMENTS, requiresPersonalDataConsent: !consent });
+  } catch {
+    res.status(503).json({ code: 'CONSENT_UNAVAILABLE', error: 'Не удалось проверить согласия. Попробуйте позже' });
+  }
+};
 
 const AUTH_BUSINESS_ERRORS = [
   'Неверный или просроченный код',
@@ -31,6 +51,10 @@ const AUTH_BUSINESS_ERRORS = [
 ];
 
 const sendAuthError = (res: Response, error: unknown, fallback: string) => {
+  if (error instanceof AppError) {
+    if (error.statusCode === 429 && error.details?.retryAfter) res.setHeader('Retry-After', String(error.details.retryAfter));
+    return res.status(error.statusCode).json({ code: error.code, error: error.message, details: error.details });
+  }
   const message = error instanceof Error ? error.message : '';
   const isPasswordValidation = /парол|латин|заглавн|строчн|цифр|символ/i.test(message);
   if (AUTH_BUSINESS_ERRORS.includes(message) || isPasswordValidation) {
@@ -135,7 +159,8 @@ export const loginController = async (req: Request, res: Response) => {
     res.json({ user });
   } catch (error: any) {
     if (error.code === 'EMAIL_UNVERIFIED') {
-      return res.status(403).json({ code: 'EMAIL_UNVERIFIED', error: 'Email не подтверждён' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(403).json({ code: 'EMAIL_UNVERIFIED', error: 'Email не подтверждён', verificationToken: error.verificationToken });
     }
     res.status(401).json({ code: 'INVALID_CREDENTIALS', error: 'Неверный email или пароль' });
   }
@@ -147,13 +172,15 @@ export const loginController = async (req: Request, res: Response) => {
 export const registerController = async (req: Request, res: Response) => {
   try {
     const { email, password, firstName, lastName, middleName } = req.body; // ✅ middleName
-    const result = await register(email, password, firstName, lastName, middleName);
+    const result = await register(email, password, firstName, lastName, middleName, req.body.personalDataConsent);
+    res.setHeader('Cache-Control', 'no-store');
     res.status(201).json(result);
   } catch (error: any) {
     if (error?.message === 'Пользователь с таким email уже зарегистрирован') {
       return res.status(409).json({ code: 'EMAIL_ALREADY_REGISTERED', error: error.message });
     }
-    log.error('Registration failed', { error: error instanceof Error ? error.message : 'unknown' });
+    if (error instanceof AppError) return sendAuthError(res, error, 'Не удалось зарегистрироваться');
+    log.error('Registration failed', { errorName: error instanceof Error ? error.name : 'unknown' });
     res.status(503).json({ code: 'REGISTRATION_UNAVAILABLE', error: 'Регистрация временно недоступна. Попробуйте позже' });
   }
 };
@@ -163,8 +190,9 @@ export const registerController = async (req: Request, res: Response) => {
 // ============================================================
 export const verifyController = async (req: Request, res: Response) => {
   try {
-    const { email, code } = req.body;
-    const result = await verifyEmail(email, code);
+    const { email, code, token } = req.body;
+    if ((!email && !token) || (email && token)) return res.status(400).json({ error: 'Укажите ссылку подтверждения или email' });
+    const result = await verifyEmail(email, code, token);
     res.json(result);
   } catch (error: any) {
     sendAuthError(res, error, 'Не удалось подтвердить email. Попробуйте позже');
@@ -176,12 +204,21 @@ export const verifyController = async (req: Request, res: Response) => {
 // ============================================================
 export const resendVerificationController = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
-    const result = await resendVerification(email);
+    const { email, token } = req.body;
+    if ((!email && !token) || (email && token)) return res.status(400).json({ error: 'Укажите ссылку подтверждения или email' });
+    const result = await resendVerification(email, token);
     res.json(result);
   } catch (error: any) {
-    log.error('Verification resend failed', { error: error.message });
-    res.status(503).json({ code: 'VERIFICATION_UNAVAILABLE', error: 'Не удалось отправить письмо. Попробуйте позже' });
+    sendAuthError(res, error, 'Не удалось отправить письмо. Попробуйте позже');
+  }
+};
+
+export const verificationContextController = async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    res.json(await getVerificationContext(req.body.token));
+  } catch (error) {
+    sendAuthError(res, error, 'Не удалось проверить ссылку. Попробуйте позже');
   }
 };
 

@@ -1,5 +1,7 @@
 // frontend/backend/src/controllers/order.controller.ts (САЙТ, порт 5001)
 import { Request, Response } from 'express';
+import { ensurePersonalDataConsent, offerEvidence } from '../services/consent.service';
+import { AppError } from '../middleware/error.middleware';
 import { PrismaClient } from '@prisma/client';
 import {
   sendOrderCreatedToCustomer,
@@ -146,6 +148,9 @@ export const createOrderController = async (req: Request, res: Response): Promis
     }
 
 
+    const offer = offerEvidence(req.body.offerAcceptance);
+    await ensurePersonalDataConsent(prisma, userId, req.body.personalDataConsent, false);
+
     if (guestId) {
       await mergeCart(userId, guestId);
       res.clearCookie('guestId', {
@@ -197,9 +202,12 @@ export const createOrderController = async (req: Request, res: Response): Promis
             );
           }
 
+          const consent = await ensurePersonalDataConsent(tx, userId, req.body.personalDataConsent, true);
           const order = await tx.order.create({
             data: {
               userId: userId,
+              ...offer,
+              personalDataConsentId: consent!.id,
               customerFirstName: String(client.firstName).trim(),
               customerLastName: String(client.lastName).trim(),
               customerMiddleName: client.middleName ? String(client.middleName).trim() : null,
@@ -254,6 +262,13 @@ export const createOrderController = async (req: Request, res: Response): Promis
         customerName,
         customerEmail: localOrder.customerEmail || '',
         total: localOrder.total,
+        documentNumber: localOrder.orderNumber || localOrder.id,
+        createdAt: localOrder.createdAt,
+        items: emailItems,
+        deliveryMethod: localOrder.deliveryMethod,
+        deliveryAddress: localOrder.deliveryAddress || '',
+        deliveryProvider: localOrder.deliveryProvider || '',
+        offerVersion: localOrder.offerVersion,
       }),
       sendOrderNotificationToManager({
         orderId: localOrder.id,
@@ -285,6 +300,10 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
   } catch (error: any) {
     log.error('Order creation failed', { error: error instanceof Error ? error.message : 'unknown' });
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ code: error.code, error: error.message });
+      return;
+    }
     if (error instanceof CheckoutInventoryError) {
       res.status(error.status).json({
         error: error.message,

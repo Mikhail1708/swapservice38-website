@@ -24,6 +24,9 @@ import {
   Building2
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { ConsentCheckbox } from '@/components/ConsentCheckbox';
+import { OrderTransferNotice } from '@/components/OrderTransferNotice';
+import { useConsentStatus, personalDataAcceptance } from '@/lib/hooks/useConsentStatus';
 import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { getSafePaymentRedirect } from '@/lib/safe-navigation';
@@ -48,6 +51,10 @@ interface CartItem {
 export default function CartPage() {
   const { cart, isLoading, loadError, updateQuantity, clearCart, refetch: refetchCart } = useCart();
   const { user } = useAuth();
+  const { documents, requiresPersonalDataConsent, error: consentError, reload: reloadConsent } = useConsentStatus(user?.id);
+  const [pdAccepted, setPdAccepted] = useState(false);
+  const [offerAccepted, setOfferAccepted] = useState(false);
+  useEffect(() => { setPdAccepted(false); setOfferAccepted(false); }, [user?.id]);
   const router = useRouter();
 
   const [formData, setFormData] = useState({
@@ -209,6 +216,10 @@ export default function CartPage() {
       router.push('/login?redirect=/cart');
       return;
     }
+    if (!documents || !offerAccepted || (requiresPersonalDataConsent && !pdAccepted)) {
+      setOrderError('Подтвердите необходимые согласия перед оформлением заказа');
+      return;
+    }
     if (!validateForm()) return;
     if (items.length === 0) {
       setOrderError('Корзина пуста');
@@ -231,6 +242,8 @@ export default function CartPage() {
 
       // ✅ ЗАПРОС С ОТЧЕСТВОМ
       const orderData = {
+        offerAcceptance: { accepted: true, documentVersion: documents.offerVersion },
+        ...(requiresPersonalDataConsent ? { personalDataConsent: personalDataAcceptance(documents) } : {}),
         client: {
           firstName: formData.firstName.trim(),
           lastName: formData.lastName.trim(),
@@ -260,6 +273,9 @@ export default function CartPage() {
         throw new Error(await readApiError(response, 'Не удалось создать заказ. Попробуйте ещё раз позже.'));
       }
       const data = await response.json();
+      setPdAccepted(false);
+      setOfferAccepted(false);
+      void reloadConsent();
 
       if (data.paymentUrl) {
         const safePaymentUrl = getSafePaymentRedirect(data.paymentUrl);
@@ -684,7 +700,7 @@ export default function CartPage() {
                             ? 'border-red-500/50 focus:ring-red-500/20'
                             : 'border-border focus:border-foreground/30 focus:ring-foreground/10'
                         }`}
-                        placeholder="Например: СДЭК, Почта России, DHL"
+                        placeholder="Например: СДЭК, Почта России, ПЭК"
                       />
                       {formErrors.tcName && touched.tcName && (
                         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -707,7 +723,7 @@ export default function CartPage() {
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/10"
                     >
                       <option value="phone">Телефонный звонок</option>
-                      <option value="whatsapp">WhatsApp</option>
+                      <option value="MAX">MAX</option>
                       <option value="telegram">Telegram</option>
                       <option value="email">Email</option>
                     </select>
@@ -737,7 +753,7 @@ export default function CartPage() {
                       onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground/10 transition resize-none"
                       rows={2}
-                      placeholder="Telegram, WhatsApp, Viber, звонок..."
+                      placeholder="Telegram, MAX, Почта, звонок..."
                     />
                   </div>}
 
@@ -749,7 +765,7 @@ export default function CartPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Доставка:</span>
-                      <span className="font-medium text-muted-foreground/60">Рассчитывается</span>
+                      <span className="font-medium text-muted-foreground/60">{deliveryMethod === 'pickup' ? 'Самовывоз' : 'Отдельно от стоимости товаров'}</span>
                     </div>
                     <div className="flex justify-between text-lg font-bold mt-2 pt-2 border-t border-border">
                       <span className="text-foreground">Итого:</span>
@@ -757,9 +773,15 @@ export default function CartPage() {
                     </div>
                   </div>
 
+                  <OrderTransferNotice deliveryMethod={deliveryMethod} />
+                  <div className="space-y-4 mt-5">
+                    {requiresPersonalDataConsent && <ConsentCheckbox variant="personalData" checked={pdAccepted} onChange={setPdAccepted} disabled={isCheckingOut || !documents} />}
+                    <ConsentCheckbox variant="offer" checked={offerAccepted} onChange={setOfferAccepted} disabled={isCheckingOut || !documents} />
+                    {consentError && <p role="alert" className="text-sm text-muted-foreground">{consentError}</p>}
+                  </div>
                   <button
                     type="submit"
-                    disabled={isCheckingOut}
+                    disabled={isCheckingOut || !documents || !offerAccepted || (requiresPersonalDataConsent && !pdAccepted)}
                     className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-medium hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
                   >
                     {isCheckingOut ? (
@@ -775,12 +797,6 @@ export default function CartPage() {
                     )}
                   </button>
 
-                  <p className="text-xs text-muted-foreground/50 text-center mt-3">
-                    Нажимая кнопку, вы соглашаетесь с{' '}
-                    <Link href="/offer" className="text-muted-foreground hover:text-foreground underline transition">
-                      условиями оферты
-                    </Link>
-                  </p>
                 </form>
               )}
             </div>

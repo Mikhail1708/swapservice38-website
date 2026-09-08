@@ -80,19 +80,25 @@ app.set('trust proxy', trustProxyHops);
 // ============================================================
 // 1. CORS
 // ============================================================
-const allowedOrigins = [
+const configuredCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = new Set([
   'http://localhost:3001',
   'http://localhost:3000',
   'http://127.0.0.1:3001',
   'http://127.0.0.1:3000',
   'https://swapservice38.ru',
   'https://www.swapservice38.ru',
-];
+  ...configuredCorsOrigins,
+]);
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || origin.includes('localhost')) {
+    if (allowedOrigins.has(origin)) {
       callback(null, true);
     } else {
       log.warn('CORS blocked', { origin });
@@ -134,16 +140,16 @@ app.use(cookieParser());
 // RAW body для webhook
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // ============================================================
 // 3. ЛОГИРОВАНИЕ ЗАПРОСОВ
 // ============================================================
 app.use((req, res, next) => {
-  log.info(`${req.method} ${req.url}`, {
+  log.info(`${req.method} ${req.path}`, {
     method: req.method,
-    url: req.url,
+    url: req.path,
     ip: req.ip,
     userAgent: req.get('user-agent'),
   });

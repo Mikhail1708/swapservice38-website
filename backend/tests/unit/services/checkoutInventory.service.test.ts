@@ -68,6 +68,13 @@ describe('checkout inventory validation', () => {
     ])).resolves.toMatchObject({ items: [{ quantity: 3, maxStock: 3 }] });
   });
 
+  it.each([{ stock: 0 }, { stock: 8, availableStock: 0 }])('rejects zero free stock at checkout: %j', async availability => {
+    mockedAxios.get.mockResolvedValue({ data: crmProduct(availability) });
+    await expect(validateCheckoutItems([
+      { productId: '1', name: 'A', price: 1, quantity: 1 },
+    ])).rejects.toMatchObject({ status: 409, code: 'INSUFFICIENT_STOCK', details: { availableStock: 0 } });
+  });
+
   it('accepts a zero CRM price', async () => {
     mockedAxios.get.mockResolvedValue({ data: crmProduct({ price: 0, stock: 1 }) });
     const result = await validateCheckoutItems([
@@ -132,5 +139,12 @@ describe('checkout inventory validation', () => {
     await expect(assertCheckoutSnapshotStillCurrent([
       { productId: '1', name: 'A', price: 100, quantity: 2 },
     ], 200)).resolves.toBeUndefined();
+  });
+
+  it.each([{ stock: 0 }, { stock: 10, availableStock: 0 }])('blocks a previously created order from starting payment when now on order: %j', async availability => {
+    mockedAxios.get.mockResolvedValue({ data: crmProduct({ price: 100, ...availability }) });
+    await expect(assertCheckoutSnapshotStillCurrent([
+      { productId: '1', name: 'Дроп Панара 4 дюйма', price: 100, quantity: 1 },
+    ], 100)).rejects.toMatchObject({ status: 409, code: 'INSUFFICIENT_STOCK' });
   });
 });

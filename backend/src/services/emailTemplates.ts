@@ -5,6 +5,11 @@ const BRAND = {
   email: 'swapservice38@yandex.ru',
   address: 'Иркутск, ул. Новаторов, 36',
 };
+// Legal contact is distinct from the product manager in the shared brand footer.
+const SELLER = {
+  name: 'ИП Батвенко Николай Сергеевич', inn: '381011379046', ogrnip: '315385000059546',
+  phone: '+7 (924) 533-08-80', tel: 'tel:+79245330880', email: 'swap38@mail.ru',
+};
 
 const escapeHtml = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -226,7 +231,7 @@ export type OrderEmailData = {
   comment: string;
 };
 
-const orderItemsTable = (data: OrderEmailData): string => `
+const orderItemsTable = (data: Pick<OrderEmailData, 'items' | 'total'>, showUnitPrice = false): string => `
   ${sectionTitle('Товары в заказе')}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="product-table" style="width:100%;table-layout:fixed;background:#161618;border:1px solid #303035;border-radius:8px;overflow:hidden;font-size:14px;">
     <tr style="background:#1c1c1f;">
@@ -238,7 +243,7 @@ const orderItemsTable = (data: OrderEmailData): string => `
     </tr>
     ${data.items.map((item, index) => `<tr>
       <td class="product-index" valign="top" style="padding:18px 12px;color:#f2f2f3;border-top:1px solid #303035;">${index + 1}</td>
-      <td class="product-name" valign="top" style="padding:18px 12px;color:#f2f2f3;border-top:1px solid #303035;line-height:21px;word-break:break-word;">${escapeHtml(item.name)}</td>
+      <td class="product-name" valign="top" style="padding:18px 12px;color:#f2f2f3;border-top:1px solid #303035;line-height:21px;word-break:break-word;">${escapeHtml(item.name)}${showUnitPrice ? `<div style="font-size:11px;color:#9a9a9f;">Цена за шт.: ${escapeHtml(formatMoney(item.price))}</div>` : ''}</td>
       <td class="product-quantity" align="center" valign="top" style="padding:18px 12px;color:#f2f2f3;border-top:1px solid #303035;">${escapeHtml(item.quantity)}</td>
       <td class="hide-mobile" align="right" valign="top" style="padding:18px 12px;color:#f2f2f3;border-top:1px solid #303035;white-space:nowrap;">${escapeHtml(formatMoney(item.price))}</td>
       <td class="product-total" align="right" valign="top" style="padding:18px 12px;color:#ffffff;font-weight:700;border-top:1px solid #303035;white-space:nowrap;">${escapeHtml(formatMoney(item.total))}</td>
@@ -250,9 +255,11 @@ const orderItemsTable = (data: OrderEmailData): string => `
     </tr>
   </table>`;
 
-export const verificationEmailTemplate = (code: string, customerName?: string) => ({
+const verificationLink = (token?: string) => publicUrl(`/verify-email${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+
+export const verificationEmailTemplate = (code: string, customerName?: string, token?: string) => ({
   subject: 'Подтвердите email — SWAPSERVICE38',
-  text: `Подтверждение почты\n\nКод: ${code}\n\nВведите код на странице подтверждения. Код действует 10 минут.\n\nЕсли вы не создавали аккаунт SWAPSERVICE38, проигнорируйте письмо.`,
+  text: `Подтверждение почты\n\nКод: ${code}\n\nВведите код на странице подтверждения. Код действует 10 минут.\n${verificationLink(token)}\n\nЕсли вы не создавали аккаунт SWAPSERVICE38, проигнорируйте письмо.`,
   html: emailShell({
     title: 'Подтверждение почты',
     preheader: `Код ${code} для подтверждения email в SWAPSERVICE38`,
@@ -261,7 +268,7 @@ export const verificationEmailTemplate = (code: string, customerName?: string) =
       ${greeting(customerName, `Для завершения регистрации подтвердите электронную почту в ${BRAND.siteName}.`)}
       ${codeCard(code, '10 минут')}
       <div style="margin-top:18px;font-size:13px;line-height:21px;color:#9a9a9f;">Введите этот код на странице подтверждения. Никому не сообщайте его, включая сотрудников SWAPSERVICE38.</div>
-      ${fullWidthCta('Подтвердить почту', publicUrl('/verify-email'))}
+      ${fullWidthCta('Подтвердить почту', verificationLink(token))}
       <div style="margin-top:22px;padding-top:20px;border-top:1px solid #2a2a2e;font-size:12px;line-height:20px;color:#8d8d93;">Если вы не создавали аккаунт SWAPSERVICE38, просто проигнорируйте это письмо.</div>`,
   }),
 });
@@ -313,6 +320,8 @@ export const passwordChangedEmailTemplate = () => ({
   }),
 });
 
+const stockTransferNotice = 'Для товара в наличии: после подтверждения полной оплаты заказ будет передан в службу доставки либо подготовлен к самовывозу не позднее 3 рабочих дней, если иной конкретный срок не согласован до оплаты. Отсчёт начинается на следующий день после подтверждения оплаты; рабочие дни — по производственному календарю РФ для пятидневной рабочей недели. Это срок отправки или готовности к выдаче, не срок перевозки. Срок перевозки определяется условиями службы доставки и маршрутом. О готовности к самовывозу мы уведомим отдельно; получение — в согласованное время.';
+
 export const orderConfirmationCustomerTemplate = (data: OrderEmailData, formattedPhone: string) => {
   const status = statusPresentation('paid');
   const clientRows: DetailRow[] = [
@@ -323,14 +332,14 @@ export const orderConfirmationCustomerTemplate = (data: OrderEmailData, formatte
   ];
   return {
     subject: `Заказ #${data.documentNumber} подтверждён — SWAPSERVICE38`,
-    text: `Заказ #${data.documentNumber} подтверждён. Сумма: ${formatMoney(data.total)}. Статус: оплачен, ожидает подтверждения.`,
+    text: `Заказ #${data.documentNumber} подтверждён. Сумма: ${formatMoney(data.total)}. Статус: оплачен, ожидает подтверждения.\n\n${stockTransferNotice}`,
     html: emailShell({
       title: 'Заказ подтверждён',
       preheader: `Заказ #${data.documentNumber} подтверждён`,
       icon: '✓',
       date: formatDate(),
       content: `
-        ${greeting(data.customerName, `Спасибо за заказ в ${BRAND.name}.<br>Мы уже начали его обрабатывать.`)}
+        ${greeting(data.customerName, `Спасибо за заказ в ${BRAND.name}.<br>Мы уже начали его обрабатывать.<br>${stockTransferNotice}`)}
         ${summaryTable([
           { label: 'Номер заказа', value: `#${data.documentNumber}` },
           { label: 'Сумма', value: formatMoney(data.total) },
@@ -373,24 +382,55 @@ export const orderNotificationManagerTemplate = (data: OrderEmailData, formatted
   };
 };
 
-export const orderCreatedCustomerTemplate = (data: { orderId: string; customerName: string; total: number }) => {
-  const shortNumber = data.orderId.slice(0, 8);
+export type OrderCreatedEmailData = {
+  orderId: string; customerName: string; total: number;
+  documentNumber?: string; createdAt?: Date | string; items?: OrderEmailData['items'];
+  deliveryMethod?: string; deliveryAddress?: string; deliveryProvider?: string; offerVersion?: string;
+};
+export const orderCreatedCustomerTemplate = (data: OrderCreatedEmailData) => {
+  const shortNumber = data.documentNumber || data.orderId;
+  const date = data.createdAt && Number.isFinite(new Date(data.createdAt).getTime())
+    ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Irkutsk' }).format(new Date(data.createdAt)) + ' (Иркутск, UTC+8)' : undefined;
+  const delivery = ({ pickup: 'Самовывоз', courier: 'Доставка курьером', post: 'Транспортная компания / почта' } as Record<string, string>)[data.deliveryMethod || ''] || 'Уточните способ получения у продавца';
+  const rows: DetailRow[] = [
+    { label: 'Получатель', value: data.customerName }, { label: 'Получение', value: delivery },
+    ...(data.deliveryAddress ? [{ label: 'Адрес получения', value: data.deliveryAddress }] : []),
+    ...(data.deliveryProvider ? [{ label: 'Перевозчик', value: data.deliveryProvider }] : []),
+  ];
+  const offerLink = new URL('/offer', publicAppUrl()).toString();
+  const orderLink = new URL('/profile/orders', publicAppUrl()).toString();
+  const nextSteps = `Заказ получен: договор заключён на условиях принятой оферты. Оплата ещё не подтверждена. ${stockTransferNotice} При доставке до предоплаты необходимо согласовать её стоимость и конкретный срок передачи заказа получателю. Сумма ниже — стоимость товаров; отсутствие суммы доставки не означает бесплатную доставку. После согласования необходимых условий откройте заказ для оплаты. Это письмо не является кассовым чеком.`;
+  const returnNote = 'Отказ от товара: до передачи — в любое время; после передачи качественного товара — в течение 7 дней, а при отсутствии письменной информации о возврате при доставке — 3 месяцев. Условия сохранности товара и исключение для исключительно индивидуального изделия указаны в оферте. Для отмены или возврата, в том числе дистанционного, свяжитесь с продавцом; он сообщит актуальный адрес возврата. Ограничение автоматической отмены в кабинете 12 часами не ограничивает ваши законные права.';
   return {
     subject: `Заказ #${shortNumber} сформирован — SWAPSERVICE38`,
-    text: `Заказ #${shortNumber} сформирован. Сумма: ${formatMoney(data.total)}. Статус: ожидает оплаты.`,
+    text: [`Заказ #${shortNumber} сформирован.`, date ? `Дата заказа: ${date}` : '', nextSteps,
+      ...(data.items || []).map((item, index) => `${index + 1}. ${item.name} — ${item.quantity} шт. × ${formatMoney(item.price)} = ${formatMoney(item.total)}`),
+      `Итого товары: ${formatMoney(data.total)}. Статус: ожидает оплаты.`, ...rows.map(row => `${row.label}: ${row.value}`),
+      `Заказ: ${orderLink}`, `Публичная оферта${data.offerVersion ? `, редакция ${data.offerVersion}` : ''}: ${offerLink}`, returnNote,
+      `${SELLER.name}; ИНН ${SELLER.inn}; ОГРНИП ${SELLER.ogrnip}; ${BRAND.address}.`,
+      `Продавец/оператор: ${SELLER.phone}, ${SELLER.email}. Менеджер по товарам: ${BRAND.phone}.`,
+    ].filter(Boolean).join('\n\n'),
     html: emailShell({
       title: 'Заказ сформирован',
       preheader: `Заказ #${shortNumber} принят и ожидает оплаты`,
       icon: '✓',
-      date: formatDate(),
+      date,
       content: `
-        ${greeting(data.customerName, 'Ваш заказ принят и сохранён. После оплаты мы подтвердим его и начнём обработку.')}
+        ${greeting(data.customerName, nextSteps)}
         ${summaryTable([
           { label: 'Номер заказа', value: `#${shortNumber}` },
           { label: 'Сумма', value: formatMoney(data.total) },
           { label: 'Статус', value: 'Сформирован', description: 'Ожидает оплаты' },
         ])}
-        ${fullWidthCta('Перейти к заказу', publicUrl('/profile/orders'))}`,
+        ${data.items?.length ? orderItemsTable({ items: data.items, total: data.total }, true) : ''}
+        ${sectionTitle('Получение заказа')}${clientCard(rows)}
+        ${fullWidthCta('Перейти к заказу', publicUrl('/profile/orders'))}
+        <div style="margin-top:24px;font-size:13px;line-height:21px;color:#b8b8bd;">
+          <p><a href="${publicUrl('/offer')}" style="color:#ffffff;text-decoration:underline;">Публичная оферта</a>${data.offerVersion ? ` — принятая редакция ${escapeHtml(data.offerVersion)}` : ''}.</p>
+          <p>${returnNote}</p>
+          <p>${SELLER.name}<br>ИНН ${SELLER.inn} · ОГРНИП ${SELLER.ogrnip}<br>${BRAND.address}</p>
+          <p>Продавец/оператор: <a href="${SELLER.tel}" style="color:#ffffff;">${SELLER.phone}</a>, <a href="mailto:${SELLER.email}" style="color:#ffffff;">${SELLER.email}</a>.<br>Менеджер по товарам: ${BRAND.phone}.</p>
+        </div>`,
     }),
   };
 };

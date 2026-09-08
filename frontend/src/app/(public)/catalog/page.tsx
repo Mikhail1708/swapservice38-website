@@ -19,6 +19,8 @@ import { useCart }  from '@/lib/context/CartContext';
 import { AddToCartButton } from '@/components/AddToCartButton';
 import { fetchWithCsrf }  from '@/lib/csrf';
 import { userMessageFromError } from '@/lib/api-error';
+import { productAvailability } from '@/lib/product-availability';
+import { matchesProductCategory } from '@/lib/product-category';
 
 interface Product {
   id: string | number;
@@ -30,6 +32,7 @@ interface Product {
   categories?: Array<{ id: number; name: string }>;
   inStock: boolean;
   stock?: number;
+  availableStock?: number;
   images: string[];
   image_url?: string;
   sku: string;
@@ -44,19 +47,21 @@ const ITEMS_PER_PAGE = 16;
 // ============================================================
 const fetchProducts = async (): Promise<Product[]> => {
   const timestamp = Date.now();
-  const response = await fetchWithCsrf(`/api/products?limit=999&_t=${timestamp}`, {
-    method: 'GET',
-    cache: 'no-store',
-  });
-  
-  if (!response.ok) {
-    throw new Error('Ошибка загрузки товаров');
-  }
-  
-  const data = await response.json();
-  const items = data.items || data || [];
-  
-  return items;
+  const products = new Map<string, Product>();
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const response = await fetchWithCsrf(`/api/products?limit=999&page=${page}&_t=${timestamp}`, {
+      method: 'GET', cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Ошибка загрузки товаров');
+    const data = await response.json();
+    const items: Product[] = data.items || data || [];
+    for (const product of items) products.set(String(product.id), product);
+    totalPages = Number.isSafeInteger(data.totalPages) ? Math.max(1, data.totalPages) : 1;
+    page += 1;
+  } while (page <= totalPages);
+  return [...products.values()];
 };
 
 const fetchCategories = async (): Promise<string[]> => {
@@ -120,6 +125,7 @@ const normalizeProduct = (item: any): Product => {
     categories: item.categories || [],
     inStock: item.inStock !== undefined ? item.inStock : (item.stock || 0) > 0,
     stock: item.stock || 0,
+    availableStock: item.availableStock ?? item.stock ?? 0,
     sku: item.sku || item.article || '',
     images: images,
     image_url: images[0] || '',
@@ -137,7 +143,8 @@ function ProductCard({ product }: { product: Product }) {
   const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
   const finalImageUrl = imgError ? PLACEHOLDER_IMAGE : imageUrl;
   
-  const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
+  const availability = productAvailability(product);
+  const isOutOfStock = availability.isOnOrder;
   const inCart = isInCart(String(product.id));
   const quantityInCart = getQuantity(String(product.id));
 
@@ -157,8 +164,8 @@ function ProductCard({ product }: { product: Product }) {
         
         <div className="absolute top-3 left-3 flex flex-col gap-1.5">
           {isOutOfStock && (
-            <span className="bg-red-500/90 backdrop-blur-sm text-white text-[10px] font-medium px-3 py-1 rounded-full">
-              Нет в наличии
+            <span className="bg-white/10 backdrop-blur-sm text-white text-[10px] font-medium px-3 py-1 rounded-full border border-white/20 shadow-sm">
+                Под заказ
             </span>
           )}
           {product.oldPrice && (
@@ -167,11 +174,22 @@ function ProductCard({ product }: { product: Product }) {
             </span>
           )}
         </div>
-        
+        тзь
         {inCart && !isOutOfStock && (
           <div className="absolute bottom-3 right-3 bg-foreground/90 backdrop-blur-sm text-background text-[10px] font-medium px-3 py-1 rounded-full flex items-center gap-1">
             <Check className="w-3 h-3" />
             {quantityInCart > 1 ? `${quantityInCart} шт.` : 'В корзине'}
+          </div>
+        )}
+
+        {isOutOfStock && (
+          <div className="absolute inset-0 hidden sm:flex items-center justify-center bg-black/70 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none p-6">
+            <div className="max-w-[220px] text-center">
+              <p className="text-sm font-medium text-white leading-relaxed">
+                Для приобретения товара свяжитесь с менеджером
+              </p>
+              <span className="inline-block mt-2 text-xs text-white/65">Подробнее →</span>
+            </div>
           </div>
         )}
       </Link>
@@ -201,9 +219,9 @@ function ProductCard({ product }: { product: Product }) {
               {product.category}
             </span>
           )}
-          {!isOutOfStock && product.stock !== undefined && product.stock > 0 && (
+          {!isOutOfStock && (
             <span className="text-[10px] text-green-500 px-2 py-0.5 rounded-full bg-green-500/10">
-              {product.stock} шт.
+              {availability.label}
             </span>
           )}
         </div>
@@ -220,12 +238,12 @@ function ProductCard({ product }: { product: Product }) {
             )}
           </div>
           
-          <AddToCartButton 
+          {!isOutOfStock && <AddToCartButton
             productId={String(product.id)} 
             showQuantity={false}
-            maxStock={product.stock || 0}
+            maxStock={availability.availableStock}
             className="px-3 py-2 text-sm"
-          />
+          />}
         </div>
       </div>
     </div>
@@ -279,6 +297,9 @@ export default function CatalogPage() {
   // Загрузка при монтировании
   useEffect(() => {
     loadData(true);
+    const reload = () => { void loadData(false); };
+    window.addEventListener('focus', reload);
+    return () => window.removeEventListener('focus', reload);
   }, []);
 
   // ===== СИНХРОНИЗАЦИЯ С URL =====
@@ -305,7 +326,7 @@ export default function CatalogPage() {
     let result = [...allProducts];
 
     if (selectedCategory) {
-      result = result.filter(p => p.category === selectedCategory);
+      result = result.filter(p => matchesProductCategory(p, selectedCategory));
     }
 
     if (search) {

@@ -6,6 +6,8 @@ import { Image, Link } from '@/lib/next-shims';
 import { ChevronLeft, ChevronRight, ShoppingCart, Check, Loader2, Star } from 'lucide-react';
 import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
+import { productAvailability } from '@/lib/product-availability';
+import { ProductEnquiry } from '@/components/ProductEnquiry';
 
 interface Product {
   id: string | number;
@@ -16,6 +18,7 @@ interface Product {
   category: string;
   inStock: boolean;
   stock?: number;
+  availableStock?: number;
   images: string[];
   sku: string;
   characteristics?: Record<string, string | string[]>;
@@ -55,7 +58,8 @@ function ProductCard({
   
   const imageUrl = product.images?.[0] || PLACEHOLDER_IMAGE;
   const finalImageUrl = imgError ? PLACEHOLDER_IMAGE : imageUrl;
-  const isOutOfStock = !product.inStock || (product.stock !== undefined && product.stock <= 0);
+  const availability = productAvailability(product);
+  const isOutOfStock = availability.isOnOrder;
 
   return (
     <article className="group flex w-[260px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-gray-200 bg-white hover:shadow-xl hover:shadow-black/5 transition-all duration-300 hover:-translate-y-1">
@@ -87,8 +91,8 @@ function ProductCard({
         {/* Бейджи */}
         <div className="absolute top-3 left-3 flex flex-col gap-1.5">
           {isOutOfStock && (
-            <span className="bg-red-500 text-white text-[10px] font-medium px-2.5 py-1 rounded-full">
-              Нет в наличии
+            <span className="bg-black text-white text-[10px] font-medium px-2.5 py-1 rounded-full">
+              Под заказ
             </span>
           )}
           {product.oldPrice && (
@@ -141,7 +145,7 @@ function ProductCard({
             )}
           </div>
           
-          <button
+          {!isOutOfStock && <button
             onClick={() => onAddToCart(productId)}
             disabled={isAdding || isOutOfStock}
             className={`p-2.5 rounded-xl transition-all ${
@@ -160,15 +164,16 @@ function ProductCard({
             ) : (
               <ShoppingCart className="h-4 w-4" />
             )}
-          </button>
+          </button>}
         </div>
 
         {/* Остаток */}
-        {!isOutOfStock && product.stock !== undefined && product.stock <= 5 && (
+        {!isOutOfStock && (
           <span className="text-[10px] text-yellow-600 mt-1">
-            Осталось {product.stock} шт.
+            {availability.label}
           </span>
         )}
+        <ProductEnquiry product={product} />
       </div>
     </article>
   );

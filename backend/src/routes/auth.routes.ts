@@ -5,6 +5,8 @@ import {
   registerSchema, 
   loginSchema, 
   verifySchema,
+  verificationContextSchema,
+  resendVerificationSchema,
   changePasswordSchema,
   resetPasswordRequestSchema,
   resetPasswordVerifySchema,
@@ -25,6 +27,9 @@ import {
   verifyResetCodeController,
   confirmResetPasswordController,
   resendVerificationController,
+  verificationContextController,
+  consentStatusController,
+  consentDocumentsController,
 } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import {
@@ -35,8 +40,16 @@ import * as oauthService from '../services/oauth.service';
 import { log } from '../config/logger';
 import { authLimiter, verificationLimiter } from '../middleware/rateLimiter.middleware';
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { z } from 'zod';
+import { CONSENT_DOCUMENTS, personalDataAcceptanceSchema } from '../services/consent.service';
+import { completePendingOAuth, readPendingOAuth, safePendingRedirect } from '../services/pendingOAuth.service';
+import { generateToken } from '../services/auth.service';
+import { mergeCart } from '../controllers/auth.controller';
+import { AppError } from '../middleware/error.middleware';
 
 const router = Router();
+router.get('/consent-documents', consentDocumentsController);
+router.get('/consent-status', requireAuth, consentStatusController);
 const oauthCookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
@@ -54,7 +67,7 @@ const validOAuthState = (received: unknown, stored: unknown): boolean => {
 const oauthFailureUrl = (code = 'oauth_failed') =>
   `${process.env.CLIENT_URL}/oauth-callback?error=${encodeURIComponent(code)}`;
 const safeOAuthRedirect = (value: unknown): string =>
-  typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+  safePendingRedirect(value);
 const oauthCallbackUrl = (redirect: string, errorCode?: string) => {
   const url = new URL('/oauth-callback', process.env.CLIENT_URL);
   url.searchParams.set('redirect', safeOAuthRedirect(redirect));
@@ -66,9 +79,38 @@ const oauthCallbackUrl = (redirect: string, errorCode?: string) => {
 // СТАНДАРТНАЯ АУТЕНТИФИКАЦИЯ (С ВАЛИДАЦИЕЙ)
 // ============================================================
 
+router.get('/oauth/consent', verificationLimiter, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const pending = await readPendingOAuth(req.cookies?.oauth_pending);
+    res.json({ provider: pending.profile.provider, documents: CONSENT_DOCUMENTS });
+  } catch (error) {
+    const known = error instanceof AppError;
+    res.status(known ? error.statusCode : 503).json({ error: known ? error.message : 'Регистрация временно недоступна', code: known ? error.code : 'OAUTH_UNAVAILABLE' });
+  }
+});
+// Global CSRF middleware protects this POST; it is not an OAuth callback exemption.
+router.post('/oauth/consent', verificationLimiter,
+  validate(z.object({ personalDataConsent: personalDataAcceptanceSchema }).strict()), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const completed = await completePendingOAuth(req.cookies?.oauth_pending, req.body.personalDataConsent);
+      res.clearCookie('oauth_pending', { ...oauthCookieOptions, maxAge: undefined });
+      const cartMerged = completed.guestId ? await mergeCart(completed.user.id, completed.guestId) : true;
+      if (completed.guestId && cartMerged) res.clearCookie('guestId', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/' });
+      const token = await generateToken(completed.user.id);
+      res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
+      res.json({ redirect: completed.redirect });
+    } catch (error) {
+      const known = error instanceof AppError;
+      res.status(known ? error.statusCode : 503).json({ error: known ? error.message : 'Не удалось завершить регистрацию. Повторите вход через сервис', code: known ? error.code : 'OAUTH_UNAVAILABLE' });
+    }
+  });
+
 router.post('/register', verificationLimiter, validate(registerSchema), registerController);
 router.post('/verify', verificationLimiter, validate(verifySchema), verifyController);
-router.post('/resend-verification', verificationLimiter, validate(resetPasswordRequestSchema), resendVerificationController);
+router.post('/resend-verification', verificationLimiter, validate(resendVerificationSchema), resendVerificationController);
+router.post('/verification-context', verificationLimiter, validate(verificationContextSchema), verificationContextController);
 router.post('/login', authLimiter, validate(loginSchema), loginController);
 router.post('/logout', logoutController);
 router.get('/me', requireAuth, meController);
@@ -133,7 +175,12 @@ router.get('/yandex/callback', async (req, res) => {
     }
 
     const guestId = req.cookies?.guestId;
-    const { token, cartMerged } = await oauthService.handleYandexCallback(code as string, guestId);
+    const result = await oauthService.handleYandexCallback(code as string, guestId, oauthRedirect);
+    if (result.pendingToken) {
+      res.cookie('oauth_pending', result.pendingToken, oauthCookieOptions);
+      return res.redirect(new URL('/oauth-consent', process.env.CLIENT_URL).toString());
+    }
+    const { token, cartMerged } = result;
 
     if (guestId && cartMerged) {
       res.clearCookie('guestId', {
@@ -154,7 +201,7 @@ router.get('/yandex/callback', async (req, res) => {
 
     res.redirect(oauthCallbackUrl(oauthRedirect));
   } catch (error: any) {
-    log.error('Yandex OAuth callback error', { error: error.message });
+    log.error('Yandex OAuth callback error', { errorName: error?.name || 'Error' });
     res.redirect(oauthFailureUrl(error.message === 'OAUTH_LINK_REQUIRED' ? 'oauth_link_required' : 'oauth_failed'));
   }
 });
@@ -197,7 +244,12 @@ router.get('/max/callback', async (req, res) => {
     }
 
     const guestId = req.cookies?.guestId;
-    const { token, cartMerged } = await oauthService.handleMaxCallback(code as string, guestId);
+    const result = await oauthService.handleMaxCallback(code as string, guestId, oauthRedirect);
+    if (result.pendingToken) {
+      res.cookie('oauth_pending', result.pendingToken, oauthCookieOptions);
+      return res.redirect(new URL('/oauth-consent', process.env.CLIENT_URL).toString());
+    }
+    const { token, cartMerged } = result;
 
     if (guestId && cartMerged) {
       res.clearCookie('guestId', {
@@ -218,7 +270,7 @@ router.get('/max/callback', async (req, res) => {
 
     res.redirect(oauthCallbackUrl(oauthRedirect));
   } catch (error: any) {
-    log.error('MAX OAuth callback error', { error: error.message });
+    log.error('MAX OAuth callback error', { errorName: error?.name || 'Error' });
     res.redirect(oauthFailureUrl(error.message === 'OAUTH_LINK_REQUIRED' ? 'oauth_link_required' : 'oauth_failed'));
   }
 });

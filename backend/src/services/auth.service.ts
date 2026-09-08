@@ -15,10 +15,14 @@ import {
 } from './passwordResetSecurity.service';
 import { passwordSchema } from '../schemas/common.schema';
 import { credentialVersion } from '../utils/credentialVersion';
+import { personalDataEvidence } from './consent.service';
+import { AppError } from '../middleware/error.middleware';
+import { createVerificationContext, resolveVerificationContext, maskVerificationEmail } from './emailVerificationContext.service';
 import {
   checkEmailVerificationCode,
   generateEmailVerificationCode,
   issueEmailVerificationCode,
+  emailVerificationTiming,
 } from './emailVerificationSecurity.service';
 
 const prisma = new PrismaClient();
@@ -61,8 +65,10 @@ export const register = async (
   password: string,
   firstName?: string,
   lastName?: string,
-  middleName?: string
+  middleName?: string,
+  personalDataConsent?: unknown,
 ) => {
+  const consentEvidence = personalDataEvidence(personalDataConsent, 'registration');
   const normalizedEmail = email.trim().toLowerCase();
   const existing = await prisma.user.findFirst({
     where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
@@ -82,28 +88,35 @@ export const register = async (
       middleName, // ✅ ОТЧЕСТВО
       isVerified: false,
       role: 'user',
+      consents: { create: consentEvidence },
     },
   });
 
   const code = generateEmailVerificationCode();
   await issueEmailVerificationCode(user.id, code);
 
-  await sendVerificationEmail(normalizedEmail, code, firstName);
+  const verificationToken = await createVerificationContext(user.id);
+  await sendVerificationEmail(normalizedEmail, code, firstName, verificationToken);
 
-  return { message: 'Код отправлен на почту' };
+  return { message: 'Код отправлен на почту', verificationToken };
 };
 
 // ============================================================
 // ПОДТВЕРЖДЕНИЕ EMAIL
 // ============================================================
-export const verifyEmail = async (email: string, code: string) => {
-  const user = await findUserByEmailIdentity(email);
+export const verifyEmail = async (email: string | undefined, code: string, token?: string) => {
+  const user = token
+    ? await prisma.user.findUnique({ where: { id: await resolveVerificationContext(token) } })
+    : await findUserByEmailIdentity(email || '');
   if (!user) {
     throw new Error('Неверный или просроченный код');
   }
   // A verified address must not be distinguishable from an unknown address by
   // submitting an arbitrary code to this public endpoint.
-  if (user.isVerified) throw new Error('Неверный или просроченный код');
+  if (user.isVerified) {
+    if (token) return { message: 'Email уже подтверждён', alreadyVerified: true };
+    throw new Error('Неверный или просроченный код');
+  }
   const verification = await checkEmailVerificationCode(user.id, code, false);
   if (verification !== 'valid') throw new Error('Неверный или просроченный код');
 
@@ -117,16 +130,36 @@ export const verifyEmail = async (email: string, code: string) => {
   return { message: 'Email подтверждён' };
 };
 
-export const resendVerification = async (email: string) => {
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = await findUserByEmailIdentity(normalizedEmail);
+export const resendVerification = async (email: string | undefined, token?: string) => {
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const user = token
+    ? await prisma.user.findUnique({ where: { id: await resolveVerificationContext(token) } })
+    : await findUserByEmailIdentity(normalizedEmail);
+  if (token && !user) throw new AppError('Ссылка недействительна или срок её действия истёк.', 400, 'VERIFICATION_LINK_INVALID');
+  if (token && user?.isVerified) return { message: 'Email уже подтверждён', alreadyVerified: true, retryAfter: 0 };
   const code = generateEmailVerificationCode();
   const accountId = user && !user.isVerified ? user.id : `non-actionable:${normalizedEmail}`;
   const issue = await issueEmailVerificationCode(accountId, code);
-  if (user && !user.isVerified && issue === 'issued') {
-    await sendVerificationEmail(user.email, code, user.firstName || undefined);
+  if (token && issue === 'cooldown') {
+    const { retryAfter } = await emailVerificationTiming(accountId);
+    throw new AppError('Новый код можно запросить позже', 429, 'VERIFICATION_COOLDOWN', { retryAfter });
   }
-  return { message: 'Если подтверждение требуется, письмо отправлено' };
+  if (user && !user.isVerified && issue === 'issued') {
+    const linkToken = await createVerificationContext(user.id);
+    await sendVerificationEmail(user.email, code, user.firstName || undefined, linkToken);
+  }
+  return { message: 'Если подтверждение требуется, письмо отправлено', retryAfter: 60 };
+};
+
+export const getVerificationContext = async (token: string) => {
+  const userId = await resolveVerificationContext(token);
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, isVerified: true } });
+  if (!user) throw new AppError('Ссылка недействительна или срок её действия истёк.', 400, 'VERIFICATION_LINK_INVALID');
+  return {
+    maskedEmail: maskVerificationEmail(user.email),
+    alreadyVerified: user.isVerified,
+    ...await emailVerificationTiming(userId),
+  };
 };
 
 // ============================================================
@@ -139,8 +172,9 @@ export const login = async (email: string, password: string) => {
     throw new Error('Неверный email или пароль');
   }
   if (!user.isVerified) {
-    const error = new Error('Email не подтверждён') as Error & { code?: string };
+    const error = new Error('Email не подтверждён') as Error & { code?: string; verificationToken?: string };
     error.code = 'EMAIL_UNVERIFIED';
+    error.verificationToken = await createVerificationContext(user.id);
     throw error;
   }
 

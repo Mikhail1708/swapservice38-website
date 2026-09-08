@@ -16,6 +16,26 @@ describe('Products Integration', () => {
   // ПРОДУКТЫ
   // ============================================================
   describe('GET /api/products', () => {
+    it('keeps Дроп Панара 4 дюйма in the public API through stock 0 → 10 → 0', async () => {
+      for (const stock of [0, 10, 0]) {
+        mockAxios.get.mockResolvedValueOnce({ data: {
+          items: [{ id: 134, name: 'Дроп Панара 4 дюйма', stock, availableStock: stock, retail_price: 1500 }],
+          total: 1, page: 1, limit: 16, totalPages: 1,
+        } });
+        const response = await request(app).get('/api/products').query({ search: 'Дроп Панара', category: 'Подвеска' });
+        expect(response.status).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.body.total).toBe(1);
+        expect(response.body.items).toEqual([expect.objectContaining({
+          id: 134, name: 'Дроп Панара 4 дюйма', availableStock: stock,
+          availabilityStatus: stock > 0 ? 'in_stock' : 'on_order',
+        })]);
+        expect(mockAxios.get).toHaveBeenLastCalledWith(expect.stringContaining('/api/public/products'), expect.objectContaining({
+          params: expect.objectContaining({ search: 'Дроп Панара', category: 'Подвеска' }),
+        }));
+      }
+    });
+
     it('should return list of products', async () => {
       const mockProducts = {
         data: {

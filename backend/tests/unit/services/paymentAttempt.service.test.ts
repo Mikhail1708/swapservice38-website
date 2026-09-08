@@ -113,6 +113,15 @@ describe('durable payment attempt and CRM reservation', () => {
     expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 
+  it('fails checkout when CRM rejects a zero-free-stock reservation', async () => {
+    mockedAxios.post.mockRejectedValueOnce({ response: { status: 409, data: { message: 'Insufficient stock' } } });
+    (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue({});
+    await expect(ensureCrmReservation(order, attempt)).rejects.toMatchObject({ status: 409 });
+    expect(mockPrisma.paymentAttempt.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ reservationId: expect.any(String) }),
+    }));
+  });
+
   it('binds provider identity in Order then PaymentAttempt lock order', async () => {
     (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(order);
     (mockPrisma.paymentAttempt.update as jest.Mock).mockResolvedValue(attempt);

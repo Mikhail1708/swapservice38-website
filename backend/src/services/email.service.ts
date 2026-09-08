@@ -4,6 +4,7 @@ import redis from '../config/redis';
 import { createEmailJobData, EmailJobData } from './emailAttachments';
 import {
   OrderEmailData,
+  OrderCreatedEmailData,
   orderConfirmationCustomerTemplate,
   orderCreatedCustomerTemplate,
   orderNotificationManagerTemplate,
@@ -60,7 +61,7 @@ const transporter = nodemailer.createTransport({
 });
 
 transporter.verify((error) => {
-  if (error) console.error('❌ Ошибка подключения к почтовому серверу:', error);
+  if (error) console.error('❌ Ошибка подключения к почтовому серверу:', { errorName: error.name });
   else console.log('✅ Почтовый сервер настроен успешно');
 });
 
@@ -76,7 +77,7 @@ emailQueue.process(async (job) => {
       ...job.data,
     });
   } catch (error) {
-    console.error('❌ Ошибка отправки письма:', error);
+    console.error('❌ Ошибка отправки письма:', { errorName: error instanceof Error ? error.name : 'unknown' });
     throw error;
   }
 });
@@ -120,8 +121,8 @@ const enqueueNotificationOnce = async (
   }
 };
 
-export const sendVerificationEmail = (email: string, code: string, customerName?: string) => {
-  const template = verificationEmailTemplate(code, customerName);
+export const sendVerificationEmail = (email: string, code: string, customerName?: string, verificationToken?: string) => {
+  const template = verificationEmailTemplate(code, customerName, verificationToken);
   return sendEmail(email, template.subject, template.html, undefined, template.text);
 };
 
@@ -166,11 +167,8 @@ export const sendOrderNotificationToManager = async (data: OrderEmailData) => {
   );
 };
 
-export const sendOrderCreatedToCustomer = async (data: {
-  orderId: string;
-  customerName: string;
+export const sendOrderCreatedToCustomer = async (data: OrderCreatedEmailData & {
   customerEmail: string;
-  total: number;
 }) => {
   if (!data.customerEmail) {
     console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, письмо о формировании пропущено`);

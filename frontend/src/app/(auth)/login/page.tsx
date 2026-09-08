@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [needsVerification, setNeedsVerification] = useState(false);
+  const [verificationToken, setVerificationToken] = useState('');
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
@@ -46,9 +47,12 @@ export default function LoginPage() {
       });
 
       if (!response.ok) {
-        const payload = await response.clone().json().catch(() => null) as { code?: string } | null;
+        const payload = await response.clone().json().catch(() => null) as { code?: string; verificationToken?: string } | null;
         const message = await readApiError(response, 'Вход временно недоступен. Попробуйте позже.');
-        if (payload?.code === 'EMAIL_UNVERIFIED') setNeedsVerification(true);
+        if (payload?.code === 'EMAIL_UNVERIFIED') {
+          setNeedsVerification(true);
+          setVerificationToken(payload.verificationToken || '');
+        }
         throw new Error(message);
       }
 
@@ -104,7 +108,7 @@ export default function LoginPage() {
             <p className="font-semibold uppercase tracking-[0.08em] text-foreground">Подтвердите электронную почту</p>
             <p className="mt-2 leading-5 text-muted-foreground">Введите код из письма или запросите новый на странице подтверждения.</p>
             <Link
-              href={`/verify-email?email=${encodeURIComponent(email.trim())}&returnUrl=${encodeURIComponent(redirectTo)}`}
+              href={`/verify-email?token=${encodeURIComponent(verificationToken)}&returnUrl=${encodeURIComponent(redirectTo)}`}
               className="mt-4 inline-flex items-center gap-2 rounded-sm bg-primary px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-primary-foreground"
             >
               Подтвердить почту <ArrowRight className="h-4 w-4" />

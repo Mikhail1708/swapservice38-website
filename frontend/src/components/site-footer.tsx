@@ -1,5 +1,6 @@
 // frontend/components/site-footer.tsx
 import { Image, Link } from '@/lib/next-shims';
+import { SITE_CONTACTS } from '@/lib/site-contacts';
 import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle, MessageSquare } from 'lucide-react';
 
 const COLUMNS = [
@@ -57,7 +58,7 @@ export function SiteFooter() {
           </p>
           <div className="mt-6 flex gap-3">
             <a
-              href="https://t.me/swap38"
+              href={SITE_CONTACTS.telegram}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
@@ -66,7 +67,7 @@ export function SiteFooter() {
               <Send className="h-4 w-4" />
             </a>
             <a
-              href="https://web.max.ru/-70953461855659"
+              href={SITE_CONTACTS.max}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"

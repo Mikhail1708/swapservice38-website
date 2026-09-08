@@ -9,6 +9,12 @@ import {
 
 const router = Router();
 
+// Availability is fetched from CRM on every request. This does not affect image caching.
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
 // ✅ ВАЖНО: сначала идут статические роуты, потом динамические
 router.get('/categories', getCategories);
 router.get('/category/:category', getProductsByCategory);

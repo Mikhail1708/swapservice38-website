@@ -1,4 +1,5 @@
 // backend/tests/unit/schemas/order.schema.test.ts
+import { offerAcceptance } from '../../helpers/consent';
 import {
   orderItemSchema,
   clientSchema,
@@ -121,6 +122,7 @@ describe('Order Schemas', () => {
   // ============================================================
   describe('createOrderSchema', () => {
     const validOrder = {
+      offerAcceptance,
       client: {
         firstName: 'Иван',
         lastName: 'Петров',
@@ -143,8 +145,13 @@ describe('Order Schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it.each([undefined, { ...offerAcceptance, accepted: false }])('requires explicit offer acceptance %p', (acceptance) => {
+      expect(createOrderSchema.safeParse({ ...validOrder, offerAcceptance: acceptance }).success).toBe(false);
+    });
+
     it('should validate without optional fields', () => {
       const data = {
+        offerAcceptance,
         client: {
           firstName: 'Иван',
           lastName: 'Петров',
@@ -160,6 +167,7 @@ describe('Order Schemas', () => {
 
     it('should use default deliveryMethod', () => {
       const data = {
+        offerAcceptance,
         client: {
           firstName: 'Иван',
           lastName: 'Петров',

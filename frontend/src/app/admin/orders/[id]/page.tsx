@@ -76,6 +76,12 @@ const statusMap: Record<string, { label: string; color: string; bg: string; icon
     bg: 'bg-yellow-500/10 border-yellow-500/20',
     icon: <Clock className="w-4 h-4" />
   },
+  crm_failed: {
+    label: 'Ошибка отправки в CRM',
+    color: 'text-orange-500',
+    bg: 'bg-orange-500/10 border-orange-500/20',
+    icon: <AlertCircle className="w-4 h-4" />
+  },
   paid: { 
     label: 'Оплачен', 
     color: 'text-blue-500', 
@@ -177,8 +183,8 @@ export default function AdminOrderDetailsPage() {
       return;
     }
     
-    // Если заказ можно удалить без пароля (pending, crm_failed, paid)
-    const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
+    // Без пароля удаляем только pre-handoff статусы без начатой оплаты
+    const allowedWithoutPassword = ['pending', 'crm_failed'];
     if (allowedWithoutPassword.includes(order.status)) {
       if (!confirm('Вы уверены, что хотите удалить этот заказ? Это действие нельзя отменить.')) return;
       await executeDelete(null);
@@ -270,7 +276,7 @@ export default function AdminOrderDetailsPage() {
   const displayNumber = order.orderNumber || order.documentNumber || order.id.slice(0, 8);
   const delivery = getDeliveryLabel(order.deliveryMethod);
   const latestPaymentAttempt = order.paymentAttempts?.[0];
-  const allowedWithoutPassword = ['pending', 'crm_failed', 'paid'];
+  const allowedWithoutPassword = ['pending', 'crm_failed'];
   const requiresPassword = !order.paymentStarted && !allowedWithoutPassword.includes(order.status);
 
   return (

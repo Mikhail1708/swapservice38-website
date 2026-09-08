@@ -44,7 +44,8 @@ const toFiniteNumber = (value: unknown): number | null => {
 const normalizeProduct = (data: any, requestedProductId: number): CRMCheckoutProduct => {
   const id = toFiniteNumber(data?.id ?? data?.productId);
   const price = toFiniteNumber(data?.price ?? data?.retail_price);
-  const stock = toFiniteNumber(data?.stock);
+  // CRM exposes free stock (reservations already deducted), with legacy stock fallback.
+  const stock = toFiniteNumber(data?.availableStock ?? data?.stock);
 
   if (
     id === null || !Number.isSafeInteger(id) || id !== requestedProductId ||

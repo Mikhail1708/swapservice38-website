@@ -2,6 +2,8 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { productAvailability } from '@/lib/product-availability';
+import { ProductEnquiry } from '@/components/ProductEnquiry';
 import { Image, Link, useParams} from '@/lib/next-shims';
 import { 
   ArrowLeft, 
@@ -45,6 +47,7 @@ interface Product {
   retail_price?: number;
   cost_price?: number;
   stock: number;
+  availableStock?: number;
   min_stock?: number;
   categories: Category[];
   characteristics: Record<string, string | string[]>;
@@ -135,6 +138,7 @@ export default function ProductPage() {
         
         const response = await fetchWithCsrf(`/api/products/${productId}`, {
           method: 'GET',
+          cache: 'no-store',
         });
         
         if (!response.ok) {
@@ -157,6 +161,7 @@ export default function ProductPage() {
           retail_price: data.price || data.retail_price || 0,
           cost_price: data.cost_price || 0,
           stock: data.stock || 0,
+          availableStock: data.availableStock ?? data.stock ?? 0,
           min_stock: data.min_stock || 2,
           categories: data.categories || [],
           characteristics: data.characteristics || {},
@@ -192,6 +197,9 @@ export default function ProductPage() {
     if (productId) {
       fetchProduct();
     }
+    const reload = () => { if (productId) void fetchProduct(); };
+    window.addEventListener('focus', reload);
+    return () => window.removeEventListener('focus', reload);
   }, [productId]);
 
   const getImageUrl = (url: string | null | undefined): string => {
@@ -203,16 +211,6 @@ export default function ProductPage() {
   const formatPrice = (price: number): string => {
     if (!price && price !== 0) return '0 ₽';
     return price.toLocaleString('ru-RU') + ' ₽';
-  };
-
-  const getStockStatus = (stock: number, minStock: number) => {
-    if (stock <= 0) {
-      return { label: 'Нет в наличии', color: 'text-red-500', bg: 'bg-red-500/10' };
-    }
-    if (stock <= minStock) {
-      return { label: `Осталось ${stock} шт.`, color: 'text-yellow-500', bg: 'bg-yellow-500/10' };
-    }
-    return { label: 'В наличии', color: 'text-green-500', bg: 'bg-green-500/10' };
   };
 
   const openLightbox = (index: number) => {
@@ -295,8 +293,9 @@ export default function ProductPage() {
     );
   }
 
-  const stockStatus = getStockStatus(product.stock || 0, product.min_stock || 2);
-  const isOutOfStock = (product.stock || 0) <= 0;
+  const availability = productAvailability(product);
+  const stockStatus = { label: availability.label, color: 'text-foreground', bg: 'bg-muted' };
+  const isOutOfStock = availability.isOnOrder;
   const mainImage = selectedImage || product.image_url || (product.images?.length > 0 ? product.images[0] : null);
   const images = allImages;
   const productPrice = product.price || product.retail_price || 0;
@@ -341,8 +340,8 @@ export default function ProductPage() {
                 </span>
               </div>
               {isOutOfStock && (
-                <div className="absolute top-4 left-4 bg-red-500/90 backdrop-blur-sm text-white text-xs font-medium px-4 py-2 rounded-full">
-                  Нет в наличии
+                <div className="absolute top-4 left-4 bg-foreground/95 backdrop-blur-sm text-white text-xs font-medium px-4 py-2 rounded-full border border-foreground/10 shadow-sm">
+                  Под заказ
                 </div>
               )}
             </button>
@@ -435,16 +434,22 @@ export default function ProductPage() {
             {/* Характеристики */}
             {renderCharacteristics()}
 
-            {/* Добавление в корзину */}
+            {/* Покупка / связь с менеджером */}
             <div className="border-t border-border pt-5 space-y-4">
-              <div className="flex items-center gap-4 flex-wrap">
-                <AddToCartButton 
-                  productId={String(product.id)} 
-                  showQuantity={true}
-                  maxStock={product.stock || 0}
-                  className="px-6 py-3 text-base"
-                />
-              </div>
+              {!isOutOfStock ? (
+                <div className="flex items-center gap-4 flex-wrap">
+                  <AddToCartButton
+                    productId={String(product.id)}
+                    showQuantity={true}
+                    maxStock={availability.availableStock}
+                    className="px-6 py-3 text-base"
+                  />
+                </div>
+              ) : (
+               <div className="flex flex-wrap gap-3">
+                  <ProductEnquiry product={product} />
+            </div>
+              )}
             </div>
 
             {/* Преимущества */}

@@ -1,523 +1,340 @@
 // frontend/app/(public)/privacy/page.tsx
-// import { Metadata } from 'next'; // удалено для Vite
-import { Image, Link } from '@/lib/next-shims';
-import { 
-  ArrowLeft, 
-  ChevronRight, 
-  Shield, 
-  FileText, 
-  Users, 
-  Database, 
-  Lock, 
-  Eye, 
+import { Link } from '@/lib/next-shims';
+import { SITE_CONTACTS } from '@/lib/site-contacts';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Shield,
+  FileText,
+  Database,
+  Lock,
   Cookie,
   Phone,
   Mail,
   MapPin,
-  FileCheck,
   AlertTriangle,
-  Clock,
-  RefreshCw,
-  ShoppingCart,
-  UserCheck,
-  MessageSquare,
-  CreditCard
 } from 'lucide-react';
+
+const UPDATED = '8 сентября 2026 г.';
 
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom max-w-4xl">
-        {/* Хлебные крошки */}
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
           <Link href="/" className="hover:text-foreground transition">Главная</Link>
           <ChevronRight className="w-4 h-4" />
-          <span className="text-foreground">Политика конфиденциальности</span>
+          <span className="text-foreground">Политика обработки персональных данных</span>
         </div>
 
-        {/* Заголовок */}
         <div className="mb-12">
           <div className="flex items-center gap-3 mb-4">
             <Shield className="w-8 h-8 text-foreground" />
             <span className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-              Конфиденциальность
+              Персональные данные
             </span>
           </div>
           <h1 className="heading-display text-[clamp(32px,4vw,48px)] text-foreground">
-            Политика конфиденциальности
+            Политика в отношении обработки персональных данных
           </h1>
-          <p className="text-muted-foreground mt-4 max-w-2xl">
-            Мы ценим ваше доверие и честно рассказываем, какие данные собираем, 
-            зачем они нужны и как мы их защищаем.
+          <p className="text-muted-foreground mt-4 max-w-3xl">
+            Настоящая Политика определяет порядок обработки и защиты персональных данных
+            пользователей сайта swapservice38.ru оператором персональных данных —
+            ИП Батвенко Николаем Сергеевичем.
           </p>
-          <p className="text-sm text-muted-foreground/60 mt-2">
-            Последнее обновление: {new Date().toLocaleDateString('ru-RU', { 
-              day: 'numeric', 
-              month: 'long', 
-              year: 'numeric' 
-            })}
-          </p>
+          <p className="text-sm text-muted-foreground/60 mt-2">Редакция от {UPDATED}</p>
         </div>
 
-        {/* Главное уведомление */}
         <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 mb-10">
           <div className="flex items-start gap-4">
             <AlertTriangle className="w-6 h-6 text-foreground flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm text-foreground font-medium">
-                Используя наш сайт, вы даёте согласие на обработку персональных данных 
-                в соответствии с Федеральным законом от 27.07.2006 N 152-ФЗ 
-                «О персональных данных».
+            <div className="space-y-2 text-sm">
+              <p className="text-foreground font-medium">
+                Настоящая Политика является информационным документом и сама по себе не заменяет
+                отдельное согласие на обработку персональных данных в случаях, когда такое согласие
+                требуется законодательством Российской Федерации.
               </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Если вы не согласны с условиями Политики, пожалуйста, не используйте наш сайт.
+              <p className="text-muted-foreground">
+                Предоставляя данные через формы сайта, пользователь должен ознакомиться с настоящей
+                Политикой. Согласие, когда оно необходимо, запрашивается отдельно.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Оглавление */}
         <div className="bg-card border border-border rounded-2xl p-6 mb-10">
           <h2 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            Содержание
+            <FileText className="w-4 h-4" /> Содержание
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             {[
-              { href: '#what', label: '1. Какие данные мы собираем' },
-              { href: '#why', label: '2. Зачем мы их собираем' },
-              { href: '#how', label: '3. Как мы их используем' },
-              { href: '#with', label: '4. Кому мы их передаём' },
-              { href: '#protect', label: '5. Как мы защищаем данные' },
-              { href: '#rights', label: '6. Ваши права' },
-              { href: '#cookies', label: '7. Файлы cookie' },
-              { href: '#contacts', label: '8. Контакты' },
-            ].map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="text-muted-foreground hover:text-foreground transition py-1"
-              >
-                {item.label}
+              ['#general', '1. Общие положения'],
+              ['#operator', '2. Сведения об операторе'],
+              ['#principles', '3. Принципы обработки'],
+              ['#purposes', '4. Цели и состав данных'],
+              ['#grounds', '5. Правовые основания'],
+              ['#actions', '6. Порядок обработки'],
+              ['#third', '7. Передача третьим лицам'],
+              ['#storage', '8. Хранение и локализация'],
+              ['#cookies', '9. Cookie и аналитика'],
+              ['#security', '10. Защита данных'],
+              ['#rights', '11. Права субъекта'],
+              ['#requests', '12. Обращения и отзыв согласия'],
+              ['#final', '13. Заключительные положения'],
+            ].map(([href, label]) => (
+              <a key={href} href={href} className="text-muted-foreground hover:text-foreground transition py-1">
+                {label}
               </a>
             ))}
           </div>
         </div>
 
-        {/* Контент */}
-        <div className="space-y-6 text-muted-foreground">
+        <div className="space-y-6 text-muted-foreground text-sm leading-relaxed">
+          <Section id="general" n="1" title="Общие положения">
+            <p>
+              1.1. Политика разработана в соответствии с Конституцией Российской Федерации,
+              Федеральным законом от 27.07.2006 № 152-ФЗ «О персональных данных» и иными
+              нормативными правовыми актами Российской Федерации в области персональных данных.
+            </p>
+            <p>
+              1.2. Политика применяется ко всем персональным данным, которые Оператор получает
+              через сайт swapservice38.ru, при регистрации, оформлении и исполнении заказов,
+              обращении в поддержку и использовании функций сайта.
+            </p>
+            <p>
+              1.3. Оператор не ставит условием использования общедоступных разделов сайта
+              предоставление персональных данных, которые не требуются для соответствующей цели.
+            </p>
+          </Section>
 
-          {/* 1. Какие данные мы собираем */}
-          <section id="what" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">1.</span>
-              Какие данные мы собираем
-            </h2>
-            
-            <div className="space-y-4">
-              <p className="text-sm">
-                Мы собираем только те данные, которые нужны для работы сайта и обслуживания клиентов:
-              </p>
+          <Section id="operator" n="2" title="Сведения об операторе персональных данных">
+            <InfoRow label="Оператор" value="ИП Батвенко Николай Сергеевич" />
+            <InfoRow label="ИНН" value="381011379046" />
+            <InfoRow label="ОГРНИП" value="315385000059546" />
+            <InfoRow label="Адрес" value="г. Иркутск, ул. Новаторов, 36" />
+            <InfoRow label="Email оператора" value={SITE_CONTACTS.operator.email} />
+            <InfoRow label="Телефон оператора" value={SITE_CONTACTS.operator.phone} />
+          </Section>
 
-              {/* Регистрация */}
-              <div className="bg-muted rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <UserCheck className="w-4 h-4 text-foreground" />
-                  <h3 className="text-sm font-semibold text-foreground">При регистрации</h3>
-                </div>
-                <ul className="space-y-1.5 text-sm pl-4">
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Email</strong> — для входа и получения уведомлений</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Имя и фамилия</strong> — для персонализации общения</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Пароль</strong> — в зашифрованном виде для защиты аккаунта</span>
-                  </li>
-                </ul>
-              </div>
+          <Section id="principles" n="3" title="Принципы обработки персональных данных">
+            <ul className="list-disc pl-5 space-y-2">
+              <li>обработка осуществляется на законной и справедливой основе;</li>
+              <li>обработка ограничивается конкретными, заранее определёнными и законными целями;</li>
+              <li>не допускается обработка данных, несовместимая с целями их сбора;</li>
+              <li>объём данных не должен быть избыточным относительно заявленных целей;</li>
+              <li>Оператор принимает меры для обеспечения точности и актуальности данных;</li>
+              <li>данные хранятся не дольше, чем этого требуют цели обработки или закон.</li>
+            </ul>
+          </Section>
 
-              {/* Заказы */}
-              <div className="bg-muted rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <ShoppingCart className="w-4 h-4 text-foreground" />
-                  <h3 className="text-sm font-semibold text-foreground">При оформлении заказа</h3>
-                </div>
-                <ul className="space-y-1.5 text-sm pl-4">
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Телефон</strong> — для связи по заказу</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Email</strong> — для отправки подтверждения</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Адрес доставки</strong> — для отправки заказа</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Список товаров</strong> — для формирования заказа</span>
-                  </li>
-                </ul>
-              </div>
+          <Section id="purposes" n="4" title="Цели обработки, категории субъектов и состав данных">
+            <Purpose title="Регистрация и работа личного кабинета"
+              subjects="зарегистрированные пользователи"
+              data="имя, фамилия, отчество при его указании, email, идентификатор аккаунта, сведения об авторизации; пароль хранится только в виде криптографического хеша"
+              term="до удаления аккаунта либо прекращения необходимости обработки, если более длительный срок не установлен законом" />
+            <Purpose title="Оформление и исполнение заказа"
+              subjects="покупатели и получатели заказов"
+              data="имя, фамилия, отчество при указании, телефон, email, адрес и способ получения, перевозчик, выбранный способ связи, комментарий, состав и стоимость заказа, сведения о статусах заказа, оплаты, отмены и возврата"
+              term="в течение срока исполнения договора и далее в сроки, установленные законодательством для хранения документов и защиты законных интересов сторон" />
+            <Purpose title="Поддержка и обработка обращений"
+              subjects="пользователи, покупатели, заявители"
+              data="имя, контактные данные, содержание обращения, номер заказа и иные сведения, добровольно сообщённые в обращении и необходимые для его рассмотрения"
+              term="до завершения рассмотрения обращения и далее в течение срока, необходимого для подтверждения исполнения обязанностей Оператора" />
+            <Purpose title="Безопасность и стабильная работа сайта"
+              subjects="посетители и пользователи сайта"
+              data="IP-адрес, технические журналы событий, сведения о браузере и устройстве, технические cookie и идентификаторы сессии"
+              term="в течение срока, объективно необходимого для обеспечения безопасности, диагностики ошибок и предотвращения злоупотреблений" />
+            <p>При выбранном входе через Яндекс сайт получает от соответствующего сервиса идентификатор пользователя, имя, email и, если предоставлен, телефон. Пароль внешнего сервиса сайт не получает. Для нового аккаунта подтверждённые сервисом сведения временно сохраняются на срок до 10 минут до отдельного согласия на регистрацию; неиспользованное временное состояние истекает. Идентификатор внешнего сервиса в созданном аккаунте используется для последующего входа.</p>
+            <p>Для подтверждения согласий сохраняются идентификатор пользователя, вид согласия, редакции документов, объём обработки, время и источник принятия; с заказом связываются редакция оферты и время её принятия. Эти сведения служат подтверждением выбранных пользователем действий, а не согласием на рекламу.</p>
+            <p>
+              Оператор не осуществляет целенаправленный сбор специальных категорий персональных
+              данных и биометрических персональных данных через сайт. Пользователю не следует
+              направлять такие сведения через свободные текстовые поля без необходимости.
+            </p>
+          </Section>
 
-              {/* Автоматические данные */}
-              <div className="bg-muted rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Database className="w-4 h-4 text-foreground" />
-                  <h3 className="text-sm font-semibold text-foreground">Автоматически</h3>
-                </div>
-                <ul className="space-y-1.5 text-sm pl-4">
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">IP-адрес</strong> — для защиты от мошенничества</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Данные cookie</strong> — для работы корзины и авторизации</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-primary">•</span>
-                    <span><strong className="text-foreground">Тип браузера</strong> — для корректного отображения сайта</span>
-                  </li>
-                </ul>
-              </div>
+          <Section id="grounds" n="5" title="Правовые основания обработки">
+            <p>В зависимости от конкретной цели Оператор обрабатывает данные на основании:</p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>необходимости заключения и исполнения договора с пользователем/покупателем;</li>
+              <li>исполнения обязанностей, возложенных на Оператора законодательством РФ;</li>
+              <li>согласия субъекта персональных данных — когда закон требует либо Оператор выбирает согласие как основание обработки;</li>
+              <li>иных оснований, прямо предусмотренных законодательством Российской Федерации.</li>
+            </ul>
+            <p>
+              Сайт не запрашивает согласие на рекламные рассылки. Письма о регистрации, безопасности аккаунта и заказах являются сервисными, а не рекламными.
+            </p>
+          </Section>
 
-              <div className="bg-muted/50 border border-border rounded-lg p-3 mt-2">
-                <p className="text-xs text-muted-foreground/70">
-                  <strong className="text-foreground">Важно:</strong> Мы <span className="text-foreground font-medium">НЕ собираем</span> данные паспорта, VIN-номера, госномер, пробег, дату рождения и другую информацию, которая не нужна для работы сайта.
-                </p>
-              </div>
-            </div>
-          </section>
+          <Section id="actions" n="6" title="Порядок и способы обработки">
+            <p>
+              Оператор может осуществлять сбор, запись, систематизацию, накопление, хранение,
+              уточнение (обновление, изменение), извлечение, использование, передачу
+              (предоставление, доступ) в случаях, предусмотренных законом и настоящей Политикой,
+              обезличивание, блокирование, удаление и уничтожение персональных данных.
+            </p>
+            <p>
+              Обработка может осуществляться автоматизированным способом, без использования средств
+              автоматизации либо смешанным способом. Доступ предоставляется только лицам, которым
+              он необходим для выполнения соответствующих обязанностей.
+            </p>
+          </Section>
 
-          {/* 2. Зачем мы их собираем */}
-          <section id="why" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">2.</span>
-              Зачем мы их собираем
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                <div>
-                  <span className="text-foreground font-medium">Для регистрации</span>
-                  <span className="text-muted-foreground"> — чтобы вы могли создать аккаунт и пользоваться всеми функциями сайта.</span>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                <div>
-                  <span className="text-foreground font-medium">Для оформления заказов</span>
-                  <span className="text-muted-foreground"> — чтобы принимать оплату, собирать и отправлять заказы.</span>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                <div>
-                  <span className="text-foreground font-medium">Для обратной связи</span>
-                  <span className="text-muted-foreground"> — чтобы отвечать на вопросы, уточнять детали заказов.</span>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                <div>
-                  <span className="text-foreground font-medium">Для улучшения сервиса</span>
-                  <span className="text-muted-foreground"> — анализируем, какие товары популярны, что можно улучшить.</span>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                <div>
-                  <span className="text-foreground font-medium">Для безопасности</span>
-                  <span className="text-muted-foreground"> — защищаем аккаунты от несанкционированного доступа.</span>
-                </div>
-              </div>
-            </div>
-          </section>
+          <Section id="third" n="7" title="Передача данных третьим лицам">
+            <p>
+              Оператор не продаёт персональные данные. Для исполнения заказа и работы сайта данные
+              могут передаваться только в необходимом объёме лицам, участвующим в соответствующем процессе:
+            </p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>ЮKassa/платёжной инфраструктуре — для проведения и идентификации платежа;</li>
+              <li>службам доставки — для доставки заказа получателю;</li>
+              <li>DaData — при использовании пользователем функции подсказок адреса;</li>
+              <li>почтовому сервису — email получателя и необходимые сведения для доставки кодов, уведомлений безопасности и сообщений о заказе;</li>
+              <li>сервисам Яндекс — при выбранном пользователем внешнем входе; сведения об авторизации обрабатываются также по правилам соответствующего сервиса;</li>
+              <li>Яндексу — технические сведения соединения при отдельной загрузке карты; сервис может применять собственные cookie;</li>
+              <li>поставщикам хостинга, ИТ-инфраструктуры и технической поддержки — в пределах, необходимых для эксплуатации и защиты сайта;</li>
+              <li>государственным органам — в случаях и порядке, установленных законодательством РФ.</li>
+            </ul>
+            <p>
+              Если третье лицо обрабатывает данные по поручению Оператора, отношения оформляются
+              с учётом требований законодательства о персональных данных. Состав фактически
+              передаваемых данных ограничивается целью передачи.
+            </p>
+          </Section>
 
-          {/* 3. Как мы их используем */}
-          <section id="how" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">3.</span>
-              Как мы их используем
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-muted rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Mail className="w-4 h-4 text-foreground" />
-                    <span className="text-foreground font-medium text-sm">Уведомления</span>
-                  </div>
-                  <p className="text-muted-foreground text-xs">Отправляем подтверждения заказов, статусы, напоминания.</p>
-                </div>
-                <div className="bg-muted rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CreditCard className="w-4 h-4 text-foreground" />
-                    <span className="text-foreground font-medium text-sm">Оплата</span>
-                  </div>
-                  <p className="text-muted-foreground text-xs">Передаём данные платежному шлюзу для проведения оплаты.</p>
-                </div>
-                <div className="bg-muted rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <MessageSquare className="w-4 h-4 text-foreground" />
-                    <span className="text-foreground font-medium text-sm">Поддержка</span>
-                  </div>
-                  <p className="text-muted-foreground text-xs">Отвечаем на вопросы, решаем проблемы с заказами.</p>
-                </div>
-                <div className="bg-muted rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Eye className="w-4 h-4 text-foreground" />
-                    <span className="text-foreground font-medium text-sm">Аналитика</span>
-                  </div>
-                  <p className="text-muted-foreground text-xs">Изучаем поведение пользователей для улучшения сайта.</p>
-                </div>
-              </div>
-              <div className="bg-muted/50 border border-border rounded-lg p-3 mt-2">
-                <p className="text-xs text-muted-foreground/70">
-                  <strong className="text-foreground">Важно:</strong> Мы <span className="text-foreground font-medium">НЕ продаём</span> ваши данные рекламным агентствам и <span className="text-foreground font-medium">НЕ передаём</span> их третьим лицам без вашего согласия.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 4. Кому мы их передаём */}
-          <section id="with" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">4.</span>
-              Кому мы их передаём
-            </h2>
-            <div className="space-y-3 text-sm">
-              <p>Мы передаём данные только тем, кто участвует в обработке вашего заказа:</p>
-              <ul className="space-y-2 pl-4">
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <div>
-                    <span className="text-foreground font-medium">Платёжный шлюз</span>
-                    <span className="text-muted-foreground"> (ЮKassa) — для проведения оплаты.</span>
-                    <p className="text-xs text-muted-foreground/60 mt-0.5">Передаём: сумму, номер заказа, email.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <div>
-                    <span className="text-foreground font-medium">Сервис подсказок адресов</span>
-                    <span className="text-muted-foreground"> (DaData) — для упрощения ввода адреса.</span>
-                    <p className="text-xs text-muted-foreground/60 mt-0.5">Адрес можно ввести вручную, если подсказки недоступны.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <div>
-                    <span className="text-foreground font-medium">Служба доставки</span>
-                    <span className="text-muted-foreground"> — для отправки заказа.</span>
-                    <p className="text-xs text-muted-foreground/60 mt-0.5">Передаём: имя, телефон, адрес доставки.</p>
-                  </div>
-                </li>
-              </ul>
-              <div className="bg-muted/50 border border-border rounded-lg p-3 mt-2">
-                <p className="text-xs text-muted-foreground/70">
-                  <strong className="text-foreground">Важно:</strong> Мы <span className="text-foreground font-medium">НЕ передаём</span> ваши данные неограниченному кругу лиц и <span className="text-foreground font-medium">НЕ публикуем</span> их в открытом доступе.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 5. Как мы защищаем данные */}
-          <section id="protect" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">5.</span>
-              Как мы защищаем данные
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex items-start gap-3 bg-muted rounded-lg p-3">
-                  <Lock className="w-4 h-4 text-foreground flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-foreground font-medium">HTTPS/SSL</span>
-                    <p className="text-muted-foreground text-xs">Все данные передаются по защищённому соединению.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 bg-muted rounded-lg p-3">
-                  <Lock className="w-4 h-4 text-foreground flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-foreground font-medium">Хеширование паролей</span>
-                    <p className="text-muted-foreground text-xs">Пароли хранятся в зашифрованном виде.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 bg-muted rounded-lg p-3">
-                  <Lock className="w-4 h-4 text-foreground flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-foreground font-medium">Ограниченный доступ</span>
-                    <p className="text-muted-foreground text-xs">К данным имеют доступ только ответственные сотрудники.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 bg-muted rounded-lg p-3">
-                  <Lock className="w-4 h-4 text-foreground flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-foreground font-medium">Регулярные обновления</span>
-                    <p className="text-muted-foreground text-xs">Обновляем программное обеспечение для защиты от уязвимостей.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* 6. Ваши права */}
-          <section id="rights" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">6.</span>
-              Ваши права
-            </h2>
-            <div className="space-y-3 text-sm">
-              <p>У вас есть право:</p>
-              <ul className="space-y-2 pl-4">
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <span>Запросить, какие данные о вас хранятся</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <span>Изменить или дополнить свои данные</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <span>Удалить аккаунт и все связанные данные</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                  <span>Отозвать согласие на обработку данных</span>
-                </li>
-              </ul>
-              <div className="bg-muted rounded-lg p-4 mt-3">
-                <p className="text-xs text-muted-foreground/70">
-                  Для реализации своих прав напишите нам на{' '}
-                  <a 
-                    href="mailto:swapservice38@yandex.ru" 
-                    className="text-foreground hover:underline font-medium"
-                  >
-                    swapservice38@yandex.ru
-                  </a>
-                  {' '}— мы ответим в течение 10 рабочих дней.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 7. Файлы cookie */}
-          <section id="cookies" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">7.</span>
-              Файлы cookie
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-start gap-3 p-4 bg-muted rounded-lg">
-                <Cookie className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Что это такое?</p>
-                  <p className="text-muted-foreground text-xs mt-1">
-                    Cookie — это небольшие файлы, которые сохраняются в вашем браузере. 
-                    Они помогают сайту работать корректно.
-                  </p>
-                </div>
-              </div>
-              <p className="text-sm">Мы используем cookie для:</p>
-              <ul className="space-y-1.5 pl-4 text-sm">
-                <li className="flex items-start gap-2">
-                  <span className="text-primary">•</span>
-                  <span>Хранения товаров в корзине</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary">•</span>
-                  <span>Автоматического входа в аккаунт</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary">•</span>
-                  <span>Сбора аналитики (какие страницы посещают)</span>
-                </li>
-              </ul>
-              <div className="bg-muted/50 border border-border rounded-lg p-3 mt-2">
-                <p className="text-xs text-muted-foreground/70">
-                  Вы можете отключить cookie в настройках браузера. Но тогда сайт может работать некорректно 
-                  (например, корзина не сохранит товары).
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 8. Контакты */}
-          <section id="contacts" className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <span className="text-muted-foreground text-sm font-normal">8.</span>
-              Контакты
-            </h2>
-            <div className="space-y-3 text-sm">
+          <Section id="storage" n="8" title="Хранение, локализация и уничтожение данных">
+            <div className="flex items-start gap-3 bg-muted rounded-lg p-4">
+              <Database className="w-5 h-5 text-foreground flex-shrink-0 mt-0.5" />
               <p>
-                Если у вас есть вопросы по обработке данных, свяжитесь с нами:
+                При сборе персональных данных граждан Российской Федерации через Интернет Оператор
+                обязан соблюдать требования законодательства РФ к записи, систематизации,
+                накоплению, хранению, уточнению и извлечению таких данных с использованием баз данных,
+                находящихся на территории Российской Федерации, за исключением прямо предусмотренных законом случаев.
               </p>
-              <div className="bg-muted border border-border rounded-lg p-4 space-y-3 text-sm">
-                <div className="flex items-center gap-3">
-                  <Phone className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Телефон:</span>
-                  <a 
-                    href="tel:+79148993838" 
-                    className="text-foreground hover:underline font-medium"
-                  >
-                    7 (914) 895-58-88
-                  </a>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Email:</span>
-                  <a 
-                    href="mailto:swapservice38@yandex.ru" 
-                    className="text-foreground hover:underline font-medium"
-                  >
-                    swapservice38@yandex.ru
-                  </a>
-                </div>
-                <div className="flex items-center gap-3 pt-2 border-t border-border">
-                  <MapPin className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Адрес:</span>
-                  <span className="text-foreground font-medium">г. Иркутск, ул. Новаторов 36</span>
-                </div>
+            </div>
+            <p>
+              По достижении целей обработки данные удаляются или уничтожаются либо обезличиваются,
+              если их дальнейшее хранение не требуется по закону, договору или для реализации
+              предусмотренных законом прав и обязанностей. При отзыве согласия обработка на основании
+              согласия прекращается, если у Оператора отсутствует иное законное основание продолжать обработку.
+            </p>
+          </Section>
+
+          <Section id="cookies" n="9" title="Cookie и средства аналитики">
+            <div className="flex items-start gap-3 bg-muted rounded-lg p-4">
+              <Cookie className="w-5 h-5 text-foreground flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-foreground font-medium">Необходимые cookie</p>
+                <p>могут использоваться для авторизации, безопасности, сохранения сессии и работы корзины.</p>
               </div>
             </div>
-          </section>
+            <p>
+              Аналитические и рекламные трекеры на сайте не подключены. Используются необходимые cookie авторизации, корзины, защиты запросов и внешнего входа.
+              Настройки хранения cookie можно изменить в браузере. Внешняя карта на странице контактов загружается только по отдельному действию пользователя.
+              Отключение необходимых cookie может привести к недоступности отдельных функций.
+            </p>
+            <p>Cookie входа хранится до 7 дней, гостевой корзины — до 30 дней, защиты запросов — до 5 минут, временного внешнего входа и регистрации — до 10 минут. Выход, истечение срока или действия браузера могут прекратить их действие раньше. Нажатие «Понятно» только скрывает информационную плашку; отметка хранится в localStorage до очистки пользователем и не является UserConsent. По выбору пользователя браузер также может запомнить email для входа.</p>
+          </Section>
+
+          <Section id="security" n="10" title="Меры по защите персональных данных">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ['Защищённое соединение', 'Передача данных сайта осуществляется с применением HTTPS при его корректной настройке.'],
+                ['Пароли', 'Пароли пользователей должны храниться в виде стойкого криптографического хеша, а не в открытом виде.'],
+                ['Контроль доступа', 'Доступ к персональным данным ограничивается в соответствии с рабочей необходимостью.'],
+                ['Защита запросов', 'Используются проверки прав доступа, защита от подделки запросов и ограничение частоты чувствительных операций.'],
+              ].map(([title, text]) => (
+                <div key={title} className="bg-muted rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1 text-foreground font-medium">
+                    <Lock className="w-4 h-4" /> {title}
+                  </div>
+                  <p className="text-xs">{text}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section id="rights" n="11" title="Права субъекта персональных данных">
+            <p>Субъект персональных данных вправе, в предусмотренных законом случаях:</p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>получать сведения об обработке своих персональных данных;</li>
+              <li>требовать уточнения, блокирования или уничтожения неполных, устаревших, неточных, незаконно полученных или не необходимых данных;</li>
+              <li>отозвать ранее предоставленное согласие;</li>
+              <li>требовать прекращения обработки в случаях, предусмотренных законом;</li>
+              <li>обжаловать действия или бездействие Оператора в Роскомнадзор или в судебном порядке;</li>
+              <li>осуществлять иные права, предусмотренные законодательством Российской Федерации.</li>
+            </ul>
+          </Section>
+
+          <Section id="requests" n="12" title="Обращения, уточнение данных и отзыв согласия">
+            <p>
+              Запрос, требование об уточнении/удалении данных или отзыв согласия можно направить на
+              <a href={SITE_CONTACTS.operator.mailto} className="text-foreground hover:underline font-medium"> {SITE_CONTACTS.operator.email}</a> либо письменно по адресу оператора: г. Иркутск, ул. Новаторов, 36.
+              Для защиты данных Оператор вправе запросить сведения, позволяющие подтвердить личность
+              заявителя и его связь с соответствующими персональными данными, в пределах требований закона.
+            </p>
+            <p>
+              Информация об обработке предоставляется в течение 10 рабочих дней; при мотивированном уведомлении срок может быть продлён не более чем на 5 рабочих дней. Требование о прекращении обработки рассматривается в сроки статьи 21 Закона №152-ФЗ. При отзыве согласия данные, для которых нет иного основания обработки или хранения, подлежат уничтожению не позднее 30 дней в предусмотренных законом случаях. Отзыв не отменяет необходимые действия по исполнению договора и законные обязанности по хранению документов.
+            </p>
+          </Section>
+
+          <Section id="final" n="13" title="Заключительные положения">
+            <p>
+              Оператор вправе изменять Политику при изменении законодательства, процессов обработки
+              или функциональности сайта. Новая редакция действует с момента её размещения на сайте,
+              если в ней не указана иная дата.
+            </p>
+            <p>
+              Актуальная редакция должна быть постоянно доступна на сайте по адресу страницы настоящей Политики.
+            </p>
+          </Section>
         </div>
 
-        {/* Кнопки навигации */}
+        <section className="bg-card border border-border rounded-2xl p-6 mt-6">
+          <h2 className="text-xl font-semibold text-foreground mb-4">Контакты оператора</h2>
+          <div className="space-y-3 text-sm">
+            <Contact icon={<Phone className="w-4 h-4" />} label="Телефон оператора" href={SITE_CONTACTS.operator.tel} value={SITE_CONTACTS.operator.phone} />
+            <Contact icon={<Mail className="w-4 h-4" />} label="Email оператора" href={SITE_CONTACTS.operator.mailto} value={SITE_CONTACTS.operator.email} />
+            <div className="flex items-center gap-3"><MapPin className="w-4 h-4" /><span className="text-muted-foreground">Адрес:</span><span className="text-foreground font-medium">г. Иркутск, ул. Новаторов, 36</span></div>
+          </div>
+        </section>
+
         <div className="mt-12 pt-8 border-t border-border flex flex-wrap gap-4">
-          <Link 
-            href="/" 
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            На главную
+          <Link href="/" className="inline-flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition">
+            <ArrowLeft className="w-4 h-4" /> На главную
           </Link>
-          <Link 
-            href="/contacts" 
-            className="inline-flex items-center gap-2 px-6 py-2.5 border border-border text-foreground rounded-lg text-sm font-medium hover:bg-muted transition"
-          >
-            Связаться с нами
-          </Link>
-        </div>
-
-        {/* Дата обновления */}
-        <div className="mt-8 text-center text-xs text-muted-foreground/40">
-          Версия 1.0 от {new Date().toLocaleDateString('ru-RU', { 
-            day: 'numeric', 
-            month: 'long', 
-            year: 'numeric' 
-          })}
         </div>
       </div>
     </div>
   );
+}
+
+function Section({ id, n, title, children }: { id: string; n: string; title: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="bg-card border border-border rounded-2xl p-6 scroll-mt-32">
+      <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+        <span className="text-muted-foreground text-sm font-normal">{n}.</span>{title}
+      </h2>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-border/50 last:border-0"><span>{label}</span><span className="text-foreground font-medium">{value}</span></div>;
+}
+
+function Purpose({ title, subjects, data, term }: { title: string; subjects: string; data: string; term: string }) {
+  return (
+    <div className="bg-muted rounded-lg p-4 space-y-1.5">
+      <h3 className="text-foreground font-semibold">{title}</h3>
+      <p><strong className="text-foreground">Субъекты:</strong> {subjects}.</p>
+      <p><strong className="text-foreground">Данные:</strong> {data}.</p>
+      <p><strong className="text-foreground">Срок:</strong> {term}.</p>
+    </div>
+  );
+}
+
+function Contact({ icon, label, href, value }: { icon: React.ReactNode; label: string; href: string; value: string }) {
+  return <div className="flex items-center gap-3">{icon}<span className="text-muted-foreground">{label}:</span><a href={href} className="text-foreground hover:underline font-medium">{value}</a></div>;
 }

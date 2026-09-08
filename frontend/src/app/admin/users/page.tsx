@@ -191,12 +191,27 @@ export default function AdminUsersPage() {
         body: JSON.stringify({ ids }),
       });
 
+      const data = await response.json().catch(() => null) as {
+        error?: unknown;
+        message?: unknown;
+        skipped?: unknown;
+      } | null;
+
       if (response.ok) {
         setSelectedUsers(new Set());
-        fetchUsers();
+        await fetchUsers();
+        if (Array.isArray(data?.skipped) && data.skipped.length > 0) {
+          const reasons = data.skipped.map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const skipped = item as { id?: unknown; reason?: unknown };
+            return typeof skipped.reason === 'string'
+              ? `${typeof skipped.id === 'string' ? skipped.id : 'Пользователь'}: ${skipped.reason}`
+              : null;
+          }).filter((item): item is string => Boolean(item));
+          alert([typeof data?.message === 'string' ? data.message : 'Часть пользователей пропущена', ...reasons].join('\n'));
+        }
       } else {
-        const data = await response.json();
-        alert(data.error || 'Ошибка массового удаления');
+        alert(typeof data?.error === 'string' ? data.error : 'Ошибка массового удаления');
       }
     } catch (error) {
       alert('Ошибка массового удаления');

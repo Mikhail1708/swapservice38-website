@@ -1,4 +1,5 @@
 // backend/tests/unit/schemas/auth.schema.test.ts
+import { personalDataAcceptance } from '../../helpers/consent';
 import {
   registerSchema,
   loginSchema,
@@ -16,6 +17,7 @@ describe('Auth Schemas', () => {
   // ============================================================
   describe('registerSchema', () => {
     const validData = {
+      personalDataConsent: personalDataAcceptance,
       email: 'test@example.com',
       password: 'Test1234!',
       firstName: 'Иван',
@@ -27,8 +29,13 @@ describe('Auth Schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it.each([undefined, { ...personalDataAcceptance, accepted: false }, { ...personalDataAcceptance, accepted: 'true' }])('rejects absent or nonliteral PD acceptance %p', (personalDataConsent) => {
+      expect(registerSchema.safeParse({ ...validData, personalDataConsent }).success).toBe(false);
+    });
+
     it('should validate with optional firstName and lastName', () => {
       const data = {
+        personalDataConsent: personalDataAcceptance,
         email: 'test@example.com',
         password: 'Test1234!',
       };

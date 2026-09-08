@@ -1,99 +1,103 @@
 // backend/src/controllers/admin/dashboard.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { log } from '../../config/logger';
 
 const prisma = new PrismaClient();
 
-export const getDashboardStats = async (req: Request, res: Response): Promise<void> => {
+const startOfLocalDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+export const getDashboardStats = async (_req: Request, res: Response): Promise<void> => {
   try {
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const monthAgo = new Date(today);
-    monthAgo.setMonth(monthAgo.getMonth() - 1);
+    const today = startOfLocalDay(now);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // ===== ЗАКАЗЫ =====
-    const totalOrders = await prisma.order.count();
-    const ordersToday = await prisma.order.count({
-      where: { createdAt: { gte: today } },
-    });
-    const ordersWeek = await prisma.order.count({
-      where: { createdAt: { gte: weekAgo } },
-    });
-    const ordersMonth = await prisma.order.count({
-      where: { createdAt: { gte: monthAgo } },
-    });
-    const paidOrders = await prisma.order.count({
-      where: { status: 'paid' },
-    });
-    const pendingOrders = await prisma.order.count({
-      where: { status: 'pending' },
-    });
+    const weekStart = new Date(today);
+    const day = weekStart.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    weekStart.setDate(weekStart.getDate() + mondayOffset);
 
-    // ===== ВЫРУЧКА =====
-    const allPaidOrders = await prisma.order.findMany({
-      where: { status: 'paid' },
-      select: { total: true },
-    });
-    const revenueTotal = allPaidOrders.reduce((sum, o) => sum + o.total, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const chartStart = new Date(today);
+    chartStart.setDate(chartStart.getDate() - 6);
 
-    const paidOrdersMonth = await prisma.order.findMany({
-      where: {
-        status: 'paid',
-        createdAt: { gte: monthAgo },
-      },
-      select: { total: true },
-    });
-    const revenueMonth = paidOrdersMonth.reduce((sum, o) => sum + o.total, 0);
+    // Payment truth lives in PaymentAttempt, not in the fulfillment/lifecycle Order.status.
+    // A successful attempt that later becomes compensation_required/refunded stops matching this predicate.
+    const successfullyPaidWhere = {
+      paymentAttempts: { some: { status: 'succeeded' } },
+    } as const;
 
-    // ===== ПОЛЬЗОВАТЕЛИ =====
-    const totalUsers = await prisma.user.count();
-    const newUsersWeek = await prisma.user.count({
-      where: { createdAt: { gte: weekAgo } },
-    });
-    const newUsersMonth = await prisma.user.count({
-      where: { createdAt: { gte: monthAgo } },
-    });
-
-    // ===== ДИНАМИКА ЗАКАЗОВ ПО ДНЯМ =====
-    const ordersByDay = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-      
-      const count = await prisma.order.count({
-        where: {
-          createdAt: { gte: date, lt: nextDate },
+    const [
+      totalOrders,
+      ordersToday,
+      ordersWeek,
+      ordersMonth,
+      paidOrders,
+      pendingOrders,
+      revenueTotalAggregate,
+      revenueMonthAggregate,
+      totalUsers,
+      newUsersWeek,
+      newUsersMonth,
+      chartOrders,
+      groupedStatuses,
+      recentOrders,
+    ] = await Promise.all([
+      prisma.order.count(),
+      prisma.order.count({ where: { createdAt: { gte: today, lt: tomorrow } } }),
+      prisma.order.count({ where: { createdAt: { gte: weekStart } } }),
+      prisma.order.count({ where: { createdAt: { gte: monthStart } } }),
+      prisma.order.count({ where: successfullyPaidWhere }),
+      prisma.order.count({ where: { status: 'pending' } }),
+      prisma.order.aggregate({ where: successfullyPaidWhere, _sum: { total: true } }),
+      prisma.order.aggregate({
+        where: { ...successfullyPaidWhere, createdAt: { gte: monthStart } },
+        _sum: { total: true },
+      }),
+      prisma.user.count(),
+      prisma.user.count({ where: { createdAt: { gte: weekStart } } }),
+      prisma.user.count({ where: { createdAt: { gte: monthStart } } }),
+      prisma.order.findMany({
+        where: { createdAt: { gte: chartStart, lt: tomorrow } },
+        select: { createdAt: true },
+      }),
+      prisma.order.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.order.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderNumber: true,
+          guestName: true,
+          customerFirstName: true,
+          customerLastName: true,
+          total: true,
+          status: true,
+          createdAt: true,
         },
-      });
-      
-      ordersByDay.push({
-        date: date.toISOString().split('T')[0],
-        count,
-      });
+      }),
+    ]);
+
+    const dayCounts = new Map<string, number>();
+    for (const order of chartOrders) {
+      const date = startOfLocalDay(order.createdAt);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
     }
 
-    // ===== РАСПРЕДЕЛЕНИЕ ПО СТАТУСАМ =====
-    const allOrders = await prisma.order.findMany({
-      select: { status: true },
+    const ordersByDay = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(chartStart);
+      date.setDate(chartStart.getDate() + index);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return { date: key, count: dayCounts.get(key) || 0 };
     });
-    const statusMap: Record<string, number> = {};
-    allOrders.forEach((o) => {
-      statusMap[o.status] = (statusMap[o.status] || 0) + 1;
-    });
-    const statusDistribution = Object.entries(statusMap).map(([status, count]) => ({
-      status,
-      count,
-    }));
 
-    // ===== ПОСЛЕДНИЕ ЗАКАЗЫ =====
-    const recentOrders = await prisma.order.findMany({
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-    });
+    const statusDistribution = groupedStatuses.map((item) => ({
+      status: item.status,
+      count: item._count._all,
+    }));
 
     res.json({
       stats: {
@@ -106,33 +110,29 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
           pending: pendingOrders,
         },
         revenue: {
-          total: revenueTotal,
-          month: revenueMonth,
+          total: revenueTotalAggregate._sum.total || 0,
+          month: revenueMonthAggregate._sum.total || 0,
         },
-       
         users: {
           total: totalUsers,
           newWeek: newUsersWeek,
           newMonth: newUsersMonth,
         },
       },
-      charts: {
-        ordersByDay,
-        statusDistribution,
-      },
+      charts: { ordersByDay, statusDistribution },
       recent: {
-        orders: recentOrders.map((o: any) => ({
-          id: o.id,
-          orderNumber: o.orderNumber || o.id.slice(0, 8),
-          guestName: o.guestName || 'Гость',
-          total: o.total,
-          status: o.status,
-          createdAt: o.createdAt,
+        orders: recentOrders.map((order) => ({
+          id: order.id,
+          orderNumber: order.orderNumber || order.id.slice(0, 8),
+          guestName: order.guestName || [order.customerLastName, order.customerFirstName].filter(Boolean).join(' ') || 'Гость',
+          total: order.total,
+          status: order.status,
+          createdAt: order.createdAt,
         })),
       },
     });
   } catch (error: any) {
-    console.error('❌ Dashboard stats error:', error);
+    log.error('Dashboard stats error', { error: error.message });
     res.status(500).json({ error: 'Ошибка получения статистики' });
   }
 };

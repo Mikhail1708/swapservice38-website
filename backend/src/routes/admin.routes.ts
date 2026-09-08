@@ -69,64 +69,64 @@ router.use(requireAuth);
 router.use(requireAdmin);
 
 // ===== DASHBOARD =====
-router.get('/dashboard/stats', getDashboardStats);
+router.get('/dashboard/stats', asyncHandler(getDashboardStats));
 
 // ===== ORDERS =====
-router.get('/orders', getOrders);
-router.get('/orders/:id', getOrderById);
-router.patch('/orders/:id/status', updateOrderStatus);
-router.put('/orders/:id', updateOrder);
+router.get('/orders', asyncHandler(getOrders));
+router.get('/orders/:id', asyncHandler(getOrderById));
+router.patch('/orders/:id/status', asyncHandler(updateOrderStatus));
+router.put('/orders/:id', asyncHandler(updateOrder));
 router.delete('/orders/:id', asyncHandler(deleteOrder));
 router.post('/orders/:id/delete-with-password', asyncHandler(deleteOrderWithPassword));
-router.post('/orders/:id/retry', retryOrderToCRM);
-router.post('/orders/:id/refund/retry', retryFailedRefund);
+router.post('/orders/:id/retry', asyncHandler(retryOrderToCRM));
+router.post('/orders/:id/refund/retry', asyncHandler(retryFailedRefund));
 router.post('/orders/mass-delete', asyncHandler(massDeleteOrders));
 router.post('/orders/mass-delete-with-password', asyncHandler(massDeleteOrdersWithPassword));
 
 // ===== USERS =====
-router.get('/users', getUsers);
-router.get('/users/:id', getUserById);
-router.post('/users', requireAdminOnly, createUser);
-router.put('/users/:id', requireAdminOnly, updateUser);
-router.delete('/users/:id', requireAdminOnly, deleteUser);
-router.patch('/users/:id/role', requireAdminOnly, updateUserRole);
-router.post('/users/:id/block', requireAdminOnly, blockUser);
-router.post('/users/:id/unblock', requireAdminOnly, unblockUser);
-router.put('/users/:id/password', requireAdminOnly, changeUserPassword);
-router.post('/users/mass-delete', requireAdminOnly, massDeleteUsers);
+router.get('/users', asyncHandler(getUsers));
+router.get('/users/:id', asyncHandler(getUserById));
+router.post('/users', requireAdminOnly, asyncHandler(createUser));
+router.put('/users/:id', requireAdminOnly, asyncHandler(updateUser));
+router.delete('/users/:id', requireAdminOnly, asyncHandler(deleteUser));
+router.patch('/users/:id/role', requireAdminOnly, asyncHandler(updateUserRole));
+router.post('/users/:id/block', requireAdminOnly, asyncHandler(blockUser));
+router.post('/users/:id/unblock', requireAdminOnly, asyncHandler(unblockUser));
+router.put('/users/:id/password', requireAdminOnly, asyncHandler(changeUserPassword));
+router.post('/users/mass-delete', requireAdminOnly, asyncHandler(massDeleteUsers));
 
 // ===== ARTICLES =====
-router.get('/articles', getArticles);
-router.get('/articles/:id', getArticleById);
-router.post('/articles', createArticle);
-router.put('/articles/:id', updateArticle);
-router.delete('/articles/:id', deleteArticle);
+router.get('/articles', asyncHandler(getArticles));
+router.get('/articles/:id', asyncHandler(getArticleById));
+router.post('/articles', asyncHandler(createArticle));
+router.put('/articles/:id', asyncHandler(updateArticle));
+router.delete('/articles/:id', asyncHandler(deleteArticle));
 
 // ✅ АЛИАСЫ ДЛЯ /content/articles (для совместимости с фронтендом)
-router.get('/content/articles', getArticles);
-router.get('/content/articles/:id', getArticleById);
-router.post('/content/articles', createArticle);
-router.put('/content/articles/:id', updateArticle);
-router.delete('/content/articles/:id', deleteArticle);
+router.get('/content/articles', asyncHandler(getArticles));
+router.get('/content/articles/:id', asyncHandler(getArticleById));
+router.post('/content/articles', asyncHandler(createArticle));
+router.put('/content/articles/:id', asyncHandler(updateArticle));
+router.delete('/content/articles/:id', asyncHandler(deleteArticle));
 
 // ===== SERVICES (УСЛУГИ) =====
-router.get('/services', getServices);
-router.get('/services/:id', getServiceById);
-router.post('/services', createService);
-router.put('/services/:id', updateService);
-router.delete('/services/:id', deleteService);
+router.get('/services', asyncHandler(getServices));
+router.get('/services/:id', asyncHandler(getServiceById));
+router.post('/services', asyncHandler(createService));
+router.put('/services/:id', asyncHandler(updateService));
+router.delete('/services/:id', asyncHandler(deleteService));
 
 // ✅ АЛИАСЫ ДЛЯ /content/services (для совместимости с фронтендом)
-router.get('/content/services', getServices);
-router.get('/content/services/:id', getServiceById);
-router.post('/content/services', createService);
-router.put('/content/services/:id', updateService);
-router.delete('/content/services/:id', deleteService);
+router.get('/content/services', asyncHandler(getServices));
+router.get('/content/services/:id', asyncHandler(getServiceById));
+router.post('/content/services', asyncHandler(createService));
+router.put('/content/services/:id', asyncHandler(updateService));
+router.delete('/content/services/:id', asyncHandler(deleteService));
 
 // ===== SETTINGS =====
-router.get('/settings', getSettings);
-router.put('/settings', updateSettings);
-router.get('/settings/maintenance', getMaintenanceStatus);
+router.get('/settings', asyncHandler(getSettings));
+router.put('/settings', asyncHandler(updateSettings));
+router.get('/settings/maintenance', asyncHandler(getMaintenanceStatus));
 
 // ===== QUEUE (CRM) =====
 router.get('/queue/stats', async (req, res) => {

@@ -10,6 +10,55 @@ import {
 } from '../../../src/services/emailTemplates';
 
 describe('SWAPSERVICE38 email templates', () => {
+  it('created and paid mail use the payment-based dispatch deadline, not a delivery date', () => {
+    const data = {
+      orderId: 'order-deadline', documentNumber: 'SS38-1', customerName: 'Иван',
+      customerEmail: 'customer@example.test', customerPhone: '', total: 100,
+      items: [{ name: 'Комплект', quantity: 1, price: 100, total: 100 }],
+      deliveryAddress: '', comment: '',
+    };
+    const created = orderCreatedCustomerTemplate(data);
+    const paid = orderConfirmationCustomerTemplate(data, '');
+    for (const mail of [created, paid]) for (const output of [mail.html, mail.text]) {
+      expect(output).toContain('после подтверждения полной оплаты');
+      expect(output).toContain('не позднее 3 рабочих дней');
+      expect(output).toContain('не срок перевозки');
+      expect(output).toContain('О готовности к самовывозу мы уведомим');
+      expect(output).not.toContain('получите заказ через 3');
+    }
+    expect(created.text).toContain('Оплата ещё не подтверждена');
+    expect(paid.text).not.toContain('Оплата ещё не подтверждена');
+  });
+  it('order-created confirmation includes contract data, safe seller contacts and no internal payload', () => {
+    const data = {
+      orderId: 'public-order-123', customerName: '<Получатель>', total: 3000,
+      createdAt: '2026-09-07T17:30:00.000Z', offerVersion: '2026-09-08',
+      items: [{ name: '<Дроп-кит>', quantity: 2, price: 1000, total: 2000 }, { name: 'Защита', quantity: 1, price: 1000, total: 1000 }],
+      deliveryMethod: 'post', deliveryProvider: 'Перевозчик', deliveryAddress: 'Адрес <получения>',
+      passwordHash: 'PRIVATE_PASSWORD_SENTINEL', token: 'PRIVATE_TOKEN_SENTINEL', sessionId: 'PRIVATE_SESSION_SENTINEL', crmOrderId: 'PRIVATE_CRM_SENTINEL', technicalPayload: 'PRIVATE_PAYLOAD_SENTINEL',
+    };
+    const result = orderCreatedCustomerTemplate(data);
+    for (const output of [result.html, result.text]) {
+      expect(output).toContain('public-order-123');
+      expect(output).toContain('8 сентября 2026');
+      expect(output).toContain('UTC+8');
+      expect(output).toContain('Защита');
+      expect(output).toContain('Перевозчик');
+      expect(output).toContain('381011379046');
+      expect(output).toContain('315385000059546');
+      expect(output).toContain('swap38@mail.ru');
+      expect(output).toContain('https://example.test/offer');
+      expect(output).toContain('2026-09-08');
+      expect(output).toContain('не является кассовым чеком');
+      expect(output).not.toMatch(/PRIVATE_|passwordHash|sessionId|crmOrderId|technicalPayload/);
+    }
+    expect(result.html).toContain('&lt;Дроп-кит&gt;');
+    expect(result.html).not.toContain('<Получатель>');
+    expect(result.html).toContain('Цена за шт.');
+    expect(result.html).toContain('tel:+79245330880');
+    expect(result.text).toMatch(/2 шт\. × 1\s000 ₽ = 2\s000 ₽/);
+    expect(result.text).toMatch(/Итого товары: 3\s000 ₽/);
+  });
   beforeAll(() => {
     process.env.PUBLIC_APP_URL = 'https://example.test';
   });

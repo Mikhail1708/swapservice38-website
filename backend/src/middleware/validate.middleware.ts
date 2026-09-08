@@ -1,9 +1,9 @@
 // backend/src/middleware/validate.middleware.ts
 import { Request, Response, NextFunction } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
+import { ZodTypeAny, ZodError } from 'zod';
 import { log } from '../config/logger';
 
-export const validate = (schema: AnyZodObject) => {
+export const validate = (schema: ZodTypeAny) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Валидируем body

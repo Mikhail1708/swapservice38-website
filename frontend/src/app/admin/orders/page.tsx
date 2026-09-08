@@ -32,6 +32,7 @@ interface Order {
 const statusOptions = [
   { value: 'pending', label: 'Ожидает оплаты' },
   { value: 'paid', label: 'Оплачен' },
+  { value: 'crm_failed', label: 'Ошибка CRM' },
   { value: 'confirmed', label: 'Подтверждён' },
   { value: 'assembling', label: 'Собирается' },
   { value: 'shipped', label: 'Отправлен' },
@@ -42,6 +43,7 @@ const statusOptions = [
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-500',
   paid: 'bg-blue-500/20 text-blue-500',
+  crm_failed: 'bg-orange-500/20 text-orange-500',
   confirmed: 'bg-indigo-500/20 text-indigo-500',
   assembling: 'bg-purple-500/20 text-purple-500',
   shipped: 'bg-green-500/20 text-green-500',
@@ -162,7 +164,7 @@ export default function AdminOrdersPage() {
     
     // Проверяем, есть ли заказы, которые нельзя удалить без пароля
     const hasNonDeletable = selectedOrdersData.some(o => 
-      o.status !== 'pending' && o.status !== 'crm_failed' && o.status !== 'paid'
+      o.status !== 'pending' && o.status !== 'crm_failed'
     );
     
     if (hasNonDeletable) {

@@ -4,6 +4,8 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { AdminLayout } from '@/components/admin/layout/AdminLayout'
 import { EmailVerificationBanner } from '@/components/email-verification-banner'
+import { CookieBanner } from '@/components/CookieBanner'
+import PersonalDataConsentPage from '@/app/(public)/personal-data-consent/page'
 
 // ============================================================
 // ПУБЛИЧНЫЕ СТРАНИЦЫ
@@ -34,6 +36,7 @@ import ResetPasswordNewPage from '@/app/(auth)/reset-password/new/page'
 import ResetPasswordVerifyPage from '@/app/(auth)/reset-password/verify/page'
 import OAuthCallbackPage from '@/app/(auth)/oauth-callback/page'
 import OAuthSuccessPage from '@/app/(auth)/oauth-success/page'
+import OAuthConsentPage from '@/app/(auth)/oauth-consent/page'
 
 // ============================================================
 // ПРОФИЛЬ — С ХЕДЕРОМ И ФУТЕРОМ!
@@ -84,6 +87,7 @@ function PageLayout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <CookieBanner />
       <Routes>
         {/* ===== ПУБЛИЧНЫЕ С ХЕДЕРОМ И ФУТЕРОМ ===== */}
         <Route path="/" element={<PageLayout><HomePage /></PageLayout>} />
@@ -97,6 +101,7 @@ function App() {
         <Route path="/swaps/:id" element={<PageLayout><SwapDetailPage /></PageLayout>} />
         <Route path="/offer" element={<PageLayout><OfferPage /></PageLayout>} />
         <Route path="/privacy" element={<PageLayout><PrivacyPage /></PageLayout>} />
+        <Route path="/personal-data-consent" element={<PageLayout><PersonalDataConsentPage /></PageLayout>} />
         <Route path="/payment/success" element={<PageLayout><PaymentSuccessPage /></PageLayout>} />
         <Route path="/payment/fail" element={<PageLayout><PaymentFailPage /></PageLayout>} />
         <Route path="/payment/:orderId" element={<PageLayout><PaymentPage /></PageLayout>} />
@@ -117,6 +122,7 @@ function App() {
         <Route path="/reset-password/verify" element={<ResetPasswordVerifyPage />} />
         <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
         <Route path="/oauth-success" element={<OAuthSuccessPage />} />
+        <Route path="/oauth-consent" element={<OAuthConsentPage />} />
 
         {/* ===== АДМИНКА — С АДМИН-ЛЕЙАУТОМ ===== */}
         <Route path="/admin" element={<AdminLayout><AdminDashboardPage /></AdminLayout>} />

@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { log } from '../config/logger';
+import { productAvailability } from '../utils/productAvailability';
 
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
@@ -31,8 +32,7 @@ const normalizeProduct = (item: any) => {
     oldPrice: item.oldPrice || item.old_price || null,
     category: item.category || item.categories?.[0]?.name || '',
     categories: item.categories || [],
-    inStock: item.inStock !== undefined ? item.inStock : (item.stock || 0) > 0,
-    stock: item.stock || 0,
+    ...productAvailability(item),
     sku: item.sku || item.article || '',
     images: images,
     image_url: images[0] || '',

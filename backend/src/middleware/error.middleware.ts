@@ -151,5 +151,5 @@ export const errorHandler = (
 
 // Middleware для обработки 404
 export const notFoundHandler = (req: Request, res: Response, next: NextFunction) => {
-  next(new NotFoundError(`Маршрут ${req.method} ${req.url} не найден`));
+  next(new NotFoundError(`Маршрут ${req.method} ${req.path} не найден`));
 };

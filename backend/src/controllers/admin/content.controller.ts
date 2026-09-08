@@ -2,9 +2,61 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { sanitizeArticleHtml } from '../../utils/sanitizeArticleHtml';
-import redis from '@config/redis';
+import { log } from '../../config/logger';
 
 const prisma = new PrismaClient();
+
+const ARTICLE_TYPES = new Set(['swap', 'news']);
+const MAX_TITLE_LENGTH = 300;
+const MAX_DESCRIPTION_LENGTH = 2000;
+const MAX_TAGS = 30;
+const MAX_IMAGES = 30;
+
+const normalizePositiveInt = (value: unknown, fallback: number, max = 10000): number | null => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > max) return null;
+  return parsed;
+};
+
+const normalizeTags = (value: unknown): string[] | null => {
+  if (!Array.isArray(value) || value.length > MAX_TAGS) return null;
+  const tags = value.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean);
+  if (tags.some((tag) => tag.length > 80)) return null;
+  return [...new Set(tags)];
+};
+
+const normalizeImages = (value: unknown): Array<{ url: string; filename?: string; size?: number | null; sortOrder?: number; isMain?: boolean }> | null => {
+  if (!Array.isArray(value) || value.length > MAX_IMAGES) return null;
+  const normalized = [] as Array<{ url: string; filename?: string; size?: number | null; sortOrder?: number; isMain?: boolean }>;
+  for (const item of value) {
+    if (typeof item === 'string') {
+      const url = item.trim();
+      if (!url) return null;
+      normalized.push({ url });
+      continue;
+    }
+    if (!item || typeof item !== 'object') return null;
+    const img = item as Record<string, unknown>;
+    if (typeof img.url !== 'string' || !img.url.trim()) return null;
+    normalized.push({
+      url: img.url.trim(),
+      filename: typeof img.filename === 'string' ? img.filename.slice(0, 255) : undefined,
+      size: typeof img.size === 'number' && Number.isFinite(img.size) && img.size >= 0 ? img.size : null,
+      sortOrder: typeof img.sortOrder === 'number' && Number.isInteger(img.sortOrder) ? img.sortOrder : undefined,
+      isMain: typeof img.isMain === 'boolean' ? img.isMain : undefined,
+    });
+  }
+  return normalized;
+};
+
+const makeSlug = (title: string): string => title
+  .toLowerCase()
+  .replace(/[^a-zа-яё0-9\s]/g, '')
+  .replace(/\s+/g, '-')
+  .replace(/-+/g, '-')
+  .replace(/^-|-$/g, '');
+
 
 // ============================================================
 // ===== ARTICLES (СТАТЬИ/СВАПЫ) =====
@@ -17,7 +69,13 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
     
     const where: any = {};
     if (published === 'true') where.isPublished = true;
-    if (type) where.type = type as string;
+    if (type) {
+      if (typeof type !== 'string' || !ARTICLE_TYPES.has(type)) {
+        res.status(400).json({ error: 'Некорректный тип материала' });
+        return;
+      }
+      where.type = type;
+    }
     if (typeof search === 'string' && search.trim()) {
       where.OR = [
         { title: { contains: search.trim(), mode: 'insensitive' } },
@@ -25,11 +83,15 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
       ];
     }
 
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    const pageNum = Number.parseInt(page as string, 10);
+    const limitNum = Number.parseInt(limit as string, 10);
+    if (!Number.isInteger(pageNum) || pageNum < 1 || !Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
+      res.status(400).json({ error: 'Некорректные параметры пагинации' });
+      return;
+    }
     const skip = (pageNum - 1) * limitNum;
 
-    console.log(`📋 GET /api/articles`, { published, type, page: pageNum, limit: limitNum });
+    log.debug('GET admin/articles', { published, type, page: pageNum, limit: limitNum });
 
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
@@ -47,7 +109,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
       prisma.article.count({ where }),
     ]);
 
-    console.log(`✅ Найдено ${articles.length} статей (всего ${total})`);
+    log.debug('Articles loaded', { count: articles.length, total });
 
     const formatted = articles.map((a: any) => ({
       id: a.id,
@@ -77,7 +139,7 @@ export const getArticles = async (req: Request, res: Response): Promise<void> =>
       totalPages: Math.ceil(total / limitNum),
     });
   } catch (error: any) {
-    console.error('❌ Get articles error:', error);
+    log.error('Get articles error', { error: error.message });
     res.status(500).json({ error: 'Ошибка получения статей' });
   }
 };
@@ -120,10 +182,13 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    await prisma.article.update({
-      where: { id: article.id },
-      data: { views: { increment: 1 } },
-    });
+    const isAdminRequest = req.baseUrl.startsWith('/api/admin');
+    if (!isAdminRequest) {
+      await prisma.article.update({
+        where: { id: article.id },
+        data: { views: { increment: 1 } },
+      });
+    }
 
     const formatted = {
       id: article.id,
@@ -136,7 +201,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
       date: article.createdAt,
       readTime: article.readTime || 5,
       tags: article.tags?.map((t: any) => t.tag.name) || [],
-      views: article.views + 1,
+      views: article.views + (isAdminRequest ? 0 : 1),
       likesCount: article._count?.likes || 0,
       isPublished: article.isPublished,
       type: article.type || 'swap',
@@ -163,7 +228,7 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
 
     res.json(formatted);
   } catch (error: any) {
-    console.error('❌ Get article error:', error);
+    log.error('Get article error', { error: error.message });
     res.status(500).json({ error: 'Ошибка получения статьи' });
   }
 };
@@ -171,16 +236,16 @@ export const getArticleById = async (req: Request, res: Response): Promise<void>
 // POST /api/articles — создать статью
 export const createArticle = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { 
-      title, 
-      content, 
-      description, 
-      imageUrl, 
-      isPublished, 
-      tags = [], 
-      images = [], 
+    const {
+      title,
+      content,
+      description,
+      imageUrl,
+      isPublished,
+      tags = [],
+      images = [],
       readTime,
-      type = 'swap'
+      type = 'swap',
     } = req.body;
     const userId = (req as any).user?.id;
 
@@ -188,76 +253,87 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
       res.status(401).json({ error: 'Не авторизован' });
       return;
     }
-
-    const sanitizedContent = typeof content === 'string' ? sanitizeArticleHtml(content).trim() : '';
-
-    if (!title || !sanitizedContent) {
-      res.status(400).json({ error: 'Заголовок и содержание обязательны' });
+    if (typeof title !== 'string' || !title.trim() || title.trim().length > MAX_TITLE_LENGTH) {
+      res.status(400).json({ error: 'Некорректный заголовок' });
+      return;
+    }
+    if (typeof content !== 'string') {
+      res.status(400).json({ error: 'Содержание обязательно' });
+      return;
+    }
+    if (typeof type !== 'string' || !ARTICLE_TYPES.has(type)) {
+      res.status(400).json({ error: 'Некорректный тип материала' });
+      return;
+    }
+    if (description !== undefined && description !== null && (typeof description !== 'string' || description.length > MAX_DESCRIPTION_LENGTH)) {
+      res.status(400).json({ error: 'Некорректное описание' });
+      return;
+    }
+    if (isPublished !== undefined && typeof isPublished !== 'boolean') {
+      res.status(400).json({ error: 'Некорректное значение isPublished' });
       return;
     }
 
-    console.log(`📝 Создание статьи (${type}):`, { title, tagsCount: tags.length, imagesCount: images.length });
-
-    let slug = title
-      .toLowerCase()
-      .replace(/[^a-zа-яё0-9\s]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-
-    const existing = await prisma.article.findUnique({ where: { slug } });
-    if (existing) {
-      slug = `${slug}-${Date.now()}`;
+    const normalizedTags = normalizeTags(tags);
+    const normalizedImages = normalizeImages(images);
+    const normalizedReadTime = normalizePositiveInt(readTime, 5, 1440);
+    if (!normalizedTags || !normalizedImages || normalizedReadTime === null) {
+      res.status(400).json({ error: 'Некорректные tags, images или readTime' });
+      return;
     }
+
+    const sanitizedContent = sanitizeArticleHtml(content).trim();
+    if (!sanitizedContent) {
+      res.status(400).json({ error: 'Содержание не может быть пустым после очистки' });
+      return;
+    }
+
+    const cleanTitle = title.trim();
+    let slug = makeSlug(cleanTitle) || `article-${Date.now()}`;
+    const existing = await prisma.article.findUnique({ where: { slug } });
+    if (existing) slug = `${slug}-${Date.now()}`;
 
     const article = await prisma.article.create({
       data: {
         slug,
-        title,
+        title: cleanTitle,
         content: sanitizedContent,
-        description: description || title,
-        imageUrl: imageUrl || images?.[0]?.url || '',
-        isPublished: isPublished || false,
-        readTime: readTime || 5,
-        type: type || 'swap',
+        description: typeof description === 'string' && description.trim() ? description.trim() : cleanTitle,
+        imageUrl: typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : normalizedImages[0]?.url || '',
+        isPublished: isPublished === true,
+        readTime: normalizedReadTime,
+        type,
         authorId: userId,
         tags: {
-          create: tags.map((tagName: string) => {
-            const cleanTag = tagName.trim();
-            return {
-              tag: {
-                connectOrCreate: {
-                  where: { name: cleanTag },
-                  create: { 
-                    name: cleanTag,
-                    slug: cleanTag.toLowerCase().replace(/\s+/g, '-'),
-                  },
-                },
+          create: normalizedTags.map((tagName) => ({
+            tag: {
+              connectOrCreate: {
+                where: { name: tagName },
+                create: { name: tagName, slug: makeSlug(tagName) || `tag-${Date.now()}` },
               },
-            };
-          }),
+            },
+          })),
         },
         images: {
-          create: images.map((img: any, index: number) => ({
+          create: normalizedImages.map((img, index) => ({
             url: img.url,
             filename: img.filename || `image_${index}`,
-            size: img.size || null,
-            sortOrder: img.sortOrder || index,
-            isMain: img.isMain || index === 0,
+            size: img.size ?? null,
+            sortOrder: img.sortOrder ?? index,
+            isMain: img.isMain ?? index === 0,
           })),
         },
       },
       include: {
         tags: { include: { tag: true } },
-        images: true,
+        images: { orderBy: { sortOrder: 'asc' } },
         author: { select: { firstName: true, lastName: true } },
       },
     });
 
-    console.log(`✅ Статья создана: ${article.id}`);
-
-    res.status(201).json({ 
-      success: true, 
+    log.info('Article created', { id: article.id, type: article.type });
+    res.status(201).json({
+      success: true,
       article: {
         id: article.id,
         slug: article.slug,
@@ -265,17 +341,17 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
         description: article.description,
         content: article.content,
         imageUrl: article.imageUrl,
-        images: article.images?.map((img: any) => img.url) || [],
-        tags: article.tags?.map((t: any) => t.tag.name) || [],
+        images: article.images.map((img: any) => img.url),
+        tags: article.tags.map((t: any) => t.tag.name),
         isPublished: article.isPublished,
         type: article.type,
         readTime: article.readTime,
         author: article.author ? `${article.author.firstName || ''} ${article.author.lastName || ''}`.trim() : 'Admin',
         createdAt: article.createdAt,
-      }
+      },
     });
   } catch (error: any) {
-    console.error('❌ Create article error:', error);
+    log.error('Create article error', { error: error.message });
     res.status(500).json({ error: 'Ошибка создания статьи' });
   }
 };
@@ -284,17 +360,7 @@ export const createArticle = async (req: Request, res: Response): Promise<void> 
 export const updateArticle = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { 
-      title, 
-      content, 
-      description, 
-      imageUrl, 
-      isPublished, 
-      tags, 
-      images, 
-      readTime,
-      type 
-    } = req.body;
+    const { title, content, description, imageUrl, isPublished, tags, images, readTime, type } = req.body;
     const userId = (req as any).user?.id;
 
     if (!userId) {
@@ -302,113 +368,109 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const existing = await prisma.article.findUnique({ 
-      where: { id },
-      include: { tags: true, images: true },
-    });
-
+    const existing = await prisma.article.findUnique({ where: { id } });
     if (!existing) {
       res.status(404).json({ error: 'Статья не найдена' });
       return;
     }
 
-    console.log(`📝 Обновление статьи: ${id}`);
-
-    const sanitizedContent = typeof content === 'string'
-      ? sanitizeArticleHtml(content).trim()
-      : undefined;
-
-    if (content !== undefined && !sanitizedContent) {
-      res.status(400).json({ error: 'Article content cannot be empty after sanitization' });
+    if (title !== undefined && (typeof title !== 'string' || !title.trim() || title.trim().length > MAX_TITLE_LENGTH)) {
+      res.status(400).json({ error: 'Некорректный заголовок' });
+      return;
+    }
+    if (description !== undefined && description !== null && (typeof description !== 'string' || description.length > MAX_DESCRIPTION_LENGTH)) {
+      res.status(400).json({ error: 'Некорректное описание' });
+      return;
+    }
+    if (isPublished !== undefined && typeof isPublished !== 'boolean') {
+      res.status(400).json({ error: 'Некорректное значение isPublished' });
+      return;
+    }
+    if (type !== undefined && (typeof type !== 'string' || !ARTICLE_TYPES.has(type))) {
+      res.status(400).json({ error: 'Некорректный тип материала' });
       return;
     }
 
-    const data: any = { 
-      content: sanitizedContent,
-      description: description || title,
-      imageUrl: imageUrl || images?.[0]?.url || '',
-      isPublished, 
-      readTime: readTime || 5,
-      type: type || existing.type,
-    };
-    
-    if (title) {
-      data.title = title;
-      let slug = title
-        .toLowerCase()
-        .replace(/[^a-zа-яё0-9\s]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-      
-      const existingSlug = await prisma.article.findFirst({
-        where: { 
-          slug, 
-          id: { not: id } 
+    const sanitizedContent = content === undefined
+      ? undefined
+      : typeof content === 'string'
+        ? sanitizeArticleHtml(content).trim()
+        : null;
+    if (sanitizedContent === null || (content !== undefined && !sanitizedContent)) {
+      res.status(400).json({ error: 'Содержание не может быть пустым после очистки' });
+      return;
+    }
+
+    const normalizedTags = tags === undefined ? undefined : normalizeTags(tags);
+    const normalizedImages = images === undefined ? undefined : normalizeImages(images);
+    const normalizedReadTime = readTime === undefined ? undefined : normalizePositiveInt(readTime, existing.readTime || 5, 1440);
+    if (normalizedTags === null || normalizedImages === null || normalizedReadTime === null) {
+      res.status(400).json({ error: 'Некорректные tags, images или readTime' });
+      return;
+    }
+
+    let nextSlug: string | undefined;
+    if (typeof title === 'string') {
+      nextSlug = makeSlug(title.trim()) || existing.slug;
+      const slugOwner = await prisma.article.findFirst({ where: { slug: nextSlug, id: { not: id } }, select: { id: true } });
+      if (slugOwner) nextSlug = `${nextSlug}-${Date.now()}`;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const data: any = {};
+      if (typeof title === 'string') data.title = title.trim();
+      if (nextSlug) data.slug = nextSlug;
+      if (sanitizedContent !== undefined) data.content = sanitizedContent;
+      if (description !== undefined) data.description = typeof description === 'string' && description.trim() ? description.trim() : null;
+      if (imageUrl !== undefined) data.imageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+      if (isPublished !== undefined) data.isPublished = isPublished;
+      if (normalizedReadTime !== undefined) data.readTime = normalizedReadTime;
+      if (type !== undefined) data.type = type;
+      if (normalizedImages !== undefined && imageUrl === undefined) data.imageUrl = normalizedImages[0]?.url || '';
+
+      await tx.article.update({ where: { id }, data });
+
+      if (normalizedTags !== undefined) {
+        await tx.articleTagRelation.deleteMany({ where: { articleId: id } });
+        for (const tagName of normalizedTags) {
+          const tag = await tx.articleTag.upsert({
+            where: { name: tagName },
+            update: {},
+            create: { name: tagName, slug: makeSlug(tagName) || `tag-${Date.now()}` },
+          });
+          await tx.articleTagRelation.create({ data: { articleId: id, tagId: tag.id } });
+        }
+      }
+
+      if (normalizedImages !== undefined) {
+        await tx.articleImage.deleteMany({ where: { articleId: id } });
+        if (normalizedImages.length) {
+          await tx.articleImage.createMany({
+            data: normalizedImages.map((img, index) => ({
+              articleId: id,
+              url: img.url,
+              filename: img.filename || `image_${index}`,
+              size: img.size ?? null,
+              sortOrder: img.sortOrder ?? index,
+              isMain: img.isMain ?? index === 0,
+            })),
+          });
+        }
+      }
+
+      return tx.article.findUnique({
+        where: { id },
+        include: {
+          tags: { include: { tag: true } },
+          images: { orderBy: { sortOrder: 'asc' } },
+          author: { select: { firstName: true, lastName: true } },
         },
       });
-      if (existingSlug) {
-        slug = `${slug}-${Date.now()}`;
-      }
-      data.slug = slug;
-    }
-
-    await prisma.article.update({
-      where: { id },
-      data,
     });
 
-    if (tags !== undefined) {
-      await prisma.articleTagRelation.deleteMany({ where: { articleId: id } });
-      if (tags.length > 0) {
-        const tagPromises = tags.map(async (tagName: string) => {
-          const cleanTag = tagName.trim();
-          const tag = await prisma.articleTag.upsert({
-            where: { name: cleanTag },
-            update: {},
-            create: {
-              name: cleanTag,
-              slug: cleanTag.toLowerCase().replace(/\s+/g, '-'),
-            },
-          });
-          return tag.id;
-        });
-        const tagIds = await Promise.all(tagPromises);
-        await prisma.articleTagRelation.createMany({
-          data: tagIds.map((tagId) => ({ articleId: id, tagId })),
-        });
-      }
-    }
-
-    if (images !== undefined) {
-      await prisma.articleImage.deleteMany({ where: { articleId: id } });
-      if (images.length > 0) {
-        await prisma.articleImage.createMany({
-          data: images.map((img: any, index: number) => ({
-            articleId: id,
-            url: img.url,
-            filename: img.filename || `image_${index}`,
-            size: img.size || null,
-            sortOrder: img.sortOrder || index,
-            isMain: img.isMain || index === 0,
-          })),
-        });
-      }
-    }
-
-    const updated = await prisma.article.findUnique({
-      where: { id },
-      include: {
-        tags: { include: { tag: true } },
-        images: true,
-        author: { select: { firstName: true, lastName: true } },
-      },
-    });
-
-    console.log(`✅ Статья обновлена: ${id}`);
-
-    res.json({ 
-      success: true, 
+    log.info('Article updated', { id });
+    res.json({
+      success: true,
       article: {
         id: updated?.id,
         slug: updated?.slug,
@@ -424,10 +486,10 @@ export const updateArticle = async (req: Request, res: Response): Promise<void> 
         author: updated?.author ? `${updated.author.firstName || ''} ${updated.author.lastName || ''}`.trim() : 'Admin',
         createdAt: updated?.createdAt,
         updatedAt: updated?.updatedAt,
-      }
+      },
     });
   } catch (error: any) {
-    console.error('❌ Update article error:', error);
+    log.error('Update article error', { error: error.message });
     res.status(500).json({ error: 'Ошибка обновления статьи' });
   }
 };
@@ -443,7 +505,7 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    console.log(`🗑️ Удаление статьи: ${id}`);
+    log.info('Deleting article', { id });
 
     await prisma.articleTagRelation.deleteMany({ where: { articleId: id } });
     await prisma.articleImage.deleteMany({ where: { articleId: id } });
@@ -451,11 +513,11 @@ export const deleteArticle = async (req: Request, res: Response): Promise<void> 
     await prisma.like.deleteMany({ where: { articleId: id } });
     await prisma.article.delete({ where: { id } });
 
-    console.log(`✅ Статья удалена: ${id}`);
+    log.info('Article deleted', { id });
 
     res.json({ success: true, message: 'Статья удалена' });
   } catch (error: any) {
-    console.error('❌ Delete article error:', error);
+    log.error('Delete article error', { error: error.message });
     res.status(500).json({ error: 'Ошибка удаления статьи' });
   }
 };
@@ -471,10 +533,10 @@ export const getServices = async (req: Request, res: Response): Promise<void> =>
       orderBy: { createdAt: 'desc' },
     });
     
-    console.log(`✅ Найдено ${services.length} услуг`);
+    log.debug('Services loaded', { count: services.length });
     res.json({ services });
   } catch (error: any) {
-    console.error('❌ Get services error:', error);
+    log.error('Get services error', { error: error.message });
     res.status(500).json({ error: 'Ошибка получения услуг' });
   }
 };
@@ -495,7 +557,7 @@ export const getServiceById = async (req: Request, res: Response): Promise<void>
     
     res.json({ service });
   } catch (error: any) {
-    console.error('❌ Get service error:', error);
+    log.error('Get service error', { error: error.message });
     res.status(500).json({ error: 'Ошибка получения услуги' });
   }
 };
@@ -520,10 +582,10 @@ export const createService = async (req: Request, res: Response): Promise<void> 
       },
     });
     
-    console.log(`✅ Создана услуга: ${service.name} (${service.id})`);
+    log.info('Service created', { id: service.id, name: service.name });
     res.status(201).json({ service });
   } catch (error: any) {
-    console.error('❌ Create service error:', error);
+    log.error('Create service error', { error: error.message });
     res.status(500).json({ error: 'Ошибка создания услуги' });
   }
 };
@@ -554,10 +616,10 @@ export const updateService = async (req: Request, res: Response): Promise<void> 
       },
     });
     
-    console.log(`✅ Обновлена услуга: ${service.name} (${service.id})`);
+    log.info('Service updated', { id: service.id, name: service.name });
     res.json({ service });
   } catch (error: any) {
-    console.error('❌ Update service error:', error);
+    log.error('Update service error', { error: error.message });
     res.status(500).json({ error: 'Ошибка обновления услуги' });
   }
 };
@@ -580,10 +642,10 @@ export const deleteService = async (req: Request, res: Response): Promise<void> 
       where: { id },
     });
     
-    console.log(`🗑️ Удалена услуга: ${existing.name} (${id})`);
+    log.info('Service deleted', { id, name: existing.name });
     res.json({ success: true, message: 'Услуга удалена' });
   } catch (error: any) {
-    console.error('❌ Delete service error:', error);
+    log.error('Delete service error', { error: error.message });
     res.status(500).json({ error: 'Ошибка удаления услуги' });
   }
 };

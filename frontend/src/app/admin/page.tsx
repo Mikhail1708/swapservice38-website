@@ -43,6 +43,7 @@ interface DashboardStats {
 const statusLabels: Record<string, string> = {
   pending: 'Ожидает',
   paid: 'Оплачен',
+  crm_failed: 'Ошибка CRM',
   confirmed: 'Подтверждён',
   assembling: 'Собирается',
   shipped: 'Отправлен',
@@ -53,6 +54,7 @@ const statusLabels: Record<string, string> = {
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-500',
   paid: 'bg-blue-500/20 text-blue-500',
+  crm_failed: 'bg-orange-500/20 text-orange-500',
   confirmed: 'bg-indigo-500/20 text-indigo-500',
   assembling: 'bg-purple-500/20 text-purple-500',
   shipped: 'bg-green-500/20 text-green-500',

@@ -24,7 +24,9 @@ const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
 const PAYMENT_STARTED_DELETE_MESSAGE = 'Нельзя удалить заказ после начала оплаты';
 
-const deletableOrderStatuses = (role?: string): string[] => (
+const deletableOrderStatusesWithoutPassword = (): string[] => ['pending', 'crm_failed'];
+
+const deletableOrderStatusesWithPassword = (role?: string): string[] => (
   role === 'admin'
     ? ['pending', 'crm_failed', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled']
     : ['pending', 'crm_failed']
@@ -314,9 +316,8 @@ export const deleteOrder = async (req: Request, res: Response): Promise<void> =>
       throw new NotFoundError('Заказ не найден');
     }
 
-    // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    const user = (req as any).user;
-    const allowedStatuses = deletableOrderStatuses(user?.role);
+    // Без пароля физическое удаление разрешено только для pre-handoff статусов.
+    const allowedStatuses = deletableOrderStatusesWithoutPassword();
 
     if (!allowedStatuses.includes(order.status)) {
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);
@@ -352,9 +353,8 @@ export const massDeleteOrders = async (req: Request, res: Response): Promise<voi
     
     log.info(`🗑️ Массовое удаление заказов: ${ids.length} шт.`);
     
-    // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    const user = (req as any).user;
-    const allowedStatuses = deletableOrderStatuses(user?.role);
+    // Без пароля физическое удаление разрешено только для pre-handoff статусов.
+    const allowedStatuses = deletableOrderStatusesWithoutPassword();
     const result = await deleteOrdersWithReasons(ids, allowedStatuses);
     
     log.info(`🗑️ Удалено ${result.deleted} заказов, пропущено ${result.skipped.length}`);
@@ -409,7 +409,7 @@ export const massDeleteOrdersWithPassword = async (req: Request, res: Response):
     }
 
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    const allowedStatuses = deletableOrderStatuses(user.role);
+    const allowedStatuses = deletableOrderStatusesWithPassword(user.role);
     
     log.info(`🗑️ Массовое удаление заказов с паролем: ${ids.length} шт. (роль: ${user.role})`);
     
@@ -475,7 +475,7 @@ export const deleteOrderWithPassword = async (req: Request, res: Response): Prom
     }
 
     // ✅ АДМИН МОЖЕТ УДАЛЯТЬ ЛЮБЫЕ ЗАКАЗЫ, МЕНЕДЖЕР — ТОЛЬКО PENDING И CRM_FAILED
-    const allowedStatuses = deletableOrderStatuses(user.role);
+    const allowedStatuses = deletableOrderStatusesWithPassword(user.role);
 
     if (!allowedStatuses.includes(order.status)) {
       throw new AppError(`Нельзя удалить заказ в статусе ${order.status}`, 400);

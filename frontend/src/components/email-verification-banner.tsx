@@ -11,7 +11,7 @@ export function EmailVerificationBanner() {
 
   const query = searchParams.toString();
   const returnUrl = `${pathname}${query ? `?${query}` : ''}`;
-  const href = `/verify-email?email=${encodeURIComponent(user.email)}&returnUrl=${encodeURIComponent(returnUrl)}`;
+  const href = `/verify-email?returnUrl=${encodeURIComponent(returnUrl)}`;
 
   return (
     <Link

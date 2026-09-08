@@ -1,6 +1,10 @@
 // backend/tests/__mocks__/@prisma/client.ts
 
 const mockPrisma = {
+  userConsent: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    upsert: jest.fn(),
+  },
   user: {
     create: jest.fn().mockResolvedValue({ id: 'test-id', email: 'test@example.com', isVerified: true, role: 'admin' }),
     findUnique: jest.fn().mockResolvedValue({ id: 'test-id', email: 'test@example.com', isVerified: true, role: 'admin' }),

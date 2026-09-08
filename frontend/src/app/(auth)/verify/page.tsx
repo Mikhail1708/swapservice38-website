@@ -19,6 +19,7 @@ export default function VerifyEmailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: authLoading, refresh } = useAuth();
+  const token = searchParams.get('token') || '';
   const returnUrl = getSafeInternalRedirect(
     searchParams.get('returnUrl') || searchParams.get('redirect'),
     '/profile',
@@ -31,13 +32,55 @@ export default function VerifyEmailPage() {
   const [notice, setNotice] = useState('');
   const [success, setSuccess] = useState(false);
   const [countdown, setCountdown] = useState(searchParams.get('sent') === '1' ? 60 : 0);
+  const [context, setContext] = useState<{ maskedEmail: string; alreadyVerified: boolean } | null>(null);
+  const [contextLoading, setContextLoading] = useState(Boolean(token));
 
-  const verificationEmail = user?.email || email;
-  const maskedEmail = useMemo(() => maskEmail(verificationEmail), [verificationEmail]);
+  const verificationEmail = token ? '' : user?.email || email;
+  const maskedEmail = useMemo(() => context?.maskedEmail || maskEmail(verificationEmail), [context, verificationEmail]);
+  const canVerify = token ? Boolean(context && !context.alreadyVerified) : Boolean(verificationEmail);
 
   useEffect(() => {
-    if (!authLoading && user?.isVerified) router.replace(returnUrl);
-  }, [authLoading, returnUrl, router, user?.isVerified]);
+    if (!token && !success && !authLoading && user?.isVerified) router.replace(returnUrl);
+  }, [token, success, authLoading, returnUrl, router, user?.isVerified]);
+
+  useEffect(() => {
+    setSuccess(false);
+    setNotice('');
+    setCode('');
+    if (!token) { setContext(null); setContextLoading(false); return; }
+    let active = true;
+    setContext(null);
+    setContextLoading(true);
+    setError('');
+    void (async () => {
+      try {
+        const response = await fetchWithCsrf('/api/auth/verification-context', {
+          method: 'POST', body: JSON.stringify({ token }),
+        });
+        if (!response.ok) throw new Error(await readApiError(response, 'Ссылка недействительна или срок её действия истёк. Запросите новое письмо.'));
+        const data = await response.json();
+        if (!active) return;
+        setContext(data);
+        setCountdown(data.retryAfter || 0);
+        if (data.alreadyVerified) { await refresh(); if (active) setSuccess(true); }
+        else if (data.codeExpired) setNotice('Срок действия кода истёк. Отправьте новый код кнопкой ниже.');
+      } catch (caught) {
+        if (active) setError(caught instanceof Error && !(caught instanceof TypeError) ? caught.message : 'Не удалось проверить ссылку. Попробуйте позже.');
+      } finally { if (active) setContextLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [token, refresh]);
+
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => {
+      const destination = user
+        ? returnUrl
+        : `/login?verified=true&redirect=${encodeURIComponent(returnUrl)}`;
+      router.replace(destination);
+    }, 1600);
+    return () => window.clearTimeout(timer);
+  }, [success, user, returnUrl, router]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -47,7 +90,7 @@ export default function VerifyEmailPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!verificationEmail || code.length !== 6) return;
+    if (!canVerify || code.length !== 6 || submitting) return;
     setSubmitting(true);
     setError('');
     setNotice('');
@@ -55,21 +98,14 @@ export default function VerifyEmailPage() {
     try {
       const response = await fetchWithCsrf('/api/auth/verify', {
         method: 'POST',
-        body: JSON.stringify({ email: verificationEmail, code }),
+        body: JSON.stringify(token ? { token, code } : { email: verificationEmail, code }),
       });
       if (!response.ok) {
         throw new Error(await readApiError(response, 'Неверный или просроченный код. Запросите новый код.'));
       }
 
-      const hadSession = Boolean(user);
       await refresh();
       setSuccess(true);
-      window.setTimeout(() => {
-        const destination = hadSession
-          ? returnUrl
-          : `/login?verified=true&redirect=${encodeURIComponent(returnUrl)}`;
-        router.replace(destination);
-      }, 1600);
     } catch (caught) {
       setError(caught instanceof Error && !(caught instanceof TypeError)
         ? caught.message
@@ -80,19 +116,23 @@ export default function VerifyEmailPage() {
   };
 
   const handleResend = async () => {
-    if (!verificationEmail || countdown > 0) return;
+    if (!canVerify || countdown > 0 || resending) return;
     setResending(true);
     setError('');
     setNotice('');
     try {
       const response = await fetchWithCsrf('/api/auth/resend-verification', {
         method: 'POST',
-        body: JSON.stringify({ email: verificationEmail }),
+        body: JSON.stringify(token ? { token } : { email: verificationEmail }),
       });
       if (!response.ok) {
+        const data = await response.clone().json().catch(() => null);
+        if (response.status === 429) setCountdown(Number(data?.details?.retryAfter || response.headers.get('Retry-After')) || 60);
         throw new Error(await readApiError(response, 'Не удалось отправить код. Попробуйте позже.'));
       }
-      setCountdown(60);
+      const data = await response.json();
+      if (data.alreadyVerified) { await refresh(); setSuccess(true); return; }
+      setCountdown(data.retryAfter || 60);
       setNotice('Если подтверждение требуется, новый код отправлен на почту.');
     } catch (caught) {
       setError(caught instanceof Error && !(caught instanceof TypeError)
@@ -103,7 +143,7 @@ export default function VerifyEmailPage() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || contextLoading) {
     return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -134,19 +174,20 @@ export default function VerifyEmailPage() {
               <h1 className="text-2xl font-bold uppercase tracking-[0.08em] text-foreground sm:text-3xl">Подтверждение почты</h1>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">Введите шестизначный код из письма SWAPSERVICE38.</p>
 
-              {verificationEmail ? (
+              {maskedEmail ? (
                 <div className="mt-6 flex items-center gap-3 rounded-md border border-border bg-muted px-4 py-3">
                   <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-foreground">{maskedEmail}</span>
                 </div>
-              ) : (
+              ) : !token ? (
                 <div className="mt-6">
                   <label htmlFor="verification-email" className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Email</label>
                   <input id="verification-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="name@example.com" className="w-full rounded-md border border-border bg-muted px-4 py-3 text-foreground outline-none transition focus:border-foreground/50" />
                 </div>
-              )}
+              ) : null}
 
               {error && <div role="alert" className="mt-5 rounded-md border border-border bg-background px-4 py-3 text-sm leading-5 text-foreground">{error}</div>}
+              {token && !context && <Link href={`/verify-email?returnUrl=${encodeURIComponent(returnUrl)}`} className="mt-4 inline-block text-sm underline">Запросить новое письмо</Link>}
               {notice && <div className="mt-5 rounded-md border border-border bg-muted px-4 py-3 text-sm leading-5 text-muted-foreground">{notice}</div>}
 
               <form onSubmit={handleSubmit} className="mt-6">
@@ -167,13 +208,13 @@ export default function VerifyEmailPage() {
                 />
                 <p id="code-hint" className="mt-2 text-center text-xs text-muted-foreground">Можно вставить весь код из письма</p>
 
-                <button type="submit" disabled={submitting || code.length !== 6 || !verificationEmail} className="mt-6 flex w-full items-center justify-center gap-2 rounded-sm bg-primary px-5 py-4 text-xs font-bold uppercase tracking-[0.14em] text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="submit" disabled={submitting || code.length !== 6 || !canVerify} className="mt-6 flex w-full items-center justify-center gap-2 rounded-sm bg-primary px-5 py-4 text-xs font-bold uppercase tracking-[0.14em] text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Проверяем</> : <>Подтвердить почту <ArrowRight className="h-4 w-4" /></>}
                 </button>
               </form>
 
               <div className="mt-7 border-t border-border pt-6 text-center">
-                <button type="button" onClick={handleResend} disabled={resending || countdown > 0 || !verificationEmail} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={handleResend} disabled={resending || countdown > 0 || !canVerify} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">
                   {resending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                   {countdown > 0 ? `Отправить код повторно через ${countdown} с` : 'Отправить код повторно'}
                 </button>

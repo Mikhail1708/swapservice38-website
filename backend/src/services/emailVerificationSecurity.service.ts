@@ -30,6 +30,12 @@ const keys = (userId: string) => ({
 export const generateEmailVerificationCode = (): string =>
   randomInt(100000, 1000000).toString();
 
+export const emailVerificationTiming = async (userId: string) => {
+  const key = keys(userId);
+  const [codeTtl, cooldownTtl] = await Promise.all([redis.ttl(key.code), redis.ttl(key.cooldown)]);
+  return { codeExpired: codeTtl <= 0, retryAfter: Math.max(0, cooldownTtl) };
+};
+
 export const issueEmailVerificationCode = async (userId: string, code: string): Promise<'issued' | 'cooldown'> => {
   const key = keys(userId);
   const result = Number(await redis.eval(ISSUE_SCRIPT, 2, key.code, key.cooldown, code, 600, 60));
