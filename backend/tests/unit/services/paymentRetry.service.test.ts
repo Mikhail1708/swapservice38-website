@@ -2,6 +2,12 @@ import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { createPayment, resetMockPaymentsForTests } from '../../../src/services/payment.service';
 
+const originalTimeout = process.env.PAYMENT_HTTP_TIMEOUT_MS;
+afterEach(() => {
+  if (originalTimeout === undefined) delete process.env.PAYMENT_HTTP_TIMEOUT_MS;
+  else process.env.PAYMENT_HTTP_TIMEOUT_MS = originalTimeout;
+});
+
 jest.mock('../../../src/services/email.service', () => ({
   sendOrderConfirmationToCustomer: jest.fn(), sendOrderNotificationToManager: jest.fn(),
 }));
@@ -151,4 +157,43 @@ it('a provider timeout retries the same idempotency key instead of creating anot
   await expect(createPayment('one', url)).rejects.toThrow();
   expect((await createPayment('one', url)).status).toBe('pending');
   expect(stockReads).toBe(1); expect(payments.size).toBe(1); expect(reservations.size).toBe(1);
+});
+
+it('F19 create, status and attempt recovery use configured finite timeout', async () => {
+  process.env.PAYMENT_HTTP_TIMEOUT_MS = '4321';
+  const first = await createPayment('one', url);
+  await createPayment('one', url);
+  orders.get('one').paymentId = null;
+  expect(await createPayment('one', url)).toMatchObject({ paymentId: first.paymentId, idempotent: true });
+  const posts = http.post.mock.calls.filter(([address]) => address.endsWith('/payments'));
+  const gets = http.get.mock.calls.filter(([address]) => address.includes('api.yookassa.ru'));
+  expect(posts).toHaveLength(1); expect(gets).toHaveLength(2);
+  for (const [, , config] of posts) expect(config.timeout).toBe(4321);
+  for (const [, config] of gets) expect(config.timeout).toBe(4321);
+});
+
+it.each(['ECONNABORTED', 'ETIMEDOUT'])('F19 ambiguous %s preserves attempt, reservation and provider idempotency on retry', async code => {
+  process.env.PAYMENT_HTTP_TIMEOUT_MS = '9876';
+  const normalPost = http.post.getMockImplementation()!;
+  let loseResponse = true;
+  http.post.mockImplementation(async (...args: any[]) => {
+    const result = await (normalPost as any)(...args);
+    if (args[0].endsWith('/payments') && loseResponse) {
+      loseResponse = false; throw Object.assign(new Error('timeout of 9876ms exceeded'), { code, isAxiosError: true });
+    }
+    return result;
+  });
+  await expect(createPayment('one', url)).rejects.toThrow('Ошибка создания платежа');
+  expect(attempts.get('one').status).toBe('unknown');
+  const originalAttempt = clone(attempts.get('one'));
+  expect(http.post.mock.calls.filter(([address]) => address.endsWith('/payments'))).toHaveLength(1);
+  expect((await createPayment('one', url)).status).toBe('pending');
+  const calls = http.post.mock.calls.filter(([address]) => address.endsWith('/payments'));
+  expect(calls).toHaveLength(2);
+  for (const [, , config] of calls) {
+    expect(config.timeout).toBe(9876);
+    expect(config.headers['Idempotence-Key']).toBe(originalAttempt.idempotencyKey);
+  }
+  expect(attempts.size).toBe(1); expect(reservations.size).toBe(1); expect(payments.size).toBe(1);
+  expect(attempts.get('one').id).toBe(originalAttempt.id);
 });

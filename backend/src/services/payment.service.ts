@@ -1,6 +1,7 @@
 // backend/src/services/payment.service.ts
 import 'dotenv/config';
 import axios from 'axios';
+import { paymentHttpTimeoutMs } from '../config/paymentHttp';
 import { PrismaClient } from '@prisma/client';
 import { safeRedis } from '../config/redis';
 import { 
@@ -284,7 +285,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     const response = await axios.post(
       `${YOO_KASSA_API_URL}/payments`,
       paymentData,
-      { headers }
+      { headers, timeout: paymentHttpTimeoutMs() }
     );
 
 
@@ -736,18 +737,9 @@ export const handlePaymentSuccess = async (orderId: string) => {
     log.info(`ℹ️ Заказ ${orderId} уже имеет crmOrderId: ${order.crmOrderId}, пропускаем отправку в CRM`);
   }
 
-  // ✅ 2. ОЧИЩАЕМ КОРЗИНУ
-  if (order.userId) {
-    try {
-      await prisma.cart.update({
-        where: { userId: order.userId },
-        data: { items: [] },
-      });
-      log.debug(`🧹 Корзина очищена для пользователя: ${order.userId}`);
-    } catch (error) {
-      log.warn(`⚠️ Не удалось очистить корзину для ${order.userId}`, { error });
-    }
-  }
+  // Checkout already transfers the validated cart snapshot into Order and clears
+  // that cart in the same transaction. Anything now in Cart is a new selection,
+  // including re-added quantities of the same product. Payment must not alter it.
 
   // ✅ 3. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
   try {
@@ -891,7 +883,7 @@ export const getPaymentStatus = async (paymentId: string) => {
 
     const response = await axios.get(
       `${YOO_KASSA_API_URL}/payments/${paymentId}`,
-      { headers }
+      { headers, timeout: paymentHttpTimeoutMs() }
     );
     return response.data;
   } catch (error: any) {

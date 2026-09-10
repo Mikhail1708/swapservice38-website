@@ -537,7 +537,7 @@ describe('Payment Service', () => {
       expect(mockPrisma.order.updateMany).toHaveBeenCalled();
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       expect(mockedEnsureCrmCreateOutboxEvent).toHaveBeenCalled();
-      expect(mockPrisma.cart.update).toHaveBeenCalled();
+      expect(mockPrisma.cart.update).not.toHaveBeenCalled();
     });
 
     it('does not acknowledge an ephemeral Redis processing lock', async () => {

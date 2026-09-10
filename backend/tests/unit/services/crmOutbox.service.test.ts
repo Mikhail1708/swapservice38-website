@@ -24,6 +24,11 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 const mockPrisma = new PrismaClient() as any;
 
 describe('CRM transactional outbox', () => {
+  const originalTimeout = process.env.PAYMENT_HTTP_TIMEOUT_MS;
+  afterEach(() => {
+    if (originalTimeout === undefined) delete process.env.PAYMENT_HTTP_TIMEOUT_MS;
+    else process.env.PAYMENT_HTTP_TIMEOUT_MS = originalTimeout;
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     (mockPrisma.outboxEvent.findUnique as jest.Mock).mockReset().mockResolvedValue(null);
@@ -79,7 +84,8 @@ describe('CRM transactional outbox', () => {
     }));
   });
 
-  it('idempotently completes a durable automatic refund', async () => {
+  it('F19 idempotently completes a durable refund with configured HTTP timeout', async () => {
+    process.env.PAYMENT_HTTP_TIMEOUT_MS = '6789';
     process.env.PAYMENT_PROVIDER = 'yookassa';
     process.env.YOO_KASSA_SHOP_ID = 'shop';
     process.env.YOO_KASSA_SECRET_KEY = 'secret';
@@ -106,7 +112,7 @@ describe('CRM transactional outbox', () => {
     expect(mockedAxios.post).toHaveBeenCalledWith(
       'https://api.yookassa.ru/v3/refunds',
       expect.objectContaining({ payment_id: 'payment-1', amount: { value: '200.00', currency: 'RUB' } }),
-      expect.objectContaining({ headers: expect.objectContaining({ 'Idempotence-Key': 'payment-refund:payment-1' }) }),
+      expect.objectContaining({ timeout: 6789, headers: expect.objectContaining({ 'Idempotence-Key': 'payment-refund:payment-1' }) }),
     );
     expect(mockPrisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'refunded' }),

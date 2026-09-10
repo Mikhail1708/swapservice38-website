@@ -1,5 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { paymentHttpTimeoutMs } from '../config/paymentHttp';
 import { log } from '../config/logger';
 import { addOrderToCRMQueue } from '../queues/crm.queue';
 import { buildCrmOrderPayload } from './crmOrderPayload.service';
@@ -505,7 +506,7 @@ export const dispatchPaymentRefundEvent = async (eventId: string): Promise<boole
             description: `Automatic ${reason} refund for order ${payload.orderId}`,
           },
           {
-            timeout: 15_000,
+            timeout: paymentHttpTimeoutMs(),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Basic ${auth}`,

@@ -5,7 +5,7 @@ import {
   confirmPaymentController,
   createPaymentController,
 } from '../../src/controllers/payment.controller';
-import { resetMockPaymentsForTests } from '../../src/services/payment.service';
+import { resetMockPaymentsForTests, handlePaymentSuccess, handlePaymentWebhook } from '../../src/services/payment.service';
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -335,6 +335,65 @@ describe('local mock payment flow', () => {
     });
     expect(email.sendOrderConfirmationToCustomer).toHaveBeenCalledTimes(1);
     expect(email.sendOrderNotificationToManager).toHaveBeenCalledTimes(1);
+  });
+
+  describe('F18 cart belongs to the next checkout after order creation', () => {
+    const item = (productId: string, quantity: number) => ({ productId, quantity, name: 'Product', price: 1250.5 });
+    const startAndComplete = async () => {
+      const created = response();
+      await createPaymentController({ body: { orderId: storedOrder.id }, user: { id: storedOrder.userId } } as any, created);
+      expect(created.statusCode).toBe(200);
+      const completed = response();
+      await completeMockPaymentController({ body: { orderId: storedOrder.id, paymentId: created.body.paymentId }, user: { id: storedOrder.userId } } as any, completed);
+      expect(completed.statusCode).toBe(200);
+      return created.body.paymentId;
+    };
+
+    it.each([
+      ['new product B', [item('2', 1)]],
+      ['cart emptied by checkout', []],
+      ['same product re-added with quantity 3', [item('1', 3)]],
+      ['same product re-added below checkout quantity', [item('1', 1)]],
+      ['product manually removed', []],
+      ['new selection for Order 2', [item('1', 2), item('2', 1)]],
+    ])('preserves %s through success and sequential/concurrent duplicate confirmation', async (_label, initialItems) => {
+      if (_label === 'same product re-added below checkout quantity') {
+        storedOrder.items[0].quantity = 3;
+        storedOrder.total = storedOrder.items[0].price * 3;
+      }
+      const prisma = new (jest.requireMock('@prisma/client').PrismaClient)();
+      let currentCart = { items: structuredClone(initialItems) };
+      prisma.cart.update.mockImplementation(async ({ data }: any) => { currentCart = { ...currentCart, ...data }; return currentCart; });
+      const paymentId = await startAndComplete();
+      const before = structuredClone(currentCart);
+      const confirm = async () => {
+        const result = response();
+        await confirmPaymentController({ body: { orderId: storedOrder.id, paymentId }, user: { id: storedOrder.userId } } as any, result);
+        expect(result.statusCode).toBe(200);
+      };
+      await Promise.all([confirm(), confirm()]); await confirm();
+      expect(storedOrder.status).toBe('paid');
+      expect(currentCart).toEqual(before);
+      expect(prisma.cart.update).not.toHaveBeenCalled();
+    });
+
+    it('a later success replay cannot delete a newly populated cart after Order 2 checkout', async () => {
+      const prisma = new (jest.requireMock('@prisma/client').PrismaClient)();
+      await startAndComplete(); await handlePaymentSuccess(storedOrder.id);
+      let cart = { items: [item('1', 4), item('3', 1)] };
+      const before = structuredClone(cart);
+      prisma.cart.update.mockImplementation(async ({ data }: any) => { cart = { ...cart, ...data }; return cart; });
+      await handlePaymentSuccess(storedOrder.id);
+      expect(cart).toEqual(before); expect(prisma.cart.update).not.toHaveBeenCalled();
+    });
+
+    it('failed or canceled payment signals do not modify a new cart', async () => {
+      const prisma = new (jest.requireMock('@prisma/client').PrismaClient)();
+      for (const status of ['failed', 'canceled']) {
+        await handlePaymentWebhook({ object: { id: 'payment-1', status, metadata: { orderId: storedOrder.id } } });
+      }
+      expect(prisma.cart.update).not.toHaveBeenCalled(); expect(storedOrder.status).toBe('pending');
+    });
   });
 
   it('does not allow another user to complete the payment', async () => {
