@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { getInternalApiKey } from '../utils/internalApiKey';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
@@ -32,12 +32,14 @@ const normalizedItems = (items: unknown) => {
   }));
 };
 
-export const getOrCreatePaymentAttempt = async (order: OrderSnapshot, provider: string) => {
-  const existing = await prisma.paymentAttempt.findUnique({ where: { orderId: order.id } });
+export const getOrCreatePaymentAttempt = async (
+  order: OrderSnapshot, provider: string, db: Prisma.TransactionClient | PrismaClient = prisma,
+) => {
+  const existing = await db.paymentAttempt.findUnique({ where: { orderId: order.id } });
   if (existing) return existing;
 
   try {
-    return await prisma.paymentAttempt.create({
+    return await db.paymentAttempt.create({
       data: {
         orderId: order.id,
         provider,
@@ -50,7 +52,7 @@ export const getOrCreatePaymentAttempt = async (order: OrderSnapshot, provider: 
   } catch (error: any) {
     // A concurrent request may have created the unique per-order attempt.
     if (error?.code === 'P2002') {
-      const concurrent = await prisma.paymentAttempt.findUnique({ where: { orderId: order.id } });
+      const concurrent = await db.paymentAttempt.findUnique({ where: { orderId: order.id } });
       if (concurrent) return concurrent;
     }
     throw error;

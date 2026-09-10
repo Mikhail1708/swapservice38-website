@@ -52,7 +52,7 @@ jest.mock('@prisma/client', () => {
       }),
     },
     cart: { update: jest.fn().mockResolvedValue({}) },
-    paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
+    paymentAttempt: { update: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: jest.fn((callback: any) => callback(prisma)),
   };

@@ -8,7 +8,6 @@ import {
   sendOrderNotificationToManager,
 } from './email.service';
 import { log } from '../config/logger';
-import { randomUUID } from 'crypto';
 import { assertOrderStatusTransition } from '../utils/orderStatus';
 import { buildCrmOrderPayload } from './crmOrderPayload.service';
 import {
@@ -134,11 +133,13 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     }
     assertPaymentStartEligible(order);
 
-    await assertCheckoutSnapshotStillCurrent(order.items as any[], order.total);
-
     if (order.paymentId) {
       const existingPayment = await getPaymentStatus(order.paymentId);
       if (existingPayment?.status === 'pending' || existingPayment?.status === 'succeeded') {
+        if (existingPayment.status === 'pending') {
+          const existingAttempt = await prisma.paymentAttempt.findUnique({ where: { orderId } });
+          if (existingAttempt?.reservationId) await ensureCrmReservation(order, existingAttempt);
+        }
         const mockReturnUrl = `${process.env.CLIENT_URL || 'http://localhost:3001'}`
           + `/payment/success?orderId=${orderId}&paymentId=${order.paymentId}&mock=1`;
         return {
@@ -152,15 +153,29 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     }
 
     const provider = getPaymentProvider();
-    let attempt = await getOrCreatePaymentAttempt(order, provider);
+    // Serialize first-attempt validation with its durable creation. A sibling
+    // request must see the attempt before its reservation consumes free stock.
+    // Even an attempt without reservationId can own a CRM reservation after a
+    // lost response: recover it by externalOrderId instead of checking free stock.
+    let attempt = await prisma.$transaction(async tx => {
+      await lockPaymentWorkflowOrder(tx, orderId);
+      const currentOrder = await tx.order.findUnique({ where: { id: orderId } });
+      if (!currentOrder) throw new Error('Заказ не найден');
+      if (currentOrder.status === 'paid') throw new Error('Заказ уже оплачен');
+      assertPaymentStartEligible(currentOrder);
+      const existing = await tx.paymentAttempt.findUnique({ where: { orderId } });
+      if (existing) return existing;
+      await assertCheckoutSnapshotStillCurrent(currentOrder.items as any[], currentOrder.total);
+      return getOrCreatePaymentAttempt(currentOrder, provider, tx);
+    }, { maxWait: 5_000, timeout: 15_000 });
     activeAttemptId = attempt.id;
-    attempt = await ensureCrmReservation(order, attempt);
 
     // Recover a provider response that was persisted on the attempt but not yet
     // returned to the browser after a process interruption.
     if (attempt.providerPaymentId) {
       const existingPayment = await getPaymentStatus(attempt.providerPaymentId);
       if (existingPayment?.status === 'pending' || existingPayment?.status === 'succeeded') {
+        if (existingPayment.status === 'pending') await ensureCrmReservation(order, attempt);
         return {
           paymentId: attempt.providerPaymentId,
           paymentUrl: existingPayment?.confirmation?.confirmation_url || returnUrl,
@@ -170,12 +185,15 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
       }
     }
 
+    attempt = await ensureCrmReservation(order, attempt);
 
     if (provider === 'mock') {
       await markProviderRequestStartedIfEligible(orderId, attempt.id);
       providerRequestStarted = true;
-      const mockPayment: MockPayment = {
-        id: `mock_${randomUUID()}`,
+      // Match the real provider's per-attempt idempotency under double clicks.
+      const mockPaymentId = `mock_${attempt.id}`;
+      const mockPayment: MockPayment = mockPayments.get(mockPaymentId) || {
+        id: mockPaymentId,
         status: 'pending',
         amount: { value: (attempt.amountMinor / 100).toFixed(2), currency: 'RUB' },
         metadata: {

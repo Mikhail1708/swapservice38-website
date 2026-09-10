@@ -188,7 +188,8 @@ describe('Payment Service', () => {
         expect(mockPrisma.order.update).not.toHaveBeenCalled();
       });
 
-      it('should revalidate inventory before returning an existing pending payment', async () => {
+      it('reuses an existing pending payment without rechecking free inventory', async () => {
+        process.env.PAYMENT_PROVIDER = 'yookassa';
         (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({
           id: 'order-1',
           total: 1000,
@@ -202,9 +203,13 @@ describe('Payment Service', () => {
           'ORDER_PRICE_CHANGED',
         ));
 
+        mockAxios.get.mockResolvedValueOnce({ data: {
+          id: 'payment-1', status: 'pending', confirmation: { confirmation_url: 'https://provider.test/pay' },
+        } });
         await expect(createPayment('order-1', 'http://localhost:3001/success'))
-          .rejects.toMatchObject({ code: 'ORDER_PRICE_CHANGED' });
-        expect(mockAxios.get).not.toHaveBeenCalled();
+          .resolves.toMatchObject({ paymentId: 'payment-1', idempotent: true });
+        expect(mockedAssertCheckoutSnapshotStillCurrent).not.toHaveBeenCalled();
+        expect(mockAxios.post).not.toHaveBeenCalled();
       });
     });
   });
