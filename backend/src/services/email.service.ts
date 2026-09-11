@@ -1,6 +1,8 @@
 import Queue from 'bull';
 import nodemailer from 'nodemailer';
 import redis from '../config/redis';
+import { Prisma } from '@prisma/client';
+import { EmailPayload, persistEmailEvent } from './emailOutbox.service';
 import { createEmailJobData, EmailJobData } from './emailAttachments';
 import {
   OrderEmailData,
@@ -28,6 +30,7 @@ const formatPhone = (phone: string): string => {
 };
 
 let emailQueue: Queue.Queue;
+let queueAvailable = true;
 
 try {
   emailQueue = new Queue('email queue', {
@@ -38,6 +41,7 @@ try {
   });
   console.log('✅ Email очередь инициализирована');
 } catch {
+  queueAvailable = false;
   console.warn('⚠️ Очередь не инициализирована, email будут отправляться синхронно');
   emailQueue = {
     add: async (data: any) => {
@@ -99,13 +103,33 @@ export const sendEmail = (to: string, subject: string, html: string, jobId?: str
   },
 );
 
+// Outbox delivery must reach Bull, never silently fall back to synchronous SMTP.
+// Retained completed jobs deduplicate a crash after enqueue but before DB ACK.
+export const enqueueOutboxEmail = (payload: EmailPayload, jobId: string) => {
+  if (!queueAvailable) throw new Error('Email queue unavailable');
+  return emailQueue.add(createEmailJobData(payload.to, payload.subject, payload.html, payload.text), {
+    jobId, attempts: 5, backoff: { type: 'exponential', delay: 5000 },
+    removeOnComplete: false, removeOnFail: false,
+  });
+};
+
 const enqueueNotificationOnce = async (
   notificationKey: string,
   to: string,
   subject: string,
   html: string,
   text?: string,
+  tx?: Prisma.TransactionClient,
+  aggregateId?: string,
+  eventType?: string,
 ): Promise<void> => {
+  if (tx) {
+    await persistEmailEvent(tx, {
+      eventType: eventType!, aggregateId: aggregateId!, deduplicationKey: notificationKey,
+      payload: { to, subject, html, ...(text ? { text } : {}) },
+    });
+    return;
+  }
   const isNew = await redis.setnx(notificationKey, 'true');
   if (!isNew) {
     console.log(`ℹ️ Уведомление ${notificationKey} уже поставлено в очередь, пропускаем`);
@@ -141,7 +165,7 @@ export const sendPasswordChangedEmail = (email: string) => {
   return sendEmail(email, template.subject, template.html, undefined, template.text);
 };
 
-export const sendOrderConfirmationToCustomer = async (data: OrderEmailData) => {
+export const sendOrderConfirmationToCustomer = async (data: OrderEmailData, tx?: Prisma.TransactionClient) => {
   if (!data.customerEmail) {
     console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, пропускаем`);
     return;
@@ -153,23 +177,25 @@ export const sendOrderConfirmationToCustomer = async (data: OrderEmailData) => {
     template.subject,
     template.html,
     template.text,
+    tx, data.orderId, 'payment_succeeded',
   );
 };
 
-export const sendOrderNotificationToManager = async (data: OrderEmailData) => {
+export const sendOrderNotificationToManager = async (data: OrderEmailData, tx?: Prisma.TransactionClient, eventType = 'order_created') => {
   const template = orderNotificationManagerTemplate(data, formatPhone(data.customerPhone));
   await enqueueNotificationOnce(
-    `order:notified:manager:${data.orderId}`,
+    tx ? `${eventType}:${data.orderId}:manager` : `order:notified:manager:${data.orderId}`,
     process.env.MANAGER_EMAIL || 'swapservice38@yandex.ru',
     template.subject,
     template.html,
     template.text,
+    tx, data.orderId, eventType,
   );
 };
 
 export const sendOrderCreatedToCustomer = async (data: OrderCreatedEmailData & {
   customerEmail: string;
-}) => {
+}, tx?: Prisma.TransactionClient) => {
   if (!data.customerEmail) {
     console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, письмо о формировании пропущено`);
     return;
@@ -181,6 +207,7 @@ export const sendOrderCreatedToCustomer = async (data: OrderCreatedEmailData & {
     template.subject,
     template.html,
     template.text,
+    tx, data.orderId, 'order_created',
   );
 };
 
@@ -198,7 +225,7 @@ export const sendOrderStatusUpdateToCustomer = async (data: {
   customerEmail: string;
   status: string;
   version: number;
-}) => {
+}, tx?: Prisma.TransactionClient) => {
   if (!data.customerEmail) {
     console.warn(`⚠️ Нет email клиента для заказа ${data.orderId}, уведомление о статусе пропущено`);
     return;
@@ -215,5 +242,6 @@ export const sendOrderStatusUpdateToCustomer = async (data: {
     template.subject,
     template.html,
     template.text,
+    tx, data.orderId, 'order_status',
   );
 };

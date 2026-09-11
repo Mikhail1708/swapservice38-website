@@ -677,6 +677,26 @@ export const handlePaymentSuccess = async (orderId: string) => {
     const event = currentOrder.crmOrderId
       ? null
       : await ensureCrmCreateOutboxEvent(tx, order.id, durableCrmPayload);
+    const emailData = {
+      orderId: order.id,
+      documentNumber: order.orderNumber || order.id.slice(0, 8),
+      customerName: [order.customerFirstName, order.customerMiddleName, order.customerLastName].filter(Boolean).join(' ') || order.guestName || [order.user?.firstName, order.user?.middleName, order.user?.lastName].filter(Boolean).join(' ') || 'Клиент',
+      customerEmail: order.customerEmail || order.guestEmail || order.user?.email || '',
+      customerPhone: order.customerPhone || order.guestPhone || order.user?.phone || '',
+      total: order.total,
+      items: (order.items as any[]).map((item: any) => ({
+        name: item.name || 'Товар',
+        quantity: item.quantity,
+        price: item.price,
+        total: item.price * item.quantity,
+      })),
+      deliveryAddress: order.deliveryAddress || '',
+      comment: order.comment || '',
+      paymentId: order.paymentId || 'test',
+    };
+
+    await sendOrderConfirmationToCustomer(emailData, tx);
+    await sendOrderNotificationToManager(emailData, tx, 'payment_succeeded');
     return { claimed: claimedResult, outboxEvent: event };
   });
   if (claimed.count !== 1) {
@@ -740,33 +760,6 @@ export const handlePaymentSuccess = async (orderId: string) => {
   // Checkout already transfers the validated cart snapshot into Order and clears
   // that cart in the same transaction. Anything now in Cart is a new selection,
   // including re-added quantities of the same product. Payment must not alter it.
-
-  // ✅ 3. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЯ
-  try {
-    const emailData = {
-      orderId: order.id,
-      documentNumber: order.orderNumber || order.id.slice(0, 8),
-      customerName: [order.customerFirstName, order.customerMiddleName, order.customerLastName].filter(Boolean).join(' ') || order.guestName || [order.user?.firstName, order.user?.middleName, order.user?.lastName].filter(Boolean).join(' ') || 'Клиент',
-      customerEmail: order.customerEmail || order.guestEmail || order.user?.email || '',
-      customerPhone: order.customerPhone || order.guestPhone || order.user?.phone || '',
-      total: order.total,
-      items: (order.items as any[]).map((item: any) => ({
-        name: item.name || 'Товар',
-        quantity: item.quantity,
-        price: item.price,
-        total: item.price * item.quantity,
-      })),
-      deliveryAddress: order.deliveryAddress || '',
-      comment: order.comment || '',
-      paymentId: order.paymentId || 'test',
-    };
-
-    await sendOrderConfirmationToCustomer(emailData);
-    await sendOrderNotificationToManager(emailData);
-    log.info(`✅ Уведомления поставлены в очередь для заказа ${orderId}`);
-  } catch (emailError) {
-    log.error(`❌ Ошибка отправки email для заказа ${orderId}`, { error: emailError });
-  }
 
   // ✅ 5. СОХРАНЯЕМ В REDIS
   try {

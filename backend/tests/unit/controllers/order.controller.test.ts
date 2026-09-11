@@ -131,7 +131,7 @@ describe('createOrderController checkout validation', () => {
     expect(mail.sendOrderCreatedToCustomer).toHaveBeenCalledWith(expect.objectContaining({
       orderId: 'order-1', documentNumber: 'order-1', total: 50,
       items: [{ name: 'CRM товар', quantity: 2, price: 25, total: 50 }],
-    }));
+    }), mockPrisma);
     const payload = mail.sendOrderCreatedToCustomer.mock.calls[0][0];
     expect(payload).not.toHaveProperty('user');
     expect(payload).not.toHaveProperty('paymentAttempts');

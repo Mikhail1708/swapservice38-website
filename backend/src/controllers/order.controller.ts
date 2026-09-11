@@ -228,6 +228,44 @@ export const createOrderController = async (req: Request, res: Response): Promis
             where: { id: cart.id },
             data: { items: [] },
           });
+          const customerName = [
+            order.customerFirstName,
+            order.customerMiddleName,
+            order.customerLastName,
+          ].filter(Boolean).join(' ') || 'Клиент';
+          const emailItems = validatedCart.items.map((item: CartItem) => ({
+            name: item.name || 'Товар',
+            quantity: item.quantity,
+            price: item.price,
+            total: item.price * item.quantity,
+          }));
+
+          await Promise.all([
+            sendOrderCreatedToCustomer({
+              orderId: order.id,
+              customerName,
+              customerEmail: order.customerEmail || '',
+              total: order.total,
+              documentNumber: order.orderNumber || order.id,
+              createdAt: order.createdAt,
+              items: emailItems,
+              deliveryMethod: order.deliveryMethod,
+              deliveryAddress: order.deliveryAddress || '',
+              deliveryProvider: order.deliveryProvider || '',
+              offerVersion: order.offerVersion,
+            }, tx),
+            sendOrderNotificationToManager({
+              orderId: order.id,
+              documentNumber: order.id.slice(0, 8),
+              customerName,
+              customerEmail: order.customerEmail || '',
+              customerPhone: order.customerPhone || '',
+              total: order.total,
+              items: emailItems,
+              deliveryAddress: order.deliveryAddress || '',
+              comment: order.comment || '',
+            }, tx),
+          ]);
           return order;
         }, { isolationLevel: 'Serializable' });
         break;
@@ -243,50 +281,6 @@ export const createOrderController = async (req: Request, res: Response): Promis
       }
     }
 
-
-    const customerName = [
-      localOrder.customerFirstName,
-      localOrder.customerMiddleName,
-      localOrder.customerLastName,
-    ].filter(Boolean).join(' ') || 'Клиент';
-    const emailItems = validatedCart.items.map((item: CartItem) => ({
-      name: item.name || 'Товар',
-      quantity: item.quantity,
-      price: item.price,
-      total: item.price * item.quantity,
-    }));
-
-    const emailResults = await Promise.allSettled([
-      sendOrderCreatedToCustomer({
-        orderId: localOrder.id,
-        customerName,
-        customerEmail: localOrder.customerEmail || '',
-        total: localOrder.total,
-        documentNumber: localOrder.orderNumber || localOrder.id,
-        createdAt: localOrder.createdAt,
-        items: emailItems,
-        deliveryMethod: localOrder.deliveryMethod,
-        deliveryAddress: localOrder.deliveryAddress || '',
-        deliveryProvider: localOrder.deliveryProvider || '',
-        offerVersion: localOrder.offerVersion,
-      }),
-      sendOrderNotificationToManager({
-        orderId: localOrder.id,
-        documentNumber: localOrder.id.slice(0, 8),
-        customerName,
-        customerEmail: localOrder.customerEmail || '',
-        customerPhone: localOrder.customerPhone || '',
-        total: localOrder.total,
-        items: emailItems,
-        deliveryAddress: localOrder.deliveryAddress || '',
-        comment: localOrder.comment || '',
-      }),
-    ]);
-    emailResults.forEach((result) => {
-      if (result.status === 'rejected') {
-        log.error('Order notification enqueue failed', { orderId: localOrder.id });
-      }
-    });
 
     res.status(201).json({
       success: true,

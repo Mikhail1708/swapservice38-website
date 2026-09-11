@@ -165,6 +165,19 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
         },
       });
       await ensureAuthoritativeCancellationRefund(tx, updatedOrder, now);
+      const customerName = [
+        updatedOrder.customerFirstName,
+        updatedOrder.customerMiddleName,
+        updatedOrder.customerLastName,
+      ].filter(Boolean).join(' ') || updatedOrder.guestName || 'Клиент';
+      await sendOrderStatusUpdateToCustomer({
+        orderId: updatedOrder.id,
+        documentNumber: documentNumber || updatedOrder.orderNumber || String(crmOrderId),
+        customerName,
+        customerEmail: updatedOrder.customerEmail || updatedOrder.guestEmail || '',
+        status: siteStatus,
+        version,
+      }, tx);
       return { applied: true, order: updatedOrder };
     }, { maxWait: 5_000, timeout: 10_000 });
 
@@ -179,23 +192,6 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
     const order = projection.order;
 
     console.log(`✅ Webhook: Заказ ${order.id} (crmOrderId: ${crmOrderId}) обновлён → статус "${siteStatus}"`);
-    try {
-      const customerName = [
-        order.customerFirstName,
-        order.customerMiddleName,
-        order.customerLastName,
-      ].filter(Boolean).join(' ') || order.guestName || 'Клиент';
-      await sendOrderStatusUpdateToCustomer({
-        orderId: order.id,
-        documentNumber: documentNumber || order.orderNumber || String(crmOrderId),
-        customerName,
-        customerEmail: order.customerEmail || order.guestEmail || '',
-        status: siteStatus,
-        version,
-      });
-    } catch (emailError) {
-      console.error(`❌ Не удалось поставить письмо о статусе заказа ${order.id} в очередь:`, emailError);
-    }
     res.status(200).json({
       success: true,
       message: `Order ${order.id} status updated to ${siteStatus}`,
