@@ -270,11 +270,8 @@ export function Products() {
         <div className="container-custom">
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-                Новые поступления
-              </span>
               <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-                Свежие товары
+                Новинки
               </h2>
             </div>
             <Link
@@ -309,11 +306,8 @@ export function Products() {
         <div className="container-custom">
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-                Новые поступления
-              </span>
               <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-                Свежие товары
+                 Новинки
               </h2>
             </div>
             <Link
@@ -339,11 +333,8 @@ export function Products() {
         {/* Заголовок — ЧЁРНЫЙ */}
         <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
           <div>
-            <span className="text-xs font-medium uppercase tracking-[0.3em] text-gray-400">
-              Новые поступления
-            </span>
             <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-              Свежие товары
+               Новинки
             </h2>
             {error && (
               <p className="text-xs text-red-500 mt-2">{error}</p>

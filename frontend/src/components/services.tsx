@@ -87,9 +87,6 @@ export function Services() {
         <div className="container-custom">
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <span className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-                Услуги
-              </span>
               <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-foreground">
                 Что мы делаем
               </h2>
@@ -121,9 +118,6 @@ export function Services() {
       <div className="container-custom">
         <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
           <div>
-            <span className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-              Услуги
-            </span>
             <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-foreground">
               Что мы делаем
             </h2>

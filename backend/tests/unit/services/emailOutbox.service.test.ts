@@ -85,6 +85,20 @@ describe('email transactional outbox', () => {
     expect(enqueue.mock.calls.map(call => call[1])).toEqual(['email-outbox-event-1', 'email-outbox-event-1']);
   });
 
+  it.each(['NOAUTH Authentication required', 'WRONGPASS invalid username-password pair'])('F21 auth rejection stays retryable: %s', async message => {
+    await persistEmailEvent(prisma, intent);
+    const enqueue = jest.fn().mockRejectedValueOnce(new Error(message)).mockResolvedValueOnce({});
+    expect(await dispatchEmailOutboxEvent('event-1', enqueue)).toBe(false);
+    const row = rows.get('event-1');
+    expect(row.status).toBe('pending');
+    expect(row.processedAt).toBeNull();
+    expect(row.nextAttemptAt.getTime()).toBeGreaterThan(now);
+    expect(row.lastError).toBe('EMAIL_ENQUEUE_OR_ACK_FAILED');
+    row.nextAttemptAt = new Date(now - 1);
+    expect(await dispatchEmailOutboxEvent('event-1', enqueue)).toBe(true);
+    expect(enqueue.mock.calls[0][1]).toBe(enqueue.mock.calls[1][1]);
+  });
+
   it('two concurrent dispatcher claims enqueue only one logical job', async () => {
     await persistEmailEvent(prisma, intent);
     const enqueue = jest.fn().mockResolvedValue({});

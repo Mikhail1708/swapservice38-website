@@ -37,6 +37,7 @@ try {
     redis: {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
+      password: process.env.REDIS_PASSWORD || undefined,
     },
   });
   console.log('✅ Email очередь инициализирована');
@@ -61,7 +62,6 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  tls: { rejectUnauthorized: false },
 });
 
 transporter.verify((error) => {
