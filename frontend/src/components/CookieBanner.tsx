@@ -18,7 +18,7 @@ export function CookieBanner() {
         Мы используем файлы cookie, необходимые для работы сайта.
         Подробнее — в{' '}<a href="/privacy#cookies" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4">Политике конфиденциальности</a>.
       </p>
-      <button type="button" onClick={acknowledge} className="shrink-0 rounded-sm bg-foreground px-6 py-3 text-sm font-semibold text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Понятно</button>
+      <button type="button" onClick={acknowledge} className="shrink-0 rounded-sm bg-foreground px-6 py-3 text-sm font-semibold text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Хорошо</button>
     </div>
   </aside>;
 }

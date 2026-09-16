@@ -1,5 +1,5 @@
 import { randomInt } from 'crypto';
-import redis from '@config/redis';
+import redis from '../config/redis';
 
 const ISSUE_SCRIPT = `
 if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end

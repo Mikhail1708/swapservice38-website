@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { createHash } from 'crypto';
-import redis from '@config/redis';
+import redis from '../config/redis';
 
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call('INCR', KEYS[1])

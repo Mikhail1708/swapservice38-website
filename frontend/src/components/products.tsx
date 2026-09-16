@@ -7,7 +7,6 @@ import { ChevronLeft, ChevronRight, ShoppingCart, Check, Loader2, Star } from 'l
 import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { productAvailability } from '@/lib/product-availability';
-import { ProductEnquiry } from '@/components/ProductEnquiry';
 
 interface Product {
   id: string | number;
@@ -173,7 +172,6 @@ function ProductCard({
             {availability.label}
           </span>
         )}
-        <ProductEnquiry product={product} />
       </div>
     </article>
   );
@@ -270,9 +268,9 @@ export function Products() {
         <div className="container-custom">
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
+               <span className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
                 Новинки
-              </h2>
+              </span>
             </div>
             <Link
               href="/catalog"
@@ -306,9 +304,9 @@ export function Products() {
         <div className="container-custom">
           <div className="mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-                 Новинки
-              </h2>
+              <span className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
+                Новинки
+              </span>
             </div>
             <Link
               href="/catalog"
@@ -333,9 +331,9 @@ export function Products() {
         {/* Заголовок — ЧЁРНЫЙ */}
         <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
           <div>
-            <h2 className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
-               Новинки
-            </h2>
+            <span className="heading-display mt-3 text-[clamp(30px,4vw,48px)] text-black">
+              Новинки
+            </span>
             {error && (
               <p className="text-xs text-red-500 mt-2">{error}</p>
             )}
@@ -356,7 +354,7 @@ export function Products() {
               type="button"
               onClick={() => scrollBy(-1)}
               aria-label="Назад"
-              className="absolute -left-4 top-1/2 z-10 -translate-y-1/2 hidden lg:flex h-10 w-10 items-center justify-center rounded-full bg-white text-black shadow-lg hover:bg-black hover:text-white transition-all border border-gray-200"
+              className="absolute -left-4 top-1/2 z-10 -translate-y-1/2 hidden lg:flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg hover:bg-gray-800 transition-all border border-black"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -367,7 +365,7 @@ export function Products() {
               type="button"
               onClick={() => scrollBy(1)}
               aria-label="Вперёд"
-              className="absolute -right-4 top-1/2 z-10 -translate-y-1/2 hidden lg:flex h-10 w-10 items-center justify-center rounded-full bg-white text-black shadow-lg hover:bg-black hover:text-white transition-all border border-gray-200"
+              className="absolute -right-4 top-1/2 z-10 -translate-y-1/2 hidden lg:flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg hover:bg-gray-800 transition-all border border-black"
             >
               <ChevronRight className="h-5 w-5" />
             </button>

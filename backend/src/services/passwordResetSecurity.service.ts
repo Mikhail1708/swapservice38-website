@@ -1,5 +1,5 @@
 import { createHash, randomInt } from 'crypto';
-import redis from '@config/redis';
+import redis from '../config/redis';
 
 const DEFAULT_CODE_TTL_SECONDS = 15 * 60;
 const DEFAULT_REQUEST_COOLDOWN_SECONDS = 60;
