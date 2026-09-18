@@ -151,6 +151,9 @@ describe('Business email transactional producers (F20)', () => {
   });
 
   it('SMTP worker rejects on transport failure so Bull can retry the retained job', async () => {
+    queues[0].token = 'fixture-owner';
+    queues[0].toKey = (id: string) => `bull:email queue:${id}`;
+    queues[0].client = { eval: jest.fn().mockResolvedValue(1) };
     const error = new Error('SMTP timeout');
     (nodemailer.createTransport({}).sendMail as jest.Mock).mockRejectedValueOnce(error);
     await expect(emailWorker({ data: { to: order.customerEmail, subject: 'Order', html: 'Order' } })).rejects.toBe(error);

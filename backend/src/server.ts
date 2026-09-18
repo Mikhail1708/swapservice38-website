@@ -14,7 +14,7 @@ import csrfMiddleware from './middleware/csrf.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { log } from './config/logger';
 import { startEmailOutboxDispatcher, stopEmailOutboxDispatcher } from './services/emailOutbox.service';
-import { enqueueOutboxEmail } from './services/email.service';
+import { enqueueOutboxEmail, cleanupCompletedEmails } from './services/email.service';
 import { startCrmOutboxDispatcher, stopCrmOutboxDispatcher } from './services/crmOutbox.service';
 import { closeCrmQueue } from './queues/crm.queue';
 
@@ -251,7 +251,7 @@ app.use(errorHandler);
 // ============================================================
 if (require.main === module) {
   startCrmOutboxDispatcher();
-  startEmailOutboxDispatcher(enqueueOutboxEmail);
+  startEmailOutboxDispatcher(enqueueOutboxEmail, cleanupCompletedEmails);
   const server = app.listen(port, () => {
     log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log.info(`🚀 Site Backend running on port ${port}`);

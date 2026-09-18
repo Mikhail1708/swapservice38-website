@@ -1,11 +1,13 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { log } from '../config/logger';
+import { EMAIL_CLEANUP_INTERVAL_MS } from './emailQueuePolicy';
 
 const prisma = new PrismaClient();
+export { prisma as emailOutboxPrisma };
 const LEASE_MS = 60_000;
 const ENQUEUE_TIMEOUT_MS = 15_000;
 const POLL_MS = 5_000;
-const MAX_ATTEMPTS = 20;
+export const MAX_ATTEMPTS = 20;
 const BATCH_SIZE = 25;
 
 export interface EmailPayload {
@@ -118,12 +120,20 @@ export const dispatchEmailOutboxOnce = async (enqueue: EmailEnqueue): Promise<vo
 
 let poll: NodeJS.Timeout | undefined;
 let running = false;
-export const startEmailOutboxDispatcher = (enqueue: EmailEnqueue): void => {
+export const startEmailOutboxDispatcher = (enqueue: EmailEnqueue, cleanup?: () => Promise<void>): void => {
   if (poll) return;
+  let nextCleanupAt = 0;
   const tick = async () => {
     if (running) return;
     running = true;
-    try { await dispatchEmailOutboxOnce(enqueue); }
+    try {
+      await dispatchEmailOutboxOnce(enqueue);
+      if (cleanup && Date.now() >= nextCleanupAt) {
+        nextCleanupAt = Date.now() + EMAIL_CLEANUP_INTERVAL_MS;
+        try { await cleanup(); }
+        catch { log.error('Email retention cleanup failed'); }
+      }
+    }
     catch { log.error('Email outbox polling failed'); }
     finally { running = false; }
   };

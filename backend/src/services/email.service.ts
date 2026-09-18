@@ -2,7 +2,8 @@ import Queue from 'bull';
 import nodemailer from 'nodemailer';
 import redis from '../config/redis';
 import { Prisma } from '@prisma/client';
-import { EmailPayload, persistEmailEvent } from './emailOutbox.service';
+import { claimSmtpAttempt, createEmailCleanup, EMAIL_MAX_ATTEMPTS, EMAIL_OUTBOX_MAX_ATTEMPTS } from './emailQueuePolicy';
+import { EmailPayload, persistEmailEvent, emailOutboxPrisma } from './emailOutbox.service';
 import { createEmailJobData, EmailJobData } from './emailAttachments';
 import {
   OrderEmailData,
@@ -76,6 +77,7 @@ const sendEmailSync = async (data: EmailJobData) => transporter.sendMail({
 
 emailQueue.process(async (job) => {
   try {
+    await claimSmtpAttempt(emailQueue, job);
     return await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
       ...job.data,
@@ -98,7 +100,7 @@ export const sendEmail = (to: string, subject: string, html: string, jobId?: str
   createEmailJobData(to, subject, html, text),
   {
     ...(jobId ? { jobId } : {}),
-    attempts: 3,
+    attempts: EMAIL_MAX_ATTEMPTS,
     backoff: { type: 'exponential', delay: 5000 },
   },
 );
@@ -108,10 +110,12 @@ export const sendEmail = (to: string, subject: string, html: string, jobId?: str
 export const enqueueOutboxEmail = (payload: EmailPayload, jobId: string) => {
   if (!queueAvailable) throw new Error('Email queue unavailable');
   return emailQueue.add(createEmailJobData(payload.to, payload.subject, payload.html, payload.text), {
-    jobId, attempts: 5, backoff: { type: 'exponential', delay: 5000 },
+    jobId, attempts: EMAIL_OUTBOX_MAX_ATTEMPTS, backoff: { type: 'exponential', delay: 5000 },
     removeOnComplete: false, removeOnFail: false,
   });
 };
+
+export const cleanupCompletedEmails = createEmailCleanup(emailQueue, emailOutboxPrisma);
 
 const enqueueNotificationOnce = async (
   notificationKey: string,
