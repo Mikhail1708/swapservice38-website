@@ -1,11 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import redis from '../config/redis';
 import { AppError } from '../middleware/error.middleware';
 import { personalDataEvidence } from './consent.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const profileSchema = z.object({
   provider: z.enum(['yandex', 'max']), providerId: z.string().min(1).max(200),
   email: z.string().email().max(254), firstName: z.string().max(200), lastName: z.string().max(200),

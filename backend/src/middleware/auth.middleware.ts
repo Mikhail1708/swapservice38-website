@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { credentialVersion } from '../utils/credentialVersion';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 type AuthFailure = 'missing' | 'invalid' | 'not_found' | 'blocked' | 'misconfigured';
 

@@ -1,5 +1,4 @@
 // backend/src/services/auth.service.ts
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import {
@@ -25,7 +24,7 @@ import {
   emailVerificationTiming,
 } from './emailVerificationSecurity.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const DUMMY_PASSWORD_HASH = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
 const findUserByEmailIdentity = async (email: string) => {

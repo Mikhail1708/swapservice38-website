@@ -2,7 +2,6 @@
 import 'dotenv/config';
 import axios from 'axios';
 import { paymentHttpTimeoutMs } from '../config/paymentHttp';
-import { PrismaClient } from '@prisma/client';
 import { safeRedis } from '../config/redis';
 import { 
   sendOrderConfirmationToCustomer,
@@ -37,7 +36,7 @@ import {
 } from './crmOutbox.service';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // ✅ БЕРЁМ ИЗ .ENV
 const YOO_KASSA_SHOP_ID = process.env.YOO_KASSA_SHOP_ID || '';

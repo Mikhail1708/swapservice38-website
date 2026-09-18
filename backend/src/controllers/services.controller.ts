@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // GET /api/services — список услуг
 export const getPublicServices = async (req: Request, res: Response) => {

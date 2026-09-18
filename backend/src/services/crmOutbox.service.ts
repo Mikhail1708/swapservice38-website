@@ -7,7 +7,7 @@ import { buildCrmOrderPayload } from './crmOrderPayload.service';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 import { getInternalApiKey } from '../utils/internalApiKey';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const EVENT_TYPE = 'crm_order_create_requested';
 const REFUND_EVENT_TYPE = 'payment_refund_requested';
 const RECONCILIATION_EVENT_TYPE = 'payment_reconciliation_required';

@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { log } from '../config/logger';
 import { EMAIL_CLEANUP_INTERVAL_MS } from './emailQueuePolicy';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 export { prisma as emailOutboxPrisma };
 const LEASE_MS = 60_000;
 const ENQUEUE_TIMEOUT_MS = 15_000;

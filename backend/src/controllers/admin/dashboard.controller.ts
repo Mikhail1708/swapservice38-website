@@ -1,9 +1,8 @@
 // backend/src/controllers/admin/dashboard.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { log } from '../../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../config/prisma';
 
 const startOfLocalDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 

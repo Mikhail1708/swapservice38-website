@@ -1,7 +1,7 @@
 // backend/src/controllers/webhook.controller.ts (САЙТ)
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   assertOrderStatusTransition,
   InvalidOrderStatusTransitionError,
@@ -11,7 +11,7 @@ import { sendOrderStatusUpdateToCustomer } from '../services/email.service';
 import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
 import { ensurePaymentRefundOutboxEvent } from '../services/crmOutbox.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // Маппинг статусов из CRM в статусы сайта
 const statusMap: Record<string, string> = {

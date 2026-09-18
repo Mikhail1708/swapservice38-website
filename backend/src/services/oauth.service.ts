@@ -1,11 +1,10 @@
 // backend/src/services/oauth.service.ts
 import axios from 'axios';
-import { PrismaClient } from '@prisma/client';
 import { mergeCart } from '../controllers/auth.controller';
 import { generateToken } from './auth.service';
 import { issuePendingOAuth } from './pendingOAuth.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // ============================================================
 // КОНФИГУРАЦИЯ

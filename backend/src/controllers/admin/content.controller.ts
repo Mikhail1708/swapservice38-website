@@ -1,10 +1,9 @@
 // backend/src/controllers/admin/content.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { sanitizeArticleHtml } from '../../utils/sanitizeArticleHtml';
 import { log } from '../../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../config/prisma';
 
 const ARTICLE_TYPES = new Set(['swap', 'news']);
 const MAX_TITLE_LENGTH = 300;

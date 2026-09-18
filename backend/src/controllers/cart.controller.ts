@@ -1,11 +1,10 @@
 // backend/src/controllers/cart.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../config/logger';
 import { productAvailability } from '../utils/productAvailability';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // Тип для товара из CRM
 interface CRMProduct {

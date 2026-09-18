@@ -1,9 +1,8 @@
 // backend/src/controllers/admin/settings.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { log } from '../../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../config/prisma';
 
 const defaults = {
   siteName: 'SWAP SERVICE 38',

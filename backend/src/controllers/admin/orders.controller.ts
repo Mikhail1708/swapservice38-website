@@ -1,6 +1,5 @@
 // backend/src/controllers/admin/orders.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import bcrypt from 'bcrypt';
 import { log } from '../../config/logger';
@@ -19,7 +18,7 @@ import {
 } from '../../services/crmOutbox.service';
 import { lockPaymentWorkflowOrder } from '../../services/paymentWorkflowLock.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../config/prisma';
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
 const PAYMENT_STARTED_DELETE_MESSAGE = 'Нельзя удалить заказ после начала оплаты';

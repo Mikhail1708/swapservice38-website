@@ -2,13 +2,12 @@
 import Queue from 'bull';
 import axios from 'axios';
 import { log } from '../config/logger';
-import { PrismaClient } from '@prisma/client';
 import { getInternalApiKey } from '../utils/internalApiKey';
 import crypto from 'crypto';
 import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
 import { acceptPreHandoffCancellation } from '../services/orderCancellation.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
 // ============================================================

@@ -1,8 +1,7 @@
 // backend/src/services/cart.service.ts
-import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // ✅ ТИП ДЛЯ ЭЛЕМЕНТА КОРЗИНЫ
 export interface CartItem {
