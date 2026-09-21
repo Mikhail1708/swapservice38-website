@@ -73,9 +73,8 @@ router.post(
         });
       }
 
-      // Формируем URL для доступа к файлу
-      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5001}`;
-      const url = `${baseUrl}/uploads/${file.filename}`;
+      // Возвращаем same-origin URL: в production /uploads проксируется Nginx на backend.
+      const url = `/uploads/${file.filename}`;
 
       log.info('File uploaded', { filename: file.filename, size: file.size });
 
