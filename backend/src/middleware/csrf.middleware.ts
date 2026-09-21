@@ -45,8 +45,6 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/reset-password',
   '/api/auth/yandex',
   '/api/auth/yandex/callback',
-  '/api/auth/max',
-  '/api/auth/max/callback',
 ]);
 
 const isPublicPath = (path: string): boolean => {

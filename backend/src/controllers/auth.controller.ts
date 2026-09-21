@@ -257,7 +257,6 @@ export const meController = async (req: Request, res: Response) => {
         role: user.role,
         isVerified: user.isVerified,
         yandexId: user.yandexId,
-        maxId: user.maxId,
       }
     });
   } catch (error: any) {

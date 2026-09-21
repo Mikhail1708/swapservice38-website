@@ -6,7 +6,7 @@ import { personalDataEvidence } from './consent.service';
 
 import { prisma } from '../config/prisma';
 const profileSchema = z.object({
-  provider: z.enum(['yandex', 'max']), providerId: z.string().min(1).max(200),
+  provider: z.literal('yandex'), providerId: z.string().min(1).max(200),
   email: z.string().email().max(254), firstName: z.string().max(200), lastName: z.string().max(200),
   phone: z.string().max(50).nullable().optional(),
 });
@@ -44,7 +44,7 @@ export async function completePendingOAuth(token: unknown, acceptance: unknown) 
   const parsed = pendingSchema.safeParse(JSON.parse(value));
   if (!parsed.success) throw invalid();
   const { profile, redirect, guestId } = parsed.data;
-  const identity = profile.provider === 'yandex' ? { yandexId: profile.providerId } : { maxId: profile.providerId };
+  const identity = { yandexId: profile.providerId };
   try {
     const user = await prisma.$transaction(async tx => {
       const existing = await tx.user.findFirst({ where: { OR: [identity, { email: { equals: profile.email, mode: 'insensitive' } }] } });

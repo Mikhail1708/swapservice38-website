@@ -215,7 +215,6 @@ export const getUserById = async (id: string) => {
       role: true,
       isVerified: true,
       yandexId: true,
-      maxId: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -266,7 +265,6 @@ export const updateProfile = async (
       role: true,
       isVerified: true,
       yandexId: true,
-      maxId: true,
     },
   });
 
