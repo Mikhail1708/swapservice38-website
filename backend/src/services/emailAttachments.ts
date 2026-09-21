@@ -4,7 +4,7 @@ export const BRAND_LOGO_CID = 'swapservice38-logo';
 
 export const BRAND_LOGO_ATTACHMENT = Object.freeze({
   filename: 'swapservice38-logo.png',
-  path: path.resolve(__dirname, '../../../frontend/public/images/logo/logo.png'),
+  path: path.resolve(process.cwd(), 'assets/logo.png'),
   cid: BRAND_LOGO_CID,
 });
 
