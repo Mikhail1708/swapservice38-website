@@ -11,6 +11,7 @@ describe('order cancellation service', () => {
     prisma.outboxEvent.findFirst.mockResolvedValue(null);
     prisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
     prisma.outboxEvent.upsert.mockImplementation(async ({ create }: any) => ({ id: 'event-1', ...create }));
+    prisma.emailOutboxEvent.upsert.mockImplementation(async ({ create }: any) => ({ id: 'email-1', ...create }));
     prisma.order.update.mockImplementation(async ({ data }: any) => ({ id: 'order-1', ...data }));
   });
 
@@ -65,6 +66,36 @@ describe('order cancellation service', () => {
     expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { deduplicationKey: 'crm-order-cancellation:order-1' },
     }));
+  });
+
+  it('queues one manager email for a CRM cancellation request without cancelling the order', async () => {
+    const previousManagerEmail = process.env.MANAGER_EMAIL;
+    process.env.MANAGER_EMAIL = 'manager@example.test';
+    const order = {
+      id: 'order-1', userId: 'user-1', crmOrderId: '42', orderNumber: 'SO-42',
+      customerEmail: 'customer@example.test', status: 'assembling',
+      cancellationState: 'none', cancellationRequestedAt: null, cancellationReason: null,
+      createdAt: new Date(), user: { firstName: 'Test', lastName: 'Customer' },
+    };
+    prisma.order.findUnique.mockResolvedValue(order);
+    prisma.paymentAttempt.findUnique.mockResolvedValue({ id: 'attempt-1', status: 'succeeded' });
+
+    try {
+      await requestOrderCancellation(order.id, order.userId, 'changed mind');
+      expect(prisma.emailOutboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { deduplicationKey: 'order-cancellation-email:order-1' },
+        create: expect.objectContaining({ eventType: 'order_cancellation_requested' }),
+      }));
+      expect(prisma.order.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ cancellationState: 'requested' }),
+      }));
+      expect(prisma.order.update).not.toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'cancelled' }),
+      }));
+    } finally {
+      if (previousManagerEmail === undefined) delete process.env.MANAGER_EMAIL;
+      else process.env.MANAGER_EMAIL = previousManagerEmail;
+    }
   });
 
   it('rejects a first request after the twelve-hour window', async () => {

@@ -338,7 +338,7 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
       },
     );
     const decision = response.data?.decision;
-    if (decision !== 'accepted' && decision !== 'rejected') {
+    if (decision !== 'accepted' && decision !== 'rejected' && decision !== 'requested') {
       throw new Error('CRM cancellation response has no authoritative decision');
     }
 
@@ -349,7 +349,7 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
       if (order.crmOrderId !== payload.crmOrderId) {
         throw new Error('CRM cancellation order identity changed');
       }
-      if (order.cancellationState === 'requested') {
+      if (order.cancellationState === 'requested' && decision !== 'requested') {
         await tx.order.update({
           where: { id: order.id },
           data: {
@@ -358,7 +358,7 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
             cancellationDecisionReason: String(response.data?.reasonCode || decision).slice(0, 500),
           },
         });
-      } else if (order.cancellationState !== decision) {
+      } else if (decision !== 'requested' && order.cancellationState !== decision) {
         throw new Error(`Cancellation state changed to ${order.cancellationState}`);
       }
       await tx.outboxEvent.updateMany({

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
+import { persistEmailEvent } from './emailOutbox.service';
 
 import { prisma } from '../config/prisma';
 const CANCELLATION_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -96,7 +97,7 @@ export const requestOrderCancellation = async (
   rawReason: unknown,
 ) => prisma.$transaction(async (tx) => {
   await lockPaymentWorkflowOrder(tx, orderId);
-  const order = await tx.order.findUnique({ where: { id: orderId } });
+  const order = await tx.order.findUnique({ where: { id: orderId }, include: { user: { select: { firstName: true, lastName: true } } } });
   if (!order || order.userId !== userId) {
     throw new OrderCancellationError('Заказ не найден', 404);
   }
@@ -139,6 +140,21 @@ export const requestOrderCancellation = async (
       },
       update: {},
     });
+    const managerEmail = process.env.MANAGER_EMAIL?.trim();
+    if (managerEmail) {
+      const customerName = [order.user?.firstName, order.user?.lastName].filter(Boolean).join(' ') || order.customerEmail || order.guestEmail || 'Клиент';
+      const orderLink = `${process.env.CRM_API_URL || ''}/api/sale-documents/${encodeURIComponent(order.crmOrderId)}`;
+      await persistEmailEvent(tx, {
+        eventType: 'order_cancellation_requested', aggregateId: order.id,
+        deduplicationKey: `order-cancellation-email:${order.id}`,
+        payload: {
+          to: managerEmail,
+          subject: `Запрос на отмену заказа #${order.orderNumber || order.id} — SWAPSERVICE38`,
+          text: `Клиент ${customerName} запросил отмену заказа #${order.orderNumber || order.id}. Причина: ${reason}. ${orderLink}`,
+          html: `<p><b>Запрос на отмену заказа</b></p><p>Заказ: #${order.orderNumber || order.id}</p><p>Клиент: ${customerName}</p><p>Причина: ${reason}</p><p><a href="${orderLink}">Открыть заказ в CRM</a></p>`,
+        },
+      });
+    }
   } else {
     const handoff = await tx.outboxEvent.findFirst({
       where: {
