@@ -155,9 +155,6 @@ components:
         yandexId:
           type: string
           nullable: true
-        maxId:
-          type: string
-          nullable: true
 
     UpdateProfileRequest:
       type: object

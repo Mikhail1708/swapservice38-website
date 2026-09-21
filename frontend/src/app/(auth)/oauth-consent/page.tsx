@@ -11,7 +11,7 @@ const restartMessage = 'Не удалось продолжить регистр�
 export default function OAuthConsentPage() {
   const router = useRouter();
   const { refresh } = useAuth();
-  const [context, setContext] = useState<{ documents: ConsentDocuments; provider: 'yandex' | 'max' } | null>(null);
+  const [context, setContext] = useState<{ documents: ConsentDocuments; provider: 'yandex' } | null>(null);
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -71,7 +71,7 @@ export default function OAuthConsentPage() {
           <p role="alert" className="text-sm text-muted-foreground leading-6">{error}</p>
           <Link href="/login" className="block rounded-lg bg-foreground text-background py-3 text-center font-medium">Вернуться ко входу</Link>
         </> : success ? <p role="status">Регистрация завершена. Переходим в ваш аккаунт…</p> : !context ? <p role="status" className="text-muted-foreground">Загрузка…</p> : <>
-          <p className="text-sm leading-6 text-muted-foreground">Вход через {context.provider === 'yandex' ? 'Яндекс' : 'MAX'} подтверждён. Для создания аккаунта необходимо ваше согласие.</p>
+          <p className="text-sm leading-6 text-muted-foreground">Вход через Яндекс подтверждён. Для создания аккаунта необходимо ваше согласие.</p>
           <form onSubmit={submit} className="space-y-6">
             <ConsentCheckbox variant="personalData" checked={accepted} onChange={setAccepted} disabled={busy} />
             <button type="submit" disabled={!accepted || busy} className="w-full rounded-lg bg-foreground text-background py-3 font-medium disabled:opacity-50 disabled:cursor-not-allowed">

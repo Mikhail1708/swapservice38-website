@@ -1,9 +1,8 @@
 // backend/src/services/order.service.ts (САЙТ)
-import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { getInternalApiKey } from '../utils/internalApiKey';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 // ============================================================
 // ПОЛУЧЕНИЕ КОРЗИНЫ

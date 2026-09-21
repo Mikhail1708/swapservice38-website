@@ -61,7 +61,7 @@ function mount({ provider = 'yandex', getOk = true, postOk = true, redirect = '/
   };
 }
 
-for (const provider of ['yandex', 'max']) {
+for (const provider of ['yandex']) {
   test(`${provider}: pending context is cookie-bound; default false; only explicit consent is submitted; auth refresh precedes redirect`, async () => {
     const app = mount({ provider });
     const tree = await app.ready();

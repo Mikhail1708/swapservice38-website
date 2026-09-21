@@ -1,10 +1,9 @@
 // backend/src/controllers/admin/users.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { passwordSchema } from '../../schemas/common.schema';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../config/prisma';
 
 // ============================================================
 // ВАЛИДАЦИЯ ТЕЛЕФОНА

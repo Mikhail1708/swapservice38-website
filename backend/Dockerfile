@@ -35,6 +35,7 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY --from=build /app/dist ./dist
+COPY assets ./assets
 
 EXPOSE 5001
 

@@ -1,6 +1,5 @@
 // backend/src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import {
   register,
@@ -22,7 +21,7 @@ import { AppError } from '../middleware/error.middleware';
 import { CONSENT_DOCUMENTS, findPersonalDataConsent } from '../services/consent.service';
 import { log } from '../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 export const consentDocumentsController = (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -258,7 +257,6 @@ export const meController = async (req: Request, res: Response) => {
         role: user.role,
         isVerified: user.isVerified,
         yandexId: user.yandexId,
-        maxId: user.maxId,
       }
     });
   } catch (error: any) {

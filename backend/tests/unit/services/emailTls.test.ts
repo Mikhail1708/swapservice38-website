@@ -32,6 +32,10 @@ describe('F10 production SMTP certificate verification', () => {
       mailer.createTransport.mockClear();
       Bull.mockClear();
       jest.requireActual('../../../src/services/email.service');
+      const queue = Bull.mock.results[0].value;
+      queue.token = 'fixture-owner';
+      queue.toKey = (id: string) => `bull:email queue:${id}`;
+      queue.client = { eval: jest.fn().mockResolvedValue(1) };
       expect(mailer.createTransport).toHaveBeenCalledTimes(1);
       const options = mailer.createTransport.mock.calls[0][0];
       expect(options).toEqual({

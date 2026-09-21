@@ -2,7 +2,6 @@
 import { Request, Response } from 'express';
 import { ensurePersonalDataConsent, offerEvidence } from '../services/consent.service';
 import { AppError } from '../middleware/error.middleware';
-import { PrismaClient } from '@prisma/client';
 import {
   sendOrderCreatedToCustomer,
   sendOrderNotificationToManager,
@@ -17,7 +16,7 @@ import {
 } from '../services/orderCancellation.service';
 import { log } from '../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 const isSerializableConflict = (error: unknown): boolean => (
   typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034'

@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import redis from '../../../src/config/redis';
 import * as auth from '../../../src/services/auth.service';
-import { handleYandexCallback, handleMaxCallback } from '../../../src/services/oauth.service';
+import { handleYandexCallback } from '../../../src/services/oauth.service';
 import { issuePendingOAuth, readPendingOAuth, completePendingOAuth } from '../../../src/services/pendingOAuth.service';
 import authRoutes from '../../../src/routes/auth.routes';
 import csrfMiddleware, { getCsrfToken } from '../../../src/middleware/csrf.middleware';
@@ -41,12 +41,11 @@ beforeEach(() => {
   (axios.post as jest.Mock).mockResolvedValue({ data: { access_token: 'provider-secret' } });
 });
 
-describe.each(['yandex', 'max'] as const)('%s OAuth', provider => {
-  const callback = provider === 'yandex' ? handleYandexCallback : handleMaxCallback;
+describe('Yandex OAuth', () => {
+  const provider = 'yandex';
+  const callback = handleYandexCallback;
   beforeEach(() => {
-    (axios.get as jest.Mock).mockResolvedValue({ data: provider === 'yandex'
-      ? { id: 'provider-1', default_email: profile.email, first_name: profile.firstName, last_name: profile.lastName }
-      : { sub: 'provider-1', email: profile.email, given_name: profile.firstName, family_name: profile.lastName, email_verified: true } });
+    (axios.get as jest.Mock).mockResolvedValue({ data: { id: 'provider-1', default_email: profile.email, first_name: profile.firstName, last_name: profile.lastName } });
   });
   it('existing/legacy account logs in without creating user or consent', async () => {
     db.user.findUnique.mockResolvedValue({ id: 'existing', blockedAt: null });
@@ -67,7 +66,7 @@ describe.each(['yandex', 'max'] as const)('%s OAuth', provider => {
     await completePendingOAuth(result.pendingToken, personalDataAcceptance);
     expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
     expect(db.user.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      email: profile.email, [provider === 'yandex' ? 'yandexId' : 'maxId']: 'provider-1', role: 'user',
+      email: profile.email, yandexId: 'provider-1', role: 'user',
       consents: { create: expect.objectContaining({ type: 'personal_data', scopeVersion: 'account-orders-v1', source: 'registration', documentVersion: personalDataAcceptance.documentVersion, privacyVersion: personalDataAcceptance.privacyVersion }) },
     }) });
   });
@@ -124,7 +123,7 @@ it('HTTP completion enforces CSRF, consent, strict identity-free body and cookie
   expect(context.status).toBe(200); expect(context.headers['cache-control']).toBe('no-store');
   expect(Object.keys(context.body).sort()).toEqual(['documents', 'provider']);
   expect((await agent.post('/api/auth/oauth/consent').set('Cookie', cookie).send({ personalDataConsent: personalDataAcceptance })).status).toBe(403);
-  for (const body of [{}, { personalDataConsent: personalDataAcceptance, email: 'attacker@example.test', provider: 'max', providerId: 'other' }]) {
+  for (const body of [{}, { personalDataConsent: personalDataAcceptance, email: 'attacker@example.test', provider: 'yandex', providerId: 'other' }]) {
     const response = await agent.post('/api/auth/oauth/consent').set('Cookie', cookie).set('x-csrf-token', csrf.body.csrfToken).send(body);
     expect(response.status).toBe(400);
   }

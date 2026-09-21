@@ -41,11 +41,16 @@ const fileFilter = (req: any, file: any, cb: any) => {
   }
 };
 
+// fetchWithCsrf adds one flat _csrf field. Nested/array fields are not part of this API.
+const uploadLimits = {
+  fields: 1,
+  fieldNestingDepth: 0,
+  fieldArrayIndexLimit: 0,
+  fileSize: 10 * 1024 * 1024, // 10MB
+};
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
-  },
+  limits: uploadLimits,
   fileFilter,
 });
 

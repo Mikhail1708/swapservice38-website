@@ -45,8 +45,6 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/reset-password',
   '/api/auth/yandex',
   '/api/auth/yandex/callback',
-  '/api/auth/max',
-  '/api/auth/max/callback',
 ]);
 
 const isPublicPath = (path: string): boolean => {
@@ -118,6 +116,12 @@ export const csrfMiddleware = (req: Request, res: Response, next: NextFunction) 
 
   // ✅ НЕ УДАЛЯЕМ ТОКЕН — ОСТАВЛЯЕМ ДЛЯ ПОВТОРНЫХ ЗАПРОСОВ
   console.log('✅ CSRF токен валиден (оставляем для повторных запросов)');
+
+  // _csrf — служебное поле middleware и не должно попадать
+  // в последующую бизнес-валидацию body.
+  if (req.body && typeof req.body === 'object') {
+    delete req.body._csrf;
+  }
 
   next();
 };

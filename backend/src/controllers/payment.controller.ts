@@ -1,6 +1,5 @@
 // backend/src/controllers/payment.controller.ts
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { 
   createPayment, 
   handlePaymentSuccess, 
@@ -15,7 +14,7 @@ import { PaymentPreparationError } from '../services/paymentAttempt.service';
 import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.service';
 import { log } from '../config/logger';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 
 const matchesDurablePaymentAttempt = (order: any, payment: any, amountMinor: number): boolean => {
   const attempt = order.paymentAttempts?.[0];

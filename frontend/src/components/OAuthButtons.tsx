@@ -13,7 +13,7 @@ export function OAuthButtons({ mode = 'login', redirectTo = '/' }: OAuthButtonsP
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleOAuth = (provider: 'yandex' | 'max') => {
+  const handleOAuth = (provider: 'yandex') => {
     setLoading(provider);
     setError(null);
     

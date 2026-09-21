@@ -21,7 +21,7 @@ flowchart LR
     API --> Redis[(Redis)]
     API -->|каталог, остатки, заказы| CRM[Внешняя CRM\nобычно порт 5000]
     API --> YooKassa[YooKassa]
-    API --> OAuth[Yandex / MAX OAuth]
+    API --> OAuth[Yandex OAuth]
     API --> SMTP[SMTP]
     Browser -->|POST /api/address/suggestions| WebsiteBackend
     WebsiteBackend -->|server-side request| DaData[DaData Suggestions]
@@ -140,7 +140,7 @@ Frontend использует относительные URL `/api/...` и пр�
 
 | Prefix | Ответственность | Доступ |
 |---|---|---|
-| `/api/auth` | регистрация, email verification, login/logout, профиль, пароль, Yandex/MAX OAuth | смешанный |
+| `/api/auth` | регистрация, email verification, login/logout, профиль, пароль, Yandex OAuth | смешанный |
 | `/api/products` | каталог, карточка и категории, проксируемые из CRM | публичный GET |
 | `/api/cart` | гостевая и пользовательская корзина | optional auth, CSRF для мутаций |
 | `/api/orders` | создание и чтение собственных заказов | authenticated |
@@ -215,7 +215,7 @@ CSRF tokens, в отличие от перечисленного, хранятс
 2. После подтверждения `User.isVerified` обновляется в PostgreSQL.
 3. Login проверяет пароль/блокировку, выпускает JWT и устанавливает его в `httpOnly`, `sameSite=lax` cookie `token` на семь дней.
 4. `requireAuth` также принимает `Authorization: Bearer`, валидирует JWT, заново читает пользователя из БД и запрещает заблокированные аккаунты.
-5. Yandex/MAX OAuth обменивает code через provider API, связывает/создаёт пользователя, устанавливает тот же JWT cookie и возвращает браузер на frontend.
+5. Yandex OAuth обменивает code через provider API, связывает/создаёт пользователя, устанавливает тот же JWT cookie и возвращает браузер на frontend.
 6. Если существовала гостевая корзина, login/OAuth переносят её в корзину пользователя.
 
 ### 6.2. Корзина
@@ -286,7 +286,7 @@ sequenceDiagram
 | URLs/secrets | `CLIENT_URL`, `API_URL`, `CRM_API_URL`, `INTERNAL_API_KEY`, `WEBHOOK_SECRET` |
 | Payment | `PAYMENT_PROVIDER`, `YOO_KASSA_SHOP_ID`, `YOO_KASSA_SECRET_KEY` |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `MANAGER_EMAIL` |
-| OAuth | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_REDIRECT_URI`, `MAX_CLIENT_ID`, `MAX_CLIENT_SECRET`, `MAX_REDIRECT_URI` |
+| OAuth | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_REDIRECT_URI` |
 
 Frontend compile-time variables: `VITE_BACKEND_URL` и необязательный allowlist `VITE_PAYMENT_REDIRECT_HOSTS`. Секреты внешних API не передаются в browser bundle.
 

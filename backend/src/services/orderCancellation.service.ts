@@ -1,7 +1,7 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const CANCELLATION_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 export class OrderCancellationError extends Error {

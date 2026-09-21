@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { getInternalApiKey } from '../utils/internalApiKey';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 
-const prisma = new PrismaClient();
+import { prisma } from '../config/prisma';
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:5000';
 
 type OrderSnapshot = {
