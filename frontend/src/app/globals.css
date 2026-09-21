@@ -3,6 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
+.prose img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
 @layer base {
   :root {
     color-scheme: dark;

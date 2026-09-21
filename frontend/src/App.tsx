@@ -1,5 +1,6 @@
 // frontend/src/App.tsx
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { RouteScroll } from '@/components/RouteScroll'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { AdminLayout } from '@/components/admin/layout/AdminLayout'
@@ -87,6 +88,7 @@ function PageLayout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <RouteScroll />
       <CookieBanner />
       <Routes>
         {/* ===== ПУБЛИЧНЫЕ С ХЕДЕРОМ И ФУТЕРОМ ===== */}

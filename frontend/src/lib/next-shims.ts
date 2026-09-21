@@ -39,15 +39,15 @@ export const Image: React.FC<ImageProps> = (props) => {
   } = props;
 
   const style: React.CSSProperties = fill
-    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }
-    : {};
+    ? { position: 'absolute', inset: 0, width: '100%', height: '100%' }
+    : { maxWidth: '100%' };
 
   return React.createElement('img', {
     src,
     alt: alt || '',
     width: fill ? undefined : width,
     height: fill ? undefined : height,
-    className,
+    className: `${fill ? 'object-cover' : ''} ${className || ''}`.trim(),
     style,
     loading: priority ? 'eager' : 'lazy',
     ...rest,
