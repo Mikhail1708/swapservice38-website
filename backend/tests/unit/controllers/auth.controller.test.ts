@@ -79,7 +79,7 @@ describe('Auth Controller', () => {
     it('provides public document versions without personal consent records', () => {
       const res = mockResponse();
       consentDocumentsController(mockRequest() as Request, res as Response);
-      expect(res.json).toHaveBeenCalledWith({ documents: expect.objectContaining({ personalDataVersion: '2026-09-07', offerVersion: '2026-09-07' }) });
+      expect(res.json).toHaveBeenCalledWith({ documents: expect.objectContaining({ personalDataVersion: '2026-09-08', privacyVersion: '2026-09-08', offerVersion: '2026-09-08.1' }) });
       expect(prisma.userConsent.findUnique).not.toHaveBeenCalled();
     });
   });
