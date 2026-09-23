@@ -31,6 +31,7 @@ import commentsRoutes from './routes/comments.routes';
 import likesRoutes from './routes/likes.routes';
 import csrfRoutes from './routes/csrf.routes';
 import servicesRoutes from './routes/services.routes';
+import seoRoutes from './routes/seo.routes';
 import addressRoutes from './routes/address.routes';
 import uploadRoutes from './routes/upload.routes'; // ✅ ДОБАВЛЯЕМ
 
@@ -180,6 +181,7 @@ try {
 // ============================================================
 // CSRF проверяет все запросы, кроме PUBLIC_PATHS
 app.use(csrfMiddleware);
+app.use(seoRoutes);
 
 // ============================================================
 // 7. ПУБЛИЧНЫЕ РОУТЫ (БЕЗ АВТОРИЗАЦИИ)

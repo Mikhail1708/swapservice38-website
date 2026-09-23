@@ -1,5 +1,6 @@
 // frontend/src/app/(public)/services/page.tsx
 'use client';
+import { PlainText } from '@/components/content-text';
 
 import { useState, useEffect } from 'react';
 import { Image, Link } from '@/lib/next-shims';
@@ -28,7 +29,6 @@ const STATIC_SWAP_SERVICE = {
   id: 'swap-static',
   name: 'Свапы двигателей',
   description: 'Мы выполняем свап двигателей любого типа — от проверенных рядных моторов до V-образных конфигураций. Все этапы сопровождаются профессиональной адаптацией электроники, трансмиссии, системы охлаждения и топливной линии. Результат — идеальная работа всех систем, без сюрпризов.',
-  price: 200000,
   imageUrl: '/images/engines/3uz.png',
   isActive: true,
   icon: Flame,
@@ -122,10 +122,6 @@ function ServiceCard({
   const imageUrl = service.imageUrl || PLACEHOLDER_IMAGE;
   const finalImageUrl = imgError ? PLACEHOLDER_IMAGE : imageUrl;
   
-  const priceText = service.price && service.price > 0 
-    ? `от ${service.price.toLocaleString()} ₽` 
-    : 'Цена по запросу';
-  
   const linkHref = isStatic ? (href || '/swaps') : `/services/${service.id}`;
   const displayFeatures = isStatic ? features || [] : [];
 
@@ -173,17 +169,15 @@ function ServiceCard({
       </div>
 
       {/* Контент */}
-      <div className={`p-8 flex flex-col justify-center ${
+      <div className={`min-w-0 p-6 sm:p-8 flex flex-col justify-center ${
         index % 2 === 1 ? 'lg:order-1' : ''
       }`}>
-        <div className="flex items-center gap-3 mb-3">
-        </div>
-        <h2 className="heading-display text-2xl text-foreground">
+        <h2 className="heading-display text-2xl text-foreground [overflow-wrap:anywhere]">
           {service.name}
         </h2>
-        <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
-          {service.description || 'Описание услуги...'}
-        </p>
+        <div className="text-sm text-muted-foreground mt-3">
+          <PlainText text={service.description || 'Описание услуги...'} preview />
+        </div>
         
         {isStatic && displayFeatures.length > 0 && (
           <ul className="mt-4 space-y-2">
@@ -197,9 +191,6 @@ function ServiceCard({
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-4">
-          <span className="heading-display text-2xl text-foreground">
-            {priceText}
-          </span>
           <Link
             href={linkHref}
             className="inline-flex items-center gap-2 rounded-sm bg-primary px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-primary-foreground transition-colors hover:bg-primary/90"

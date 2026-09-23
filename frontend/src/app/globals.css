@@ -3,6 +3,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Scoped to editorial content: do not change logos, cards or product images. */
+.content-text { min-width: 0; max-width: 100%; overflow-wrap: anywhere; line-height: 1.75; }
+.content-text p + p, .content-text > * + * { margin-top: 1em; }
+.plain-content { white-space: pre-line; }
+.content-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; }
+.content-text ul, .content-text ol { padding-left: 1.5em; margin-block: 1em; }
+.content-text ul { list-style: disc; }
+.content-text ol { list-style: decimal; }
+.content-text li + li { margin-top: .4em; }
+.content-text h1, .content-text h2, .content-text h3,
+.content-text h4, .content-text h5, .content-text h6 { font-weight: 700; line-height: 1.3; margin-block: 1.4em .6em; }
+.content-text h1 { font-size: 2em; }
+.content-text h2 { font-size: 1.5em; }
+.content-text h3 { font-size: 1.25em; }
+.content-text a { text-decoration: underline; text-underline-offset: .2em; }
+.content-text blockquote { border-left: 2px solid var(--border); padding-left: 1em; }
+.content-text pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.content-text img { max-width: 100%; height: auto; }
+.content-text table { display: block; max-width: 100%; overflow-x: auto; }
+.content-text th, .content-text td { padding: .5em; border: 1px solid var(--border); }
+
 .prose img {
   max-width: 100%;
   height: auto;

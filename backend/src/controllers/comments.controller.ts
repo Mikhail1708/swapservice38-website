@@ -3,10 +3,7 @@ import { Request, Response } from 'express';
 
 import { prisma } from '../config/prisma';
 import { persistEmailEvent } from '../services/emailOutbox.service';
-
-const escapeHtml = (value: unknown): string => String(value ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+import { commentReplyEmailTemplate } from '../services/emailTemplates';
 
 export const createComment = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -74,19 +71,16 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
       try {
         const parent = await prisma.comment.findUnique({
           where: { id: parentId },
-          include: { author: { select: { id: true, email: true, firstName: true, lastName: true } }, article: { select: { id: true, title: true } } },
+          include: { author: { select: { id: true, email: true, firstName: true, lastName: true } }, article: { select: { slug: true, title: true } } },
         });
         if (parent?.author.email && parent.author.id !== userId) {
-          const recipient = parent.author.firstName || parent.author.email;
-          const replyUrl = `${process.env.PUBLIC_APP_URL || process.env.CLIENT_URL || ''}/swaps/${encodeURIComponent(parent.article.id)}#comments`;
           await persistEmailEvent(prisma, {
             eventType: 'comment_reply_notification', aggregateId: comment.id,
             deduplicationKey: `comment-reply:${comment.id}`,
             payload: {
               to: parent.author.email,
-              subject: 'На ваш комментарий ответили — SWAPSERVICE38',
-              text: `Здравствуйте, ${recipient}! На ваш комментарий ответили. ${replyUrl}`,
-              html: `<p>Здравствуйте, ${escapeHtml(recipient)}!</p><p>На ваш комментарий ответили:</p><blockquote>${escapeHtml(parent.content.slice(0, 240))}</blockquote><p><b>Ответ:</b> ${escapeHtml(comment.content.slice(0, 240))}</p><p><a href="${escapeHtml(replyUrl)}">Открыть обсуждение</a></p>`,
+              ...commentReplyEmailTemplate({ articleSlug: parent.article.slug, articleTitle: parent.article.title,
+                comment: parent.content, reply: comment.content }),
             },
           });
         }

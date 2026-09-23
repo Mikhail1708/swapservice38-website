@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireAdmin, requireAdminOnly } from '../middleware/role.middleware';
+import { deleteComment, getArticleComments } from '../controllers/admin/comments.controller';
 import { asyncHandler } from '../middleware/async.middleware';
 import { log } from '../config/logger';
 
@@ -67,6 +68,9 @@ const router = Router();
 // Все маршруты требуют авторизации
 router.use(requireAuth);
 router.use(requireAdmin);
+
+router.delete('/comments/:id', requireAdminOnly, asyncHandler(deleteComment));
+router.get('/articles/:id/comments', requireAdminOnly, asyncHandler(getArticleComments));
 
 // ===== DASHBOARD =====
 router.get('/dashboard/stats', asyncHandler(getDashboardStats));

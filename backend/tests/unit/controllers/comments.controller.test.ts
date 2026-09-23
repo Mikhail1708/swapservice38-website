@@ -32,7 +32,7 @@ describe('comment reply email notification', () => {
     db.comment.findUnique.mockResolvedValue({
       id: 'parent-1', articleId: 'article-1', content: 'Исходный комментарий',
       parentId: null, author: { id: 'user-a', email: 'a@example.test', firstName: 'A', lastName: 'User' },
-      article: { id: 'article-1', title: 'Article' }, replies: [],
+      article: { id: 'article-1', slug: 'public-swap-slug', title: 'Article' }, replies: [],
     });
     enqueue.mockResolvedValue(undefined);
   });
@@ -49,7 +49,7 @@ describe('comment reply email notification', () => {
       payload: expect.objectContaining({
         to: 'a@example.test',
         subject: expect.stringContaining('SWAPSERVICE38'),
-        text: expect.stringContaining('/swaps/article-1#comments'),
+        text: expect.stringContaining('/swaps/public-swap-slug#comments'),
         html: expect.stringContaining('Исходный комментарий'),
       }),
     }));

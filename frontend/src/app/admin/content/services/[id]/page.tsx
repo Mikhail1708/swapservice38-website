@@ -16,7 +16,6 @@ export default function EditServicePage() {
   const [form, setForm] = useState({
     name: '',
     description: '',
-    price: '',
     isActive: true,
   });
   const [imageUrls, setImageUrls] = useState<string[]>([]);
@@ -41,7 +40,6 @@ export default function EditServicePage() {
         setForm({
           name: service.name || '',
           description: service.description || '',
-          price: service.price ? String(service.price) : '',
           isActive: service.isActive ?? true,
         });
         if (service.imageUrl) {
@@ -106,7 +104,6 @@ export default function EditServicePage() {
       const payload = {
         name: form.name.trim(),
         description: form.description.trim() || null,
-        price: form.price ? parseFloat(form.price) : null,
         imageUrl: imageUrls.length > 0 ? imageUrls[0] : null,
         isActive: form.isActive,
       };
@@ -193,20 +190,6 @@ export default function EditServicePage() {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
             placeholder="Подробное описание услуги"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
-            Цена (₽)
-          </label>
-          <input
-            type="number"
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition"
-            placeholder="15000"
-            min={0}
           />
         </div>
 
