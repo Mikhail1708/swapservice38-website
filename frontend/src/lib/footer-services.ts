@@ -9,7 +9,7 @@ export async function loadFooterServices(signal: AbortSignal): Promise<FooterSer
     if (!Array.isArray(data?.services)) return [];
     return data.services.filter((service: any) => service &&
       typeof service.id === 'string' && typeof service.name === 'string' &&
-      service.isActive !== false).slice(0, 5);
+      service.isActive !== false && service.name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru-RU') !== 'свапы двигателей').slice(0, 4);
   } catch {
     return [];
   }

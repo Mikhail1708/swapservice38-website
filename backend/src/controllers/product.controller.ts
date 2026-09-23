@@ -119,6 +119,7 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
 export const getCategories = async (req: Request, res: Response): Promise<void> => {
   try {
     let categories: string[] = [];
+    let categoryCounts: { name: string; productCount: number }[] = [];
 
     try {
       const response = await axios.get(`${CRM_API_URL}/api/public/categories`, {
@@ -126,6 +127,12 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
       });
       
       let data = response.data;
+      const rows = Array.isArray(data) ? data : data?.categories || data?.data || data?.items;
+      if (Array.isArray(rows)) {
+        categoryCounts = rows.filter((c: any) => typeof c?.name === 'string' && c.name.trim() &&
+          Number.isSafeInteger(c?._count?.products) && c._count.products >= 0)
+          .map((c: any) => ({ name: c.name, productCount: c._count.products }));
+      }
       
       if (Array.isArray(data)) {
         categories = data.map((c: any) => c.name || c).filter(Boolean);
@@ -138,6 +145,11 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
       }
       
     } catch (error: any) {
+      // Footer needs authoritative counts, never counts inferred from a product page.
+      if (req.query.includeCounts === 'true') {
+        res.json({ categories: [], categoryCounts: [] });
+        return;
+      }
       console.warn('⚠️ CRM недоступна, получаем категории из товаров');
       
       try {
@@ -155,7 +167,7 @@ export const getCategories = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    res.json({ categories });
+    res.json({ categories, ...(req.query.includeCounts === 'true' ? { categoryCounts } : {}) });
   } catch (error: any) {
     log.error('CRM category request failed', { status: error?.response?.status });
     res.json({ categories: [] });

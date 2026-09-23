@@ -1,6 +1,7 @@
 // frontend/components/site-footer.tsx
 import { useEffect, useState } from 'react';
 import { loadFooterServices, type FooterService } from '@/lib/footer-services';
+import { loadFooterCategories, type FooterCategory } from '@/lib/footer-categories';
 import { Image, Link } from '@/lib/next-shims';
 import { SITE_CONTACTS } from '@/lib/site-contacts';
 import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle, MessageSquare } from 'lucide-react';
@@ -25,21 +26,21 @@ const COLUMNS = [
     title: 'Каталог',
     links: [
       { label: 'Все товары', href: '/catalog' },
-      { label: 'Компоненты для свапа', href: '/catalog?category=Компоненты для свапа' },
-      { label: 'Внешний обвес', href: '/catalog?category=Внешний обвес' },
-      { label: 'Защита', href: '/catalog?category=Защита' },
-      { label: 'Багажники', href: '/catalog?category=Багажники' },
     ],
   },
 ];
 
 export function SiteFooter() {
   const [services, setServices] = useState<FooterService[]>([]);
+  const [categories, setCategories] = useState<FooterCategory[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
     loadFooterServices(controller.signal).then((items) => {
       if (!controller.signal.aborted) setServices(items);
+    });
+    loadFooterCategories(controller.signal).then((items) => {
+      if (!controller.signal.aborted) setCategories(items);
     });
     return () => controller.abort();
   }, []);
@@ -105,7 +106,13 @@ export function SiteFooter() {
           </div>
         </div>
 
-        {[COLUMNS[0], { title: 'Услуги', links: services.map(service => ({ label: toSentenceCase(service.name), href: `/services/${service.id}` })) }, COLUMNS[1]].map((col) => (
+        {[COLUMNS[0], { title: 'Услуги', links: [
+          { label: 'Свапы двигателей', href: '/swaps' },
+          ...services.map(service => ({ label: toSentenceCase(service.name), href: `/services/${service.id}` })),
+        ] }, { ...COLUMNS[1], links: [
+          ...COLUMNS[1].links,
+          ...categories.map(category => ({ label: toSentenceCase(category.name), href: `/catalog?category=${encodeURIComponent(category.name)}` })),
+        ] }].map((col) => (
           <div key={col.title} className="min-w-0">
             <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-foreground">{col.title}</h4>
             <ul className="mt-5 min-h-[168px] space-y-3">

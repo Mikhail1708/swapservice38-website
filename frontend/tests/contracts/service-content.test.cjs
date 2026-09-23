@@ -32,7 +32,7 @@ function load(file, states = [], extra = '') {
 }
 
 for (const count of [0, 1, 3, 5, 10]) {
-  test(`footer uses first five active API services: ${count}`, async () => {
+  test(`footer uses static swaps plus first four active API services: ${count}`, async () => {
     const rows = Array.from({ length: count }, (_, i) => ({ id: `s${i}`, name: `Service ${i}`, isActive: true }));
     const originalFetch = global.fetch;
     try {
@@ -42,13 +42,71 @@ for (const count of [0, 1, 3, 5, 10]) {
         return { ok: true, json: async () => ({ services: rows }) };
       };
       const result = await load('src/lib/footer-services.ts').loadFooterServices(new AbortController().signal);
-      assert.deepEqual(result, rows.slice(0, 5));
+      assert.deepEqual(result, rows.slice(0, 4));
       const html = render(load('src/components/site-footer.tsx', [result]).SiteFooter());
-      assert.equal((html.match(/href="\/services\/s\d+"/g) || []).length, Math.min(count, 5));
-      assert.doesNotMatch(html, /Свапы двигателей<\/a>/);
+      assert.equal((html.match(/href="\/services\/s\d+"/g) || []).length, Math.min(count, 4));
+      const section = html.split('>Услуги</h4>')[1].split('</ul>')[0];
+      assert.match(section, /href="\/swaps"[^>]*>Свапы двигателей<\/a>/);
+      if (count) assert.ok(section.indexOf('/swaps') < section.indexOf('/services/s0'));
     } finally { global.fetch = originalFetch; }
   });
 }
+
+test('footer ranks categories by real counts, preserves filter name and formats labels', async () => {
+  const original = global.fetch;
+  try {
+    const categoryCounts = [0, 2, 1, 12, 5, 7, 3, 10].map((productCount, index) => ({ name: `КАТЕГОРИЯ & ${index}`, productCount }));
+    global.fetch = async url => {
+      assert.equal(url, '/api/products/categories?includeCounts=true');
+      return { ok: true, json: async () => ({ categoryCounts }) };
+    };
+    const result = await load('src/lib/footer-categories.ts').loadFooterCategories(new AbortController().signal);
+    assert.deepEqual(result.map(c => c.productCount), [12, 10, 7, 5, 3]);
+    const html = render(load('src/components/site-footer.tsx', [[], result]).SiteFooter());
+    const section = html.split('>Каталог</h4>')[1].split('</ul>')[0];
+    assert.match(section, /^<ul[^>]*><li><a href="\/catalog"[^>]*>Все товары<\/a>/);
+    assert.equal((section.match(/<li>/g) || []).length, 6);
+    assert.ok(section.includes(`/catalog?category=${encodeURIComponent('КАТЕГОРИЯ & 3')}`));
+    assert.ok(section.includes('Категория &amp; 3'));
+    assert.ok(section.indexOf('Категория &amp; 3') < section.indexOf('Категория &amp; 7'));
+  } finally { global.fetch = original; }
+});
+
+test('footer keeps static links when both APIs fail and when lists are empty', async () => {
+  const original = global.fetch;
+  try {
+    for (const failure of [false, true]) {
+      global.fetch = async () => { if (failure) throw Error('offline'); return { ok: true, json: async () => ({ services: [], categoryCounts: [] }) }; };
+      const signal = new AbortController().signal;
+      const services = await load('src/lib/footer-services.ts').loadFooterServices(signal);
+      const categories = await load('src/lib/footer-categories.ts').loadFooterCategories(signal);
+      const html = render(load('src/components/site-footer.tsx', [services, categories]).SiteFooter());
+      const catalog = html.split('>Каталог</h4>')[1].split('</ul>')[0];
+      const service = html.split('>Услуги</h4>')[1].split('</ul>')[0];
+      assert.equal((catalog.match(/<li>/g) || []).length, 1);
+      assert.match(catalog, /Все товары/);
+      assert.equal((service.match(/<li>/g) || []).length, 1);
+      assert.match(service, /Свапы двигателей/);
+    }
+  } finally { global.fetch = original; }
+});
+
+test('services exclude duplicate static name, preserve API order and sentence case', async () => {
+  const original = global.fetch;
+  try {
+    global.fetch = async () => ({ ok: true, json: async () => ({ services: [
+      { id: 'dup', name: '  СВАПЫ   ДВИГАТЕЛЕЙ ' },
+      { id: 's2', name: 'РЕМОНТ ДВИГАТЕЛЕЙ' }, { id: 's1', name: 'УСЛУГА' },
+    ] }) });
+    const result = await load('src/lib/footer-services.ts').loadFooterServices(new AbortController().signal);
+    assert.deepEqual(result.map(s => s.id), ['s2', 's1']);
+    const html = render(load('src/components/site-footer.tsx', [result]).SiteFooter());
+    const section = html.split('>Услуги</h4>')[1].split('</ul>')[0];
+    assert.equal((section.match(/Свапы двигателей/g) || []).length, 1);
+    assert.match(section, /Ремонт двигателей/);
+    assert.ok(section.indexOf('/services/s2') < section.indexOf('/services/s1'));
+  } finally { global.fetch = original; }
+});
 
 test('footer tolerates API failure, malformed data and excludes inactive services', async () => {
   const originalFetch = global.fetch;

@@ -38,21 +38,59 @@ const publicUrl = (pathname: string, search?: Record<string, string>): string =>
   return escapeHtml(url.toString());
 };
 
+const commentEmailPreview = (value: string, limit = 500): string => {
+  const characters = Array.from(value.trim());
+  return characters.length > limit ? characters.slice(0, limit).join('') + '…' : characters.join('');
+};
+
+const commentEmailBlock = (label: string, text: string, highlighted = false): string => `
+  ${sectionTitle(label)}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;">
+    <tr><td style="padding:18px 20px;background:${highlighted ? '#252321' : '#1b1b1f'};border:1px solid ${highlighted ? '#625a4d' : '#303035'};border-radius:6px;font-size:15px;line-height:24px;color:#f2f2f3;word-break:break-word;overflow-wrap:break-word;">${escapeHtml(text).replace(/\r\n|\r|\n/g, '<br>')}</td></tr>
+  </table>`;
+
+const commentMaterialUrl = (slug: string): string =>
+  new URL(`/swaps/${encodeURIComponent(slug)}#comments`, publicAppUrl()).toString();
+
+export const commentReplyEmailTemplate = (data: {
+  articleSlug: string; articleTitle: string; comment: string; reply: string;
+}) => {
+  const comment = commentEmailPreview(data.comment);
+  const reply = commentEmailPreview(data.reply);
+  const title = commentEmailPreview(data.articleTitle, 200);
+  const url = commentMaterialUrl(data.articleSlug);
+  return {
+    subject: 'На ваш комментарий ответили — SWAPSERVICE38',
+    text: `Вам ответили\n\nНа ваш комментарий к материалу «${title}» появился ответ.\n\nВаш комментарий:\n${comment}\n\nОтвет:\n${reply}\n\nОткрыть обсуждение: ${url}`,
+    html: emailShell({
+      title: 'Вам ответили',
+      preheader: 'На ваш комментарий появился ответ. Откройте обсуждение.',
+      icon: '✉',
+      content: `<p style="margin:24px 0 0;font-size:16px;line-height:26px;color:#f2f2f3;word-break:break-word;">На ваш комментарий к материалу «${escapeHtml(title)}» появился ответ.</p>
+        ${commentEmailBlock('Ваш комментарий', comment)}
+        ${commentEmailBlock('Ответ', reply)}
+        ${fullWidthCta('Открыть обсуждение', escapeHtml(url))}`,
+    }),
+  };
+};
+
 export const commentModerationEmailTemplate = (data: {
   articleSlug: string; articleTitle: string; comment: string; reason: string;
 }) => {
-  const preview = Array.from(data.comment).slice(0, 500).join('');
-  const materialUrl = new URL(`/swaps/${encodeURIComponent(data.articleSlug)}#comments`, publicAppUrl()).toString();
+  const preview = commentEmailPreview(data.comment);
+  const reason = commentEmailPreview(data.reason, 2000);
+  const title = commentEmailPreview(data.articleTitle, 200);
+  const materialUrl = commentMaterialUrl(data.articleSlug);
   return {
     subject: 'Ваш комментарий удалён модератором — SWAPSERVICE38',
-    text: `Ваш комментарий к материалу «${data.articleTitle}» удалён модератором.\n\nКомментарий: ${preview}\n\nПричина: ${data.reason}\n\n${materialUrl}`,
+    text: `Ваш комментарий к материалу «${title}» удалён модератором.\n\nКомментарий: ${preview}\n\nПричина: ${reason}\n\n${materialUrl}`,
     html: emailShell({
       title: 'Комментарий удалён',
       preheader: 'Модератор удалил ваш комментарий. Причина указана в письме.',
       icon: '✉',
-      content: `<p>Ваш комментарий к материалу «${escapeHtml(data.articleTitle)}» удалён модератором.</p>
-        ${sectionTitle('Комментарий')}<blockquote style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(preview)}</blockquote>
-        ${sectionTitle('Причина удаления')}<p style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(data.reason)}</p>
+      content: `<p style="margin:24px 0 0;font-size:16px;line-height:26px;color:#f2f2f3;word-break:break-word;">Ваш комментарий к материалу «${escapeHtml(title)}» удалён модератором.</p>
+        ${commentEmailBlock('Ваш комментарий', preview)}
+        ${commentEmailBlock('Причина удаления', reason, true)}
         ${fullWidthCta('Открыть материал', escapeHtml(materialUrl))}`,
     }),
   };
