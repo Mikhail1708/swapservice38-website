@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client'
 import { CartProvider } from '@/lib/context/CartContext'
 import App from './App'
 import './app/globals.css'
+import './app/fonts.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -1,4 +1,5 @@
 'use client';
+import { ArticleContent, PlainText } from '@/components/content-text';
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, Image, Link } from '@/lib/next-shims';
@@ -328,7 +329,7 @@ export default function ArticlePage() {
               </span>
             ))}
           </div>
-          <h1 className="heading-display text-[clamp(28px,4vw,44px)] text-foreground leading-tight">
+          <h1 className="heading-display text-[clamp(28px,4vw,44px)] text-foreground leading-tight [overflow-wrap:anywhere]">
             {article.title}
           </h1>
           <div className="flex flex-wrap items-center gap-6 mt-4 text-sm text-muted-foreground">
@@ -362,9 +363,7 @@ export default function ArticlePage() {
         )}
 
         {/* Описание */}
-        <p className="text-lg text-muted-foreground leading-relaxed mb-6">
-          {article.description}
-        </p>
+        <div className="text-lg text-muted-foreground mb-6"><PlainText text={article.description || ''} /></div>
 
         {/* Галерея */}
         {article.images && article.images.length > 0 && (
@@ -375,10 +374,7 @@ export default function ArticlePage() {
         )}
 
         {/* Контент */}
-        <div 
-          className="prose prose-invert max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-a:text-foreground prose-li:text-muted-foreground prose-ul:text-muted-foreground"
-          dangerouslySetInnerHTML={{ __html: article.content }}
-        />
+        <ArticleContent sanitizedHtml={article.content} />
 
         {/* Кнопки */}
         <div className="flex flex-wrap gap-4 mt-8 pt-6 border-t border-border">

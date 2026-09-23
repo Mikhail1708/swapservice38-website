@@ -38,6 +38,26 @@ const publicUrl = (pathname: string, search?: Record<string, string>): string =>
   return escapeHtml(url.toString());
 };
 
+export const commentModerationEmailTemplate = (data: {
+  articleSlug: string; articleTitle: string; comment: string; reason: string;
+}) => {
+  const preview = Array.from(data.comment).slice(0, 500).join('');
+  const materialUrl = new URL(`/swaps/${encodeURIComponent(data.articleSlug)}#comments`, publicAppUrl()).toString();
+  return {
+    subject: 'Ваш комментарий удалён модератором — SWAPSERVICE38',
+    text: `Ваш комментарий к материалу «${data.articleTitle}» удалён модератором.\n\nКомментарий: ${preview}\n\nПричина: ${data.reason}\n\n${materialUrl}`,
+    html: emailShell({
+      title: 'Комментарий удалён',
+      preheader: 'Модератор удалил ваш комментарий. Причина указана в письме.',
+      icon: '✉',
+      content: `<p>Ваш комментарий к материалу «${escapeHtml(data.articleTitle)}» удалён модератором.</p>
+        ${sectionTitle('Комментарий')}<blockquote style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(preview)}</blockquote>
+        ${sectionTitle('Причина удаления')}<p style="white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(data.reason)}</p>
+        ${fullWidthCta('Открыть материал', escapeHtml(materialUrl))}`,
+    }),
+  };
+};
+
 type EmailShellOptions = {
   title: string;
   preheader: string;

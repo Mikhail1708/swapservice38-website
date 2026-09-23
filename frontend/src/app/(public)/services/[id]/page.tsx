@@ -1,5 +1,6 @@
 // frontend/app/(public)/services/[id]/page.tsx
 'use client';
+import { PlainText } from '@/components/content-text';
 
 import { useState, useEffect } from 'react';
 import { useParams, Image, Link  } from '@/lib/next-shims';
@@ -9,7 +10,6 @@ import {
   AlertCircle,
   ChevronRight,
   Calendar,
-  Tag,
   Phone,
   Mail,
   MapPin
@@ -149,11 +149,6 @@ export default function ServiceDetailPage() {
             onError={() => setImgError(true)}
             unoptimized
           />
-          {service.price && service.price > 0 && (
-            <div className="absolute bottom-4 left-4 bg-foreground/90 backdrop-blur-sm text-background text-sm font-medium px-4 py-2 rounded-full">
-              от {service.price.toLocaleString()} ₽
-            </div>
-          )}
           <div className="absolute top-4 right-4">
             {service.isActive ? (
               <span className="bg-green-500/90 backdrop-blur-sm text-white text-xs font-medium px-4 py-2 rounded-full">
@@ -180,28 +175,15 @@ export default function ServiceDetailPage() {
                 })}
               </span>
             </div>
-            <h1 className="text-3xl font-bold text-foreground">{service.name}</h1>
+            <h1 className="text-3xl font-bold text-foreground [overflow-wrap:anywhere]">{service.name}</h1>
           </div>
 
           {service.description && (
             <div className="bg-card border border-border rounded-2xl p-6">
-              <p className="text-muted-foreground text-base leading-relaxed whitespace-pre-wrap">
-                {service.description}
-              </p>
+              <div className="text-muted-foreground text-base"><PlainText text={service.description} /></div>
             </div>
           )}
 
-          {service.price && service.price > 0 && (
-            <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Tag className="w-5 h-5 text-foreground" />
-                <span className="text-muted-foreground">Стоимость:</span>
-              </div>
-              <span className="text-2xl font-bold text-foreground">
-                от {service.price.toLocaleString()} ₽
-              </span>
-            </div>
-          )}
 
           {/* Контакты */}
           <div className="bg-card border border-border rounded-2xl p-6">

@@ -1,7 +1,16 @@
 // frontend/components/site-footer.tsx
+import { useEffect, useState } from 'react';
+import { loadFooterServices, type FooterService } from '@/lib/footer-services';
 import { Image, Link } from '@/lib/next-shims';
 import { SITE_CONTACTS } from '@/lib/site-contacts';
 import { Phone, Mail, MapPin, Clock, Send, Play, MessageCircle, MessageSquare } from 'lucide-react';
+
+const toSentenceCase = (value: string) => {
+  const normalized = value.trim().toLocaleLowerCase('ru-RU');
+  return normalized
+    ? normalized.charAt(0).toLocaleUpperCase('ru-RU') + normalized.slice(1)
+    : normalized;
+};
 
 const COLUMNS = [
   {
@@ -10,16 +19,6 @@ const COLUMNS = [
       { label: 'О нас', href: '/#about' },
       { label: 'Наши работы', href: '/swaps' },
       { label: 'Контакты', href: '/contacts' },
-    ],
-  },
-  {
-    title: 'Услуги',
-    links: [
-      { label: 'Свапы двигателей', href: '/swaps' },
-      { label: 'Боди-лифт', href: '/services' },
-      { label: 'Усиление кузова', href: '/services' },
-      { label: 'Установка защиты', href: '/services' },
-      { label: 'Багажники и фаркопы', href: '/services' },
     ],
   },
   {
@@ -35,6 +34,16 @@ const COLUMNS = [
 ];
 
 export function SiteFooter() {
+  const [services, setServices] = useState<FooterService[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadFooterServices(controller.signal).then((items) => {
+      if (!controller.signal.aborted) setServices(items);
+    });
+    return () => controller.abort();
+  }, []);
+
   return (
     <footer id="footer" className="border-t border-border bg-background pt-16">
       <div className="container-custom grid grid-cols-2 gap-10 pb-14 lg:grid-cols-5">
@@ -96,20 +105,13 @@ export function SiteFooter() {
           </div>
         </div>
 
-        {COLUMNS.map((col) => (
-          <div key={col.title}>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-foreground">
-              {col.title}
-            </h4>
-            <ul className="mt-5 space-y-3">
+        {[COLUMNS[0], { title: 'Услуги', links: services.map(service => ({ label: toSentenceCase(service.name), href: `/services/${service.id}` })) }, COLUMNS[1]].map((col) => (
+          <div key={col.title} className="min-w-0">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-foreground">{col.title}</h4>
+            <ul className="mt-5 min-h-[168px] space-y-3">
               {col.links.map((link) => (
-                <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    {link.label}
-                  </Link>
+                <li key={link.href}>
+                  <Link href={link.href} className="text-sm text-muted-foreground break-words transition-colors hover:text-foreground">{link.label}</Link>
                 </li>
               ))}
             </ul>
@@ -148,7 +150,7 @@ export function SiteFooter() {
       {/* Нижняя часть с документами */}
       <div className="border-t border-border py-6">
         <div className="container-custom flex flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">
-          <span>© {new Date().getFullYear()} SWAP SERVICE 38</span>
+          <span>© {new Date().getFullYear()} SWAP SERVICE 38. Все права защищены.</span>
           <div className="flex items-center gap-4">
             <Link href="/privacy" className="hover:text-foreground transition">
               Политика конфиденциальности
