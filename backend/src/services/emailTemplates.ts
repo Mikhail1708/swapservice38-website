@@ -54,21 +54,23 @@ const commentMaterialUrl = (slug: string): string =>
 
 export const commentReplyEmailTemplate = (data: {
   articleSlug: string; articleTitle: string; comment: string; reply: string;
+  replyAuthorName?: string;
 }) => {
   const comment = commentEmailPreview(data.comment);
   const reply = commentEmailPreview(data.reply);
   const title = commentEmailPreview(data.articleTitle, 200);
+  const replyAuthor = commentEmailPreview(data.replyAuthorName?.trim() || 'Команда SWAPSERVICE38', 100);
   const url = commentMaterialUrl(data.articleSlug);
   return {
     subject: 'На ваш комментарий ответили — SWAPSERVICE38',
-    text: `Вам ответили\n\nНа ваш комментарий к материалу «${title}» появился ответ.\n\nВаш комментарий:\n${comment}\n\nОтвет:\n${reply}\n\nОткрыть обсуждение: ${url}`,
+    text: `Вам ответили\n\nНа ваш комментарий к материалу «${title}» появился ответ.\n\nВаш комментарий:\n${comment}\n\nОтветил: ${replyAuthor}\n${reply}\n\nОткрыть обсуждение: ${url}`,
     html: emailShell({
       title: 'Вам ответили',
       preheader: 'На ваш комментарий появился ответ. Откройте обсуждение.',
       icon: '✉',
       content: `<p style="margin:24px 0 0;font-size:16px;line-height:26px;color:#f2f2f3;word-break:break-word;">На ваш комментарий к материалу «${escapeHtml(title)}» появился ответ.</p>
         ${commentEmailBlock('Ваш комментарий', comment)}
-        ${commentEmailBlock('Ответ', reply)}
+        ${commentEmailBlock(`Ответил: ${replyAuthor}`, reply)}
         ${fullWidthCta('Открыть обсуждение', escapeHtml(url))}`,
     }),
   };

@@ -522,7 +522,7 @@ const handleCancelOrder = async () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Доставка</span>
-                  <span className="text-green-500 font-medium">Бесплатно</span>
+                  <span className="text-green-500 font-medium">Расчитывается менеджером</span>
                 </div>
                 <div className="border-t border-border pt-3 mt-1">
                   <div className="flex justify-between text-lg font-bold">

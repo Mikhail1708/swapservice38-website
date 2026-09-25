@@ -3,6 +3,8 @@ import axios from 'axios';
 import { addOrderToCRMQueue } from '../../../src/queues/crm.queue';
 import {
   acceleratePaymentReconciliationEvent,
+  dispatchCrmCancellationEvent,
+  CRM_CANCELLATION_MAX_ATTEMPTS,
   crmCreateDeduplicationKey,
   dispatchCrmOutboxEvent,
   dispatchCrmOutboxOnce,
@@ -378,5 +380,74 @@ describe('CRM transactional outbox', () => {
         orderData: expect.objectContaining({ externalOrderId: 'legacy-order' }),
       }) },
     });
+  });
+});
+
+
+describe('cancellation delivery and permanent failures', () => {
+  let event: any;
+  let order: any;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedAxios.post.mockReset();
+    event = { id: 'cancel-event', aggregateId: 'order-1', status: 'pending', attempts: 0,
+      processedAt: null, payload: { orderId: 'order-1', crmOrderId: '379',
+        requestId: 'crm-order-cancellation:order-1', reason: 'customer_request' } };
+    order = { id: 'order-1', crmOrderId: '379', status: 'assembling', cancellationState: 'requested' };
+    mockPrisma.$transaction.mockImplementation(async (fn: any) => fn(mockPrisma));
+    mockPrisma.outboxEvent.findUnique.mockImplementation(async () => ({ ...event }));
+    mockPrisma.outboxEvent.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.status !== event.status || event.processedAt) return { count: 0 };
+      event = { ...event, ...data, attempts: data.attempts?.increment ? event.attempts + 1 : event.attempts };
+      return { count: 1 };
+    });
+    mockPrisma.order.findUnique.mockResolvedValue(order);
+  });
+  it('marks delivery complete on requested without cancelling, deciding, or sending twice', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { decision: 'requested' } });
+    expect(await dispatchCrmCancellationEvent(event.id)).toBe(true);
+    expect(event.status).toBe('completed');
+    expect(order.cancellationState).toBe('requested');
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
+    expect(await dispatchCrmCancellationEvent(event.id)).toBe(false);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining('/orders/379/cancellation'), {
+      requestId: 'crm-order-cancellation:order-1', externalOrderId: 'order-1', reason: 'customer_request',
+    }, expect.objectContaining({ timeout: 15000 }));
+  });
+  it.each([400, 404, 409, 422])('retains HTTP %s for review without losing the customer request or retrying', async status => {
+    mockedAxios.post.mockRejectedValue({ response: { status }, message: 'fixture validation failure' });
+    expect(await dispatchCrmCancellationEvent(event.id)).toBe(false);
+    expect(event).toEqual(expect.objectContaining({ status: 'failed', processedAt: null, lastError: 'fixture validation failure' }));
+    expect(await dispatchCrmCancellationEvent(event.id)).toBe(false);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
+  });
+  it('bounds persistent HTTP 500 retries at the exact attempt budget', async () => {
+    mockedAxios.post.mockRejectedValue({ response: { status: 500 }, message: 'fixture constraint failure' });
+    for (let n = 1; n <= CRM_CANCELLATION_MAX_ATTEMPTS; n++) {
+      await dispatchCrmCancellationEvent(event.id);
+      expect(event.attempts).toBe(n);
+      expect(event.status).toBe(n === CRM_CANCELLATION_MAX_ATTEMPTS ? 'failed' : 'pending');
+      expect(event.nextAttemptAt).toBeInstanceOf(Date);
+    }
+    await dispatchCrmCancellationEvent(event.id);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(CRM_CANCELLATION_MAX_ATTEMPTS);
+    expect(order.cancellationState).toBe('requested');
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
+  });
+  it('does not send beyond the budget after an exhausted claim is recovered', async () => {
+    event.attempts = CRM_CANCELLATION_MAX_ATTEMPTS;
+    await dispatchCrmCancellationEvent(event.id);
+    expect(event.status).toBe('failed');
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+  it('retries a temporary network failure with the same request identity', async () => {
+    mockedAxios.post.mockRejectedValueOnce(new Error('fixture timeout')).mockResolvedValueOnce({ data: { decision: 'requested' } });
+    await dispatchCrmCancellationEvent(event.id);
+    expect(event.status).toBe('pending');
+    await dispatchCrmCancellationEvent(event.id);
+    expect(event.status).toBe('completed');
+    expect(mockedAxios.post.mock.calls[0][1]).toEqual(mockedAxios.post.mock.calls[1][1]);
   });
 });

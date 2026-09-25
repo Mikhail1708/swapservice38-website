@@ -3,8 +3,6 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
-  assertOrderStatusTransition,
-  InvalidOrderStatusTransitionError,
   shouldApplyCrmStatusVersion,
 } from '../utils/orderStatus';
 import { sendOrderStatusUpdateToCustomer } from '../services/email.service';
@@ -147,7 +145,10 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
         await ensureAuthoritativeCancellationRefund(tx, order, new Date());
         return { applied: false, order };
       }
-      assertOrderStatusTransition(order.status, siteStatus);
+      // This signed, newer CRM event is an authoritative projection, not a local
+      // workflow transition. CRM owns manual reversals and their stock guards.
+      // Keep local payment/admin transition rules separate; statusMap above
+      // still limits the accepted statuses and the locked version check orders them.
       const now = new Date();
       const updatedOrder = await tx.order.update({
         where: { id: order.id },
@@ -197,10 +198,6 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       message: `Order ${order.id} status updated to ${siteStatus}`,
     });
   } catch (error: any) {
-    if (error instanceof InvalidOrderStatusTransitionError) {
-      res.status(409).json({ error: error.message });
-      return;
-    }
     console.error('❌ Webhook error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }

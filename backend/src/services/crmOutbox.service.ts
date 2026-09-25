@@ -12,6 +12,7 @@ const EVENT_TYPE = 'crm_order_create_requested';
 const REFUND_EVENT_TYPE = 'payment_refund_requested';
 const RECONCILIATION_EVENT_TYPE = 'payment_reconciliation_required';
 const CANCELLATION_EVENT_TYPE = 'crm_order_cancellation_requested';
+export const CRM_CANCELLATION_MAX_ATTEMPTS = 8;
 const RESERVATION_RELEASE_EVENT_TYPE = 'crm_reservation_release_requested';
 const PROCESSING_LEASE_MS = 60_000;
 const DEFAULT_POLL_MS = 5_000;
@@ -316,6 +317,9 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
   if (!event) return false;
 
   try {
+    if (event.attempts > CRM_CANCELLATION_MAX_ATTEMPTS) {
+      throw new Error('CRM cancellation attempt budget exhausted');
+    }
     const payload = event.payload as {
       orderId?: string; crmOrderId?: string; requestId?: string; reason?: string;
     };
@@ -368,10 +372,14 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
     });
     return true;
   } catch (error: any) {
+    // Preserve the request for manual recovery, without polling a permanent
+    // validation failure forever. Network/5xx failures retain bounded backoff.
+    const permanent = [400, 404, 409, 422].includes(error?.response?.status);
+    const exhausted = event.attempts >= CRM_CANCELLATION_MAX_ATTEMPTS;
     await prisma.outboxEvent.updateMany({
       where: { id: event.id, status: 'processing', processedAt: null },
       data: {
-        status: 'pending', lockedAt: null,
+        status: permanent || exhausted ? 'failed' : 'pending', lockedAt: null,
         nextAttemptAt: new Date(Date.now() + retryDelayMs(event.attempts)),
         lastError: String(error?.message || error).slice(0, 1000),
       },
