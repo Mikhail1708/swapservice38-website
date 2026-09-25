@@ -35,6 +35,7 @@ import {
   paymentRefundDeduplicationKey,
 } from './crmOutbox.service';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
+import { replayFailedCrmDelivery } from './crmDelivery.service';
 
 import { prisma } from '../config/prisma';
 
@@ -879,8 +880,12 @@ export const getPaymentStatus = async (paymentId: string) => {
     );
     return response.data;
   } catch (error: any) {
-    log.error('❌ Ошибка получения статуса платежа', { error: error.message });
-    throw new Error('Ошибка получения статуса платежа');
+    log.error('❌ Ошибка получения статуса платежа', { status: Number(error?.response?.status) || undefined });
+    const failure = new Error('Ошибка получения статуса платежа') as Error & { response?: { status: number } };
+    const status = Number(error?.response?.status);
+    // Preserve only the HTTP classification, never Axios credentials/body/URL.
+    if (Number.isInteger(status) && status >= 100 && status <= 599) failure.response = { status };
+    throw failure;
   }
 };
 
@@ -955,12 +960,20 @@ export const resendOrderToCRM = async (orderId: string): Promise<any> => {
     });
     const immutableOrderData = (original?.payload as { orderData?: Record<string, unknown> } | undefined)?.orderData;
     if (!immutableOrderData) throw new Error(`Immutable CRM payload для заказа ${orderId} не найден`);
+    if (original.status === 'failed') {
+      const replayed = await replayFailedCrmDelivery(orderId, tx);
+      return { id: replayed.id, kind: 'create' as const };
+    }
     const event = await ensurePaymentReconciliationEvent(
       tx, orderId, paymentAttempt.providerPaymentId, immutableOrderData,
     );
     await acceleratePaymentReconciliationEvent(tx, event.id);
-    return event;
+    return { id: event.id, kind: 'reconciliation' as const };
   });
-  await dispatchPaymentReconciliationEvent(reconciliation.id).catch(() => false);
+  if (reconciliation.kind === 'create') {
+    await dispatchCrmOutboxEvent(reconciliation.id).catch(() => false);
+  } else {
+    await dispatchPaymentReconciliationEvent(reconciliation.id).catch(() => false);
+  }
   return { success: true, orderId, queued: true, crmOrderId: null, documentNumber: null };
 };

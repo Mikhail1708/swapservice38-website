@@ -67,6 +67,28 @@ describe('comment reply email notification', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['Михаил', 'Иванов', 'Михаил'],
+    ['   ', 'Иванов', 'Иванов'],
+    [null, null, 'Команда SWAPSERVICE38'],
+  ])('uses reply author name %s, never parent name or private/technical fields', async (firstName, lastName, expected) => {
+    db.comment.create.mockResolvedValue({
+      id: 'reply-1', content: 'Ответ', parentId: 'parent-1', createdAt: new Date(),
+      author: { id: 'private-author-id', firstName, lastName, email: 'private@example.test', role: 'manager' },
+    });
+    const response = await invoke('user-b', { articleId: 'article-1', parentId: 'parent-1', content: 'Ответ' });
+    expect(response.statusCode).toBe(201);
+    const { text, html } = enqueue.mock.calls[0][1].payload;
+    for (const output of [text, html]) {
+      expect(output).toContain(`Ответил: ${expected}`);
+      expect(output).not.toContain('Ответил: A');
+      expect(output).not.toContain('private@example.test');
+      expect(output).not.toContain('private-author-id');
+      expect(output).not.toContain('manager');
+    }
+    expect(enqueue.mock.calls[0][1].deduplicationKey).toBe('comment-reply:reply-1');
+  });
+
   it('creates the reply without email when the parent author has no email', async () => {
     db.comment.findUnique.mockResolvedValue({
       id: 'parent-1', articleId: 'article-1', content: 'Комментарий', parentId: null,

@@ -74,4 +74,18 @@ describe('comment emails share existing branding and delivery payload', () => {
     expect(removed.text).toContain('r'.repeat(2000) + '…');
     expect(removed.html).not.toContain('r'.repeat(2001));
   });
+
+  it('escapes the reply author in HTML and includes the readable name in plain text', () => {
+    const name = 'Михаил <b>&"\'';
+    const result = commentReplyEmailTemplate({ ...base, reply: 'Ответ', replyAuthorName: name });
+    expect(result.html).toContain('Ответил: Михаил &lt;b&gt;&amp;&quot;&#039;');
+    expect(result.html).not.toContain('<b>');
+    expect(result.text).toContain(`Ответил: ${name}`);
+  });
+
+  it.each([undefined, '', '   '])('uses the team fallback when a display name is absent (%s)', (replyAuthorName) => {
+    const result = commentReplyEmailTemplate({ ...base, reply: 'Ответ', replyAuthorName });
+    expect(result.html).toContain('Ответил: Команда SWAPSERVICE38');
+    expect(result.text).toContain('Ответил: Команда SWAPSERVICE38');
+  });
 });

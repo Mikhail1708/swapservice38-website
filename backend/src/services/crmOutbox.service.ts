@@ -1,5 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE, dispatchPaymentProviderReconciliationEvent, scanPaymentProviderReconciliationAttempts } from './paymentProviderReconciliation.service';
+import { CRM_DELIVERY_MAX_ATTEMPTS, crmDeliveryDelayMs } from './crmDelivery.service';
 import { paymentHttpTimeoutMs } from '../config/paymentHttp';
 import { log } from '../config/logger';
 import { addOrderToCRMQueue } from '../queues/crm.queue';
@@ -12,6 +14,7 @@ const EVENT_TYPE = 'crm_order_create_requested';
 const REFUND_EVENT_TYPE = 'payment_refund_requested';
 const RECONCILIATION_EVENT_TYPE = 'payment_reconciliation_required';
 const CANCELLATION_EVENT_TYPE = 'crm_order_cancellation_requested';
+export const CRM_CANCELLATION_MAX_ATTEMPTS = 8;
 const RESERVATION_RELEASE_EVENT_TYPE = 'crm_reservation_release_requested';
 const PROCESSING_LEASE_MS = 60_000;
 const DEFAULT_POLL_MS = 5_000;
@@ -132,6 +135,7 @@ export const acceleratePaymentReconciliationEvent = async (
 const retryDelayMs = (attempts: number) => Math.min(60_000, 1_000 * (2 ** Math.min(attempts, 6)));
 
 export const dispatchCrmOutboxEvent = async (eventId: string): Promise<boolean> => {
+  const dispatchLockedAt = new Date();
   const claimed = await prisma.outboxEvent.updateMany({
     where: {
       id: eventId,
@@ -141,9 +145,8 @@ export const dispatchCrmOutboxEvent = async (eventId: string): Promise<boolean> 
       processedAt: null,
     },
     data: {
-      status: 'processing',
-      lockedAt: new Date(),
-      attempts: { increment: 1 },
+      status: 'dispatched',
+      lockedAt: dispatchLockedAt,
       lastError: null,
     },
   });
@@ -184,19 +187,19 @@ export const dispatchCrmOutboxEvent = async (eventId: string): Promise<boolean> 
     if (!payload.orderId || !payload.orderData) throw new Error('Invalid CRM outbox payload');
     await addOrderToCRMQueue(payload.orderId, payload.orderData);
     await prisma.outboxEvent.updateMany({
-      where: { id: event.id, status: 'processing', processedAt: null },
+      where: { id: event.id, status: 'dispatched', processedAt: null, lockedAt: dispatchLockedAt, attempts: event.attempts },
       data: { status: 'dispatched', lockedAt: null, lastError: null },
     });
     return true;
   } catch (error: any) {
-    const nextAttemptAt = new Date(Date.now() + retryDelayMs(event.attempts));
+    const nextAttemptAt = new Date(Date.now() + crmDeliveryDelayMs(Math.max(1, event.attempts)));
     await prisma.outboxEvent.updateMany({
-      where: { id: event.id, status: 'processing', processedAt: null },
+      where: { id: event.id, status: 'dispatched', processedAt: null, lockedAt: dispatchLockedAt, attempts: event.attempts },
       data: {
         status: 'pending',
         lockedAt: null,
         nextAttemptAt,
-        lastError: String(error?.message || error).slice(0, 1000),
+        lastError: 'CRM queue or reconciliation dispatch failed',
       },
     });
     log.error('CRM outbox dispatch failed', { eventId, orderId: event.aggregateId, error: error?.message });
@@ -281,7 +284,19 @@ export const dispatchPaymentReconciliationEvent = async (eventId: string): Promi
       throw new Error('Immutable CRM reservation payload is unavailable');
     }
 
-    await addOrderToCRMQueue(payload.orderId, immutableOrderData, { replayCompleted: true });
+    const canonical = await prisma.outboxEvent.findUnique({ where: { deduplicationKey: crmCreateDeduplicationKey(payload.orderId) } });
+    if (!canonical) throw new Error('Canonical CRM create intent is missing');
+    if (canonical.status === 'failed' || canonical.attempts >= CRM_DELIVERY_MAX_ATTEMPTS) {
+      await prisma.outboxEvent.updateMany({ where: { id: event.id, status: 'processing', processedAt: null },
+        data: { status: 'failed', lockedAt: null, lastError: 'Canonical CRM delivery failed or exhausted' } });
+      return false;
+    }
+    // Upgrade pre-existing completed create markers from the former reconciliation flow.
+    if (canonical.status === 'completed') {
+      await prisma.outboxEvent.updateMany({ where: { id: canonical.id, status: 'completed', attempts: canonical.attempts },
+        data: { status: 'pending', processedAt: null, lockedAt: null } });
+    }
+    await dispatchCrmOutboxEvent(canonical.id);
     await prisma.outboxEvent.updateMany({
       where: { id: event.id, status: 'processing', processedAt: null },
       data: { status: 'dispatched', lockedAt: null, lastError: null },
@@ -293,7 +308,7 @@ export const dispatchPaymentReconciliationEvent = async (eventId: string): Promi
       data: {
         status: 'pending', lockedAt: null,
         nextAttemptAt: new Date(Date.now() + retryDelayMs(event.attempts)),
-        lastError: String(error?.message || error).slice(0, 1000),
+        lastError: 'CRM queue or reconciliation dispatch failed',
       },
     });
     log.error('Payment reconciliation dispatch failed', {
@@ -316,6 +331,9 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
   if (!event) return false;
 
   try {
+    if (event.attempts > CRM_CANCELLATION_MAX_ATTEMPTS) {
+      throw new Error('CRM cancellation attempt budget exhausted');
+    }
     const payload = event.payload as {
       orderId?: string; crmOrderId?: string; requestId?: string; reason?: string;
     };
@@ -368,10 +386,14 @@ export const dispatchCrmCancellationEvent = async (eventId: string): Promise<boo
     });
     return true;
   } catch (error: any) {
+    // Preserve the request for manual recovery, without polling a permanent
+    // validation failure forever. Network/5xx failures retain bounded backoff.
+    const permanent = [400, 404, 409, 422].includes(error?.response?.status);
+    const exhausted = event.attempts >= CRM_CANCELLATION_MAX_ATTEMPTS;
     await prisma.outboxEvent.updateMany({
       where: { id: event.id, status: 'processing', processedAt: null },
       data: {
-        status: 'pending', lockedAt: null,
+        status: permanent || exhausted ? 'failed' : 'pending', lockedAt: null,
         nextAttemptAt: new Date(Date.now() + retryDelayMs(event.attempts)),
         lastError: String(error?.message || error).slice(0, 1000),
       },
@@ -618,7 +640,7 @@ export const reconcileCrmOutbox = async (): Promise<void> => {
       type: {
         in: [
           EVENT_TYPE, REFUND_EVENT_TYPE, RECONCILIATION_EVENT_TYPE,
-          CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE,
+          CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE, PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE,
         ],
       },
       OR: [
@@ -658,6 +680,7 @@ export const reconcileCrmOutbox = async (): Promise<void> => {
         where: { deduplicationKey: crmCreateDeduplicationKey(order.id) },
       });
       const immutableOrderData = (original?.payload as { orderData?: Record<string, unknown> } | undefined)?.orderData;
+      if (original?.status === 'failed') continue;
       if (immutableOrderData) {
         await ensurePaymentReconciliationEvent(
           prisma, order.id, attempt.providerPaymentId, immutableOrderData,
@@ -698,12 +721,13 @@ export const reconcileCrmOutbox = async (): Promise<void> => {
 
 const runCrmOutboxCycle = async (): Promise<number> => {
   await reconcileCrmOutbox();
+  await scanPaymentProviderReconciliationAttempts();
   const events = await prisma.outboxEvent.findMany({
     where: {
       type: {
         in: [
           EVENT_TYPE, REFUND_EVENT_TYPE, RECONCILIATION_EVENT_TYPE,
-          CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE,
+          CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE, PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE,
         ],
       },
       status: 'pending', nextAttemptAt: { lte: new Date() }, processedAt: null,
@@ -713,6 +737,7 @@ const runCrmOutboxCycle = async (): Promise<number> => {
     select: { id: true, type: true },
   });
   const results = await Promise.all(events.map(({ id, type }) => {
+    if (type === PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE) return dispatchPaymentProviderReconciliationEvent(id);
     if (type === REFUND_EVENT_TYPE) return dispatchPaymentRefundEvent(id);
     if (type === RECONCILIATION_EVENT_TYPE) return dispatchPaymentReconciliationEvent(id);
     if (type === CANCELLATION_EVENT_TYPE) return dispatchCrmCancellationEvent(id);

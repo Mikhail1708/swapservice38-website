@@ -80,7 +80,8 @@ export const createComment = async (req: Request, res: Response): Promise<void> 
             payload: {
               to: parent.author.email,
               ...commentReplyEmailTemplate({ articleSlug: parent.article.slug, articleTitle: parent.article.title,
-                comment: parent.content, reply: comment.content }),
+                comment: parent.content, reply: comment.content,
+                replyAuthorName: comment.author.firstName?.trim() || comment.author.lastName?.trim() }),
             },
           });
         }

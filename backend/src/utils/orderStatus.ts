@@ -37,7 +37,7 @@ export class InvalidOrderStatusTransitionError extends Error {
   }
 }
 
-/** Shared by admin, payment and CRM webhook status writers. */
+/** Local admin/payment rules; authoritative CRM projections use versions. */
 export function assertOrderStatusTransition(
   current: unknown,
   next: unknown,

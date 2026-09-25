@@ -1,5 +1,6 @@
 // backend/src/queues/crm.queue.ts
 import Queue from 'bull';
+import { beginCrmDeliveryHttpAttempt, claimCrmDelivery, classifyCrmDeliveryError, deliveryClaimWhere, DeliveryClaim, finishCrmDeliveryFailure } from '../services/crmDelivery.service';
 import axios from 'axios';
 import { log } from '../config/logger';
 import { getInternalApiKey } from '../utils/internalApiKey';
@@ -81,8 +82,27 @@ crmQueue.process(async (job) => {
 // ОБРАБОТЧИК: СОЗДАНИЕ ЗАКАЗА
 // ============================================================
 export const processCreateOrder = async (data: any) => {
-  const { orderId, orderData, reconciliationReplay = false } = data;
-  const isReservedContract = orderData?.contractVersion === 1 && typeof orderData?.reservationId === 'string';
+  let claim: DeliveryClaim | null = null;
+  let immutableData = data.orderData;
+  try {
+    return await executeCreateOrder(data, (value, payload) => { claim = value; immutableData = payload; });
+  } catch (error) {
+    if (!claim) throw error;
+    if (classifyCrmDeliveryError(error).expired) {
+      await markOrderAsFailed('createOrder', { ...data, orderData: immutableData }, error, claim);
+    } else {
+      await finishCrmDeliveryFailure(claim, error);
+    }
+    // PostgreSQL owns scheduling. Bull must not retry independently.
+    return { recoveryScheduled: true };
+  }
+};
+
+const executeCreateOrder = async (data: any, onClaim: (claim: DeliveryClaim, payload: any) => void) => {
+  const { orderId, reconciliationReplay = false } = data;
+  let orderData = data.orderData;
+  let deliveryClaim: DeliveryClaim | null = null;
+  let isReservedContract = orderData?.contractVersion === 1 && typeof orderData?.reservationId === 'string';
 
   log.info(`📤 Отправка заказа ${orderId} в CRM (попытка)`);
 
@@ -102,6 +122,15 @@ export const processCreateOrder = async (data: any) => {
     const eligibleOrder = await tx.order.findUnique({ where: { id: orderId } });
     if (!eligibleOrder) throw new Error('Website order no longer exists');
     const eligibleAttempt = await tx.paymentAttempt.findUnique({ where: { orderId } });
+    const createIntent = await tx.outboxEvent.findUnique({
+      where: { deduplicationKey: `crm-order-create:${orderId}` },
+    });
+    const canonicalData = (createIntent?.payload as any)?.orderData;
+    if (canonicalData) orderData = canonicalData;
+    isReservedContract = orderData?.contractVersion === 1 && typeof orderData?.reservationId === 'string';
+    if (eligibleAttempt?.reservationId && !isReservedContract) {
+      throw new Error('Immutable reserved CRM payload is unavailable');
+    }
     if (isReservedContract && (!eligibleAttempt || eligibleAttempt.providerPaymentId !== orderData.paymentId)) {
       throw new Error('CRM_ORDER_RECONCILIATION_REQUIRED: payment attempt mismatch');
     }
@@ -124,9 +153,7 @@ export const processCreateOrder = async (data: any) => {
         return { skip: true };
       }
     }
-    const createIntent = await tx.outboxEvent.findUnique({
-      where: { deduplicationKey: `crm-order-create:${orderId}` },
-    });
+
     const createIntentPayload = createIntent?.payload
       && typeof createIntent.payload === 'object'
       && !Array.isArray(createIntent.payload)
@@ -181,6 +208,16 @@ export const processCreateOrder = async (data: any) => {
   // External HTTP is deliberately outside PostgreSQL. The durable Bull/outbox
   // identity makes timeout-after-commit replay safe, while both preflight and
   // finalize serialize on the common Order row lock.
+  if (isReservedContract) {
+    const delivery = await claimCrmDelivery(orderId);
+    if (!delivery) return { deliveryDeferred: true };
+    orderData = delivery.orderData;
+    // Resolve configuration before consuming a delivery slot.
+    getInternalApiKey();
+    deliveryClaim = await beginCrmDeliveryHttpAttempt(delivery.claim);
+    if (!deliveryClaim) return { deliveryDeferred: true };
+    onClaim(deliveryClaim, orderData);
+  }
   const response = await postToCrm();
   const crmResult = response.data;
 
@@ -203,6 +240,10 @@ export const processCreateOrder = async (data: any) => {
   // Persist the local projection and finish both delivery markers atomically.
   await prisma.$transaction(async (tx) => {
     await lockPaymentWorkflowOrder(tx, orderId);
+    if (deliveryClaim) {
+      const owned = await tx.outboxEvent.updateMany({ where: deliveryClaimWhere(deliveryClaim), data: { lockedAt: deliveryClaim.lockedAt } });
+      if (owned.count !== 1) return;
+    }
     const currentOrder = await tx.order.findUnique({ where: { id: orderId } });
     if (!currentOrder) throw new Error('Website order no longer exists');
     if (currentOrder.crmOrderId && currentOrder.crmOrderId !== crmOrderId) {
@@ -354,7 +395,7 @@ const processUpdateOrder = async (data: any) => {
 // ============================================================
 // МАРКИРОВКА ЗАКАЗА КАК FAILED
 // ============================================================
-export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?: any) => {
+export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?: any, claim?: DeliveryClaim) => {
   try {
     if (type === 'createOrder' && data.orderId) {
       const reservationExpired = cause?.response?.data?.code === 'RESERVATION_EXPIRED';
@@ -366,10 +407,14 @@ export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?:
         const providerError = {
           status: cause?.response?.status || null,
           code: cause?.response?.data?.code || null,
-          message: String(cause?.response?.data?.message || cause?.message || 'CRM reservation consume failed').slice(0, 1000),
+          message: classifyCrmDeliveryError(cause).diagnostic,
         };
         await prisma.$transaction(async (tx) => {
           await lockPaymentWorkflowOrder(tx, data.orderId);
+          if (claim) {
+            const owned = await tx.outboxEvent.updateMany({ where: deliveryClaimWhere(claim), data: { lockedAt: claim.lockedAt } });
+            if (owned.count !== 1) return;
+          }
           const lockedAttempt = await tx.paymentAttempt.findUnique({ where: { orderId: data.orderId } });
           if (
             !lockedAttempt?.providerPaymentId
@@ -454,37 +499,10 @@ export const markOrderAsFailed = async (type: CRMJob['type'], data: any, cause?:
               },
             });
           } else {
-            const reconciliationKey = `payment-reconciliation:${lockedAttempt.providerPaymentId}`;
-            await tx.outboxEvent.upsert({
-              where: { deduplicationKey: reconciliationKey },
-              create: {
-                aggregateId: data.orderId,
-                type: 'payment_reconciliation_required',
-                deduplicationKey: reconciliationKey,
-                payload: {
-                  orderId: data.orderId,
-                  paymentId: lockedAttempt.providerPaymentId,
-                  amountMinor: lockedAttempt.amountMinor,
-                  currency: lockedAttempt.currency,
-                  reservationId: data.orderData.reservationId,
-                  orderData: data.orderData,
-                  providerError,
-                },
-              },
-              update: {},
-            });
-            const retryMs = cause?.response && cause.response.status < 500 ? 5 * 60_000 : 60_000;
+            // Preflight/legacy Bull failures do not get a fresh reconciliation budget.
             await tx.outboxEvent.updateMany({
-              where: {
-                deduplicationKey: reconciliationKey,
-                processedAt: null,
-                status: { in: ['pending', 'processing', 'dispatched'] },
-              },
-              data: {
-                status: 'pending', lockedAt: null,
-                nextAttemptAt: new Date(Date.now() + retryMs),
-                lastError: providerError.message,
-              },
+              where: { aggregateId: data.orderId, type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] } },
+              data: { status: 'failed', processedAt: null, lockedAt: null, lastError: providerError.message },
             });
           }
         });
@@ -527,7 +545,7 @@ export const addOrderToCRMQueue = async (
   const existingJob = await crmQueue.getJob(jobId);
   if (existingJob) {
     if (await existingJob.isFailed()) await existingJob.retry();
-    else if (options.replayCompleted && await existingJob.isCompleted()) await existingJob.remove();
+    else if ((options.replayCompleted || orderData?.contractVersion === 1) && await existingJob.isCompleted()) await existingJob.remove();
     else return existingJob;
   }
 
@@ -550,7 +568,7 @@ export const addOrderToCRMQueue = async (
     },
     {
       jobId,
-      attempts: 5,
+      attempts: orderData?.contractVersion === 1 ? 1 : 5,
       backoff: {
         type: 'exponential',
         delay: 5000,

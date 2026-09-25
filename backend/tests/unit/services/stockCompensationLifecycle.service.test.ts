@@ -151,12 +151,12 @@ describe('F07 SITE compensation lifecycle with durable in-memory state', () => {
     expect(events).toHaveLength(1); expect(attempt.status).toBe('refunded');
   });
 
-  it('invalid HMAC and forbidden post-shipment cancellation have no compensation side effects', async () => {
+  it('invalid HMAC is rejected while authoritative post-shipment cancellation is applied', async () => {
     order.crmOrderId = '42'; order.status = 'shipped'; attempt.status = 'succeeded';
     expect((await callback('cancelled', 1, false)).status).toHaveBeenCalledWith(401);
-    expect((await callback()).status).toHaveBeenCalledWith(409);
-    expect(order.status).toBe('shipped'); expect(attempt.status).toBe('succeeded');
-    expect(events).toHaveLength(0); expect(http.post).not.toHaveBeenCalled();
+    expect((await callback()).status).toHaveBeenCalledWith(200);
+    expect(order.status).toBe('cancelled'); expect(attempt.status).toBe('refund_required');
+    expect(events).toHaveLength(1); expect(events[0].type).toBe('payment_refund_requested');
   });
 
   it('successful non-refunded processing and stale callbacks never schedule release or refund', async () => {
