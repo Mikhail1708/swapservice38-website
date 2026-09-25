@@ -8,6 +8,7 @@ import crmQueue, {
   processCreateOrder,
 } from '../../../src/queues/crm.queue';
 import axios from 'axios';
+import * as delivery from '../../../src/services/crmDelivery.service';
 import { PrismaClient } from '@prisma/client';
 
 describe('CRM queue idempotency', () => {
@@ -17,6 +18,10 @@ describe('CRM queue idempotency', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.outboxEvent.findUnique.mockReset().mockResolvedValue(null);
+    prisma.order.findUnique.mockReset().mockResolvedValue({ id: "site-order-1", status: "paid", crmOrderId: null, crmStatusVersion: 0 });
+    mockedAxios.post.mockReset();
+    jest.spyOn(delivery, 'claimCrmDelivery').mockReset();
     queue.getJob.mockResolvedValue(null);
     queue.add.mockResolvedValue({ id: 'queued-job' });
   });
@@ -113,8 +118,10 @@ describe('CRM queue idempotency', () => {
     });
     prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
-    prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 2 });
+    prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 1 });
 
+    jest.mocked(delivery.claimCrmDelivery).mockResolvedValueOnce({ claim: { id: 'create', orderId: 'site-order-1', attempts: 1, lockedAt: new Date() }, orderData } as any);
+    prisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
     await processCreateOrder({ orderId: 'site-order-1', orderData });
 
     expect(prisma.$queryRaw).toHaveBeenCalled();
@@ -177,12 +184,11 @@ describe('CRM queue idempotency', () => {
       .mockResolvedValueOnce(currentOrder)
       .mockResolvedValueOnce(currentOrder);
     prisma.paymentAttempt.findUnique.mockResolvedValue(currentAttempt);
-    prisma.outboxEvent.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
+    prisma.outboxEvent.findUnique.mockImplementation(async ({ where }) =>
+      where.deduplicationKey === `crm-order-create:${currentOrder.id}` ? {
         id: 'create-event',
-        payload: { orderId: currentOrder.id, orderData: {}, handoffAttempted: true },
-      });
+        payload: { orderId: currentOrder.id, orderData: { contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1' }, handoffAttempted: true },
+      } : null);
     prisma.paymentAttempt.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
     prisma.paymentAttempt.update.mockResolvedValueOnce({ ...currentAttempt, status: 'refund_required' });
@@ -192,6 +198,8 @@ describe('CRM queue idempotency', () => {
       orderId: 42, documentNumber: 'ORDER-42', orderStatus: 'cancelled', statusVersion: 1,
     } } as any);
 
+    jest.mocked(delivery.claimCrmDelivery).mockResolvedValueOnce({ claim: { id: 'create', orderId: currentOrder.id, attempts: 1, lockedAt: new Date() }, orderData: { contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1' } } as any);
+    prisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
     await processCreateOrder({
       orderId: currentOrder.id,
       orderData: {
@@ -270,7 +278,7 @@ describe('CRM queue idempotency', () => {
     }
   });
 
-  it('durably records reconciliation for other permanent reservation failures', async () => {
+  it('retains permanent reservation failures without starting another reconciliation cycle', async () => {
     prisma.paymentAttempt.findUnique.mockResolvedValue({
       id: 'attempt-2', providerPaymentId: 'payment-2', amountMinor: 12_000, currency: 'RUB',
     });
@@ -287,24 +295,9 @@ describe('CRM queue idempotency', () => {
     expect(prisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'compensation_required' }),
     }));
-    expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { deduplicationKey: 'payment-reconciliation:payment-2' },
-      create: expect.objectContaining({
-        type: 'payment_reconciliation_required',
-        payload: expect.objectContaining({
-          orderData: { contractVersion: 1, reservationId: 'reservation-2' },
-        }),
-      }),
-    }));
-    expect(prisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        deduplicationKey: 'payment-reconciliation:payment-2',
-        processedAt: null,
-      }),
-      data: expect.objectContaining({
-        status: 'pending', lastError: 'Reservation was released',
-        nextAttemptAt: expect.any(Date),
-      }),
+    expect(prisma.outboxEvent.upsert).not.toHaveBeenCalled();
+    expect(prisma.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'failed', processedAt: null, lastError: expect.any(String) }),
     }));
   });
 

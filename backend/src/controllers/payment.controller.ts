@@ -16,14 +16,7 @@ import { log } from '../config/logger';
 
 import { prisma } from '../config/prisma';
 
-const matchesDurablePaymentAttempt = (order: any, payment: any, amountMinor: number): boolean => {
-  const attempt = order.paymentAttempts?.[0];
-  if (!attempt) return true; // Backward-compatible handling for pre-migration payments.
-  return attempt.providerPaymentId === payment?.id
-    && attempt.amountMinor === amountMinor
-    && attempt.currency === payment?.amount?.currency
-    && (!attempt.reservationId || payment?.metadata?.reservationId === attempt.reservationId);
-};
+import { matchesDurablePaymentAttempt, matchesAuthoritativePayment } from '../services/paymentValidation.service';
 
 const matchesUnboundPaymentAttempt = (attempt: any, payment: any, amountMinor: number): boolean => (
   attempt
@@ -290,13 +283,8 @@ export const paymentWebhookController = async (req: Request, res: Response): Pro
     }
 
     if (payment.status === 'succeeded') {
-      const orderAmountCents = Math.round(order.total * 100);
-
       if (
-        payment?.amount?.currency !== 'RUB' ||
-        !Number.isSafeInteger(paymentAmountCents) ||
-        paymentAmountCents !== orderAmountCents ||
-        !matchesDurablePaymentAttempt(order, payment, paymentAmountCents)
+        !matchesAuthoritativePayment(order, payment, notifiedPaymentId)
       ) {
         res.status(409).json({ error: 'Payment amount does not match the order' });
         return;

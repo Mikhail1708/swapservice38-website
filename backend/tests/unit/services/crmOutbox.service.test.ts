@@ -33,7 +33,11 @@ describe('CRM transactional outbox', () => {
   });
   beforeEach(() => {
     jest.clearAllMocks();
-    (mockPrisma.outboxEvent.findUnique as jest.Mock).mockReset().mockResolvedValue(null);
+    (mockPrisma.outboxEvent.findUnique as jest.Mock).mockReset().mockImplementation(async ({ where }) =>
+      where.deduplicationKey === 'crm-order-create:order-1' || where.id === 'canonical-create' ? {
+        id: 'canonical-create', aggregateId: 'order-1', status: 'pending', processedAt: null, attempts: 0,
+        payload: { orderId: 'order-1', orderData: { contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1' } },
+      } : null);
     (mockPrisma.order.findUnique as jest.Mock).mockReset().mockResolvedValue({
       id: 'order-1', status: 'pending', crmOrderId: null,
     });
@@ -82,7 +86,7 @@ describe('CRM transactional outbox', () => {
 
     await expect(dispatchCrmOutboxEvent('event-1')).resolves.toBe(false);
     expect(mockPrisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'pending', lastError: 'Redis unavailable' }),
+      data: expect.objectContaining({ status: 'pending', lastError: 'CRM queue or reconciliation dispatch failed' }),
     }));
   });
 
@@ -220,7 +224,7 @@ describe('CRM transactional outbox', () => {
     await expect(dispatchPaymentReconciliationEvent('reconciliation-event')).resolves.toBe(true);
     expect(mockedAdd).toHaveBeenCalledWith('order-1', {
       contractVersion: 1, reservationId: 'reservation-1', paymentId: 'payment-1',
-    }, { replayCompleted: true });
+    });
   });
 
   it('allows only one reconciliation CAS claimant', async () => {
@@ -269,12 +273,11 @@ describe('CRM transactional outbox', () => {
 
     await expect(dispatchPaymentReconciliationEvent('reconciliation-event')).resolves.toBe(true);
     expect(mockedAdd).toHaveBeenCalledWith(
-      'order-1', expect.objectContaining({ reservationId: 'immutable-reservation' }),
-      { replayCompleted: true },
+      'order-1', expect.objectContaining({ reservationId: 'reservation-1' }),
     );
   });
 
-  it('keeps transient reconciliation failures pending with a CAS update', async () => {
+  it('keeps canonical delivery pending when reconciliation cannot reach Redis', async () => {
     (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
     (mockPrisma.outboxEvent.findUnique as jest.Mock).mockResolvedValueOnce({
       id: 'reconciliation-event', aggregateId: 'order-1', attempts: 3,
@@ -290,10 +293,10 @@ describe('CRM transactional outbox', () => {
     });
     mockedAdd.mockRejectedValueOnce(new Error('Redis timeout'));
 
-    await expect(dispatchPaymentReconciliationEvent('reconciliation-event')).resolves.toBe(false);
-    expect(mockPrisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: 'processing', processedAt: null }),
-      data: expect.objectContaining({ status: 'pending', lastError: 'Redis timeout' }),
+    await expect(dispatchPaymentReconciliationEvent('reconciliation-event')).resolves.toBe(true);
+    expect(mockPrisma.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'canonical-create', status: 'dispatched', processedAt: null, lockedAt: expect.any(Date), attempts: 0 }),
+      data: expect.objectContaining({ status: 'pending', lastError: 'CRM queue or reconciliation dispatch failed' }),
     }));
   });
 
@@ -331,7 +334,7 @@ describe('CRM transactional outbox', () => {
 
     await expect(dispatchCrmOutboxEvent('event-1')).resolves.toBe(false);
     expect(mockPrisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: { id: 'event-1', status: 'processing', processedAt: null },
+      where: expect.objectContaining({ id: 'event-1', status: 'dispatched', processedAt: null, lockedAt: expect.any(Date), attempts: 1 }),
       data: expect.objectContaining({ status: 'pending' }),
     }));
   });
