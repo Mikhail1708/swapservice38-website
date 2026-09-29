@@ -53,8 +53,17 @@ export default function PaymentPage() {
         setOrder(orderData.order || orderData);
 
         // 2. Проверяем статус заказа
-        const orderStatus = orderData.order?.status || orderData.status;
-        const cancellationState = orderData.order?.cancellationState || orderData.cancellationState;
+        const loadedOrder = orderData.order || orderData;
+        const orderStatus = loadedOrder.status;
+        const cancellationState = loadedOrder.cancellationState;
+        if (loadedOrder.payment?.paymentMethod === 'bank_invoice') {
+          router.replace(`/profile/orders/details?id=${encodeURIComponent(orderId)}`);
+          return;
+        }
+        if (loadedOrder.payment?.paymentStatus === 'paid') return;
+        if (!loadedOrder.payment?.canPayOnline) {
+          throw new Error('Онлайн-оплата сейчас недоступна для этого заказа');
+        }
         if (orderStatus === 'cancelled' || ['requested', 'accepted'].includes(cancellationState)) {
           throw new Error('Оплата недоступна: заказ отменён или ожидает решения по отмене');
         }
@@ -146,8 +155,10 @@ export default function PaymentPage() {
     );
   }
 
+  if (order?.payment?.paymentMethod === 'bank_invoice') return <div className="pt-32 text-center"><Link href={`/profile/orders/details?id=${encodeURIComponent(orderId)}`}>Перейти к счёту</Link></div>;
+
   // ✅ УСПЕХ (ЗАКАЗ УЖЕ ОПЛАЧЕН)
-  if (order?.status === 'paid') {
+  if (order?.payment?.paymentStatus === 'paid' || order?.status === 'paid') {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20">
         <div className="container-custom max-w-2xl">

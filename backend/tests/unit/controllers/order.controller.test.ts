@@ -5,7 +5,7 @@ import { validate } from '../../../src/middleware/validate.middleware';
 import { createOrderSchema } from '../../../src/schemas/order.schema';
 import { PrismaClient } from '@prisma/client';
 import { offerAcceptance, personalDataAcceptance } from '../../helpers/consent';
-import { createOrderController, deleteOrderController } from '../../../src/controllers/order.controller';
+import { createOrderController, deleteOrderController, getOrderController, getUserOrdersController } from '../../../src/controllers/order.controller';
 import {
   CheckoutInventoryError,
   validateCheckoutItems,
@@ -15,7 +15,9 @@ jest.mock('@prisma/client', () => {
   const prisma = {
     userConsent: { findUnique: jest.fn(), upsert: jest.fn() },
     cart: { findUnique: jest.fn(), update: jest.fn() },
-    order: { create: jest.fn(), findFirst: jest.fn(), deleteMany: jest.fn() },
+    order: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), deleteMany: jest.fn() },
+    invoice: { create: jest.fn() },
+    outboxEvent: { upsert: jest.fn(), findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
@@ -71,6 +73,56 @@ const validated = {
   total: 50,
 };
 
+const bankBuyer = {
+  buyerType: 'legal_entity', legalName: 'ООО Покупатель', inn: '7707083893', kpp: '770701001',
+  legalAddress: 'Москва, улица Покупателя, 1', contactName: 'Иван Иванов', phone: '+79990000000', email: 'buyer@example.com',
+};
+
+describe('bank checkout request boundary', () => {
+  it.each(['amount', 'total', 'paymentStatus', 'sellerSnapshot', 'invoiceNumber', 'paidAt'])(
+    'rejects trusted server field %s', field => {
+      expect(createOrderSchema.safeParse({ ...request().body, paymentMethod: 'bank_invoice', invoiceBuyer: bankBuyer, [field]: 'forged' }).success).toBe(false);
+    },
+  );
+  it.each(['1', '12345678', '1234567890', '12345678x'])(
+    'rejects invalid KPP %s before checkout', kpp => {
+      expect(createOrderSchema.safeParse({ ...request().body, paymentMethod: 'bank_invoice', invoiceBuyer: { ...bankBuyer, kpp } }).success).toBe(false);
+    },
+  );
+  it('requires bank buyer and rejects buyer fields on online checkout', () => {
+    expect(createOrderSchema.safeParse({ ...request().body, paymentMethod: 'bank_invoice' }).success).toBe(false);
+    expect(createOrderSchema.safeParse({ ...request().body, paymentMethod: 'online', invoiceBuyer: bankBuyer }).success).toBe(false);
+    expect(createOrderSchema.safeParse({ ...request().body, paymentMethod: 'bank_invoice', invoiceBuyer: bankBuyer }).success).toBe(true);
+    expect(createOrderSchema.safeParse(request().body).success).toBe(true);
+  });
+});
+
+describe('authoritative order payment responses', () => {
+  beforeEach(() => jest.clearAllMocks());
+  const bankOrder = {
+    id: 'order-1', userId: 'user-1', status: 'pending', paymentMethod: 'bank_invoice', paymentAttempts: [],
+    invoice: { id: 'invoice-1', orderId: 'order-1', amountMinor: 5000n, documentStatus: 'preparing', paymentStatus: 'unpaid' },
+  };
+  it('returns bank payment projection on detail immediately, without a second invoice request', async () => {
+    mockPrisma.order.findFirst.mockResolvedValue(bankOrder);
+    const res = response();
+    await getOrderController({ params: { id: 'order-1' }, user: { id: 'user-1' } } as any, res);
+    expect(mockPrisma.order.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'order-1', userId: 'user-1' }, include: expect.objectContaining({ invoice: true }) }));
+    const payload = (res.json as jest.Mock).mock.calls[0][0];
+    expect(payload.order.payment).toMatchObject({ paymentMethod: 'bank_invoice', paymentStatus: 'unpaid', canPayOnline: false });
+    expect(payload.order.invoice.amountMinor).toBe('5000');
+    expect(() => JSON.stringify(payload)).not.toThrow();
+  });
+  it('list and detail use the same projection, preserving online and bank states', async () => {
+    mockPrisma.order.findMany.mockResolvedValue([bankOrder, { ...bankOrder, id: 'online', paymentMethod: 'online', invoice: null }]);
+    const res = response();
+    await getUserOrdersController({ user: { id: 'user-1' } } as any, res);
+    const orders = (res.json as jest.Mock).mock.calls[0][0].orders;
+    expect(orders[0].payment.canPayOnline).toBe(false);
+    expect(orders[1].payment).toMatchObject({ paymentMethod: 'online', canPayOnline: true });
+  });
+});
+
 describe('createOrderController checkout validation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -123,6 +175,39 @@ describe('createOrderController checkout validation', () => {
       where: { id: cart.id }, data: { items: [] },
     });
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('persists bank intent, Invoice and durable intake in the checkout transaction without online customer mail', async () => {
+    const req = request();
+    req.body.paymentMethod = 'bank_invoice';
+    req.body.invoiceBuyer = bankBuyer;
+    mockPrisma.order.create.mockImplementation(async ({ data }: any) => ({ id: 'order-1', ...data }));
+    mockPrisma.invoice.create.mockImplementation(async ({ data }: any) => ({
+      id: 'invoice-1', documentStatus: 'preparing', paymentStatus: 'unpaid', currency: 'RUB', ...data,
+    }));
+    mockPrisma.outboxEvent.upsert.mockResolvedValue({ id: 'intake-1' });
+    const res = response();
+    await createOrderController(req, res);
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockPrisma.order.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ paymentMethod: 'bank_invoice', total: 50 }) }));
+    expect(mockPrisma.invoice.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amountMinor: 5000n, buyerSnapshot: bankBuyer }) });
+    expect(mockPrisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ aggregateId: 'order-1', type: 'bank_invoice_intake_requested' }) }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({
+      paymentMethod: 'bank_invoice', paymentStatus: 'unpaid', canPayOnline: false,
+      payment: expect.objectContaining({ canPayOnline: false }), invoice: expect.objectContaining({ amountMinor: '5000' }),
+    }) }));
+    expect(require('../../../src/services/email.service').sendOrderCreatedToCustomer).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid bank buyer before touching the cart or creating an online order', async () => {
+    const req = request();
+    req.body.paymentMethod = 'bank_invoice';
+    req.body.invoiceBuyer = { ...bankBuyer, kpp: '123' };
+    const res = response();
+    await createOrderController(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.order.create).not.toHaveBeenCalled();
+    expect(mockPrisma.cart.update).not.toHaveBeenCalled();
   });
 
   it('passes only the customer confirmation fields and authoritative item snapshot to email', async () => {

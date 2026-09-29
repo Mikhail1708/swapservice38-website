@@ -202,6 +202,7 @@ model Order {
   crmOrderId         String?          @unique
   orderNumber        String?          @unique
   paymentId          String?          @unique
+  paymentMethod      String           @default("online") // online | bank_invoice
   crmStatusVersion   Int              @default(0)
   cancellationState String           @default("none")
   cancellationRequestedAt DateTime?
@@ -211,8 +212,36 @@ model Order {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   paymentAttempts    PaymentAttempt[]
+  invoice            Invoice?
 
   @@index([cancellationState])
+}
+
+// Bank documents are independent of YooKassa attempts. Issuance fields are null
+// while preparing; the migration protects issued snapshots against SQL updates.
+model Invoice {
+  id                  String   @id @default(cuid())
+  orderId             String   @unique
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  invoiceNumber       String?  @unique
+  documentStatus      String   @default("preparing")
+  paymentStatus       String   @default("unpaid")
+  amountMinor         BigInt
+  currency            String   @default("RUB")
+  issuedAt            DateTime?
+  dueAt               DateTime?
+  paidAt              DateTime?
+  sellerSnapshot      Json?
+  buyerSnapshot       Json
+  itemsSnapshot       Json
+  orderNumberSnapshot String?
+  paymentPurpose      String?
+  snapshotVersion     Int      @default(1)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([documentStatus, dueAt])
+  @@index([paymentStatus, updatedAt])
 }
 
 // Durable record created before any external payment-provider call. It keeps an

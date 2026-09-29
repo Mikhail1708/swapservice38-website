@@ -1,3 +1,4 @@
+import { ensureBankInvoiceRelease } from './bankInvoiceDelivery.service';
 import { Prisma } from '@prisma/client';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 import { persistEmailEvent } from './emailOutbox.service';
@@ -112,6 +113,20 @@ export const requestOrderCancellation = async (
   }
   if (Date.now() - order.createdAt.getTime() > CANCELLATION_WINDOW_MS) {
     throw new OrderCancellationError('Срок запроса отмены истёк (12 часов с момента создания)', 409);
+  }
+
+  if (order.paymentMethod === 'bank_invoice') {
+    const invoice = await tx.invoice.findUnique({ where: { orderId: order.id } });
+    if (!invoice || invoice.paymentStatus !== 'unpaid') {
+      throw new OrderCancellationError('Unpaid bank invoice required for cancellation', 409);
+    }
+    await tx.order.update({ where: { id: order.id }, data: {
+      cancellationState: 'requested', cancellationRequestedAt: new Date(),
+      cancellationReason: reason, cancellationDecisionReason: 'bank_invoice_release_pending',
+    } });
+    // Release must be durable even if the intake response was lost.
+    await ensureBankInvoiceRelease(tx, order, invoice, reason);
+    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true } });
   }
 
   const attempt = await tx.paymentAttempt.findUnique({ where: { orderId: order.id } });

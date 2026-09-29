@@ -12,6 +12,7 @@ jest.mock('@prisma/client', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    invoice: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     paymentAttempt: { findUnique: jest.fn(), update: jest.fn() },
     outboxEvent: { upsert: jest.fn() },
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -87,6 +88,43 @@ describe('Webhook Controller', () => {
       }));
       expect(res.status).toHaveBeenCalledWith(200);
       expect(sendOrderStatusUpdateToCustomer).toHaveBeenCalledTimes(1);
+    });
+
+    it('projects a signed bank invoice payment exactly once and never downgrades it', async () => {
+      const invoice = { id: 'invoice-1', invoiceNumber: 'BI-2026-1', amountMinor: 12500n,
+        currency: 'RUB', documentStatus: 'issued', paymentStatus: 'unpaid' };
+      const mockOrder = {
+        id: 'order-bank-1', crmOrderId: '12346', externalOrderId: 'order-bank-1',
+        paymentMethod: 'bank_invoice', status: 'confirmed', crmStatusVersion: 0, invoice,
+        customerFirstName: 'Иван', customerLastName: 'Иванов', customerMiddleName: null,
+        customerEmail: 'ivan@example.com', guestName: null, guestEmail: null, orderNumber: 'DOC-BANK',
+        cancellationState: 'none',
+      };
+      (mockPrisma.order.findFirst as jest.Mock).mockResolvedValue(mockOrder);
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(mockOrder);
+      (mockPrisma.order.update as jest.Mock).mockResolvedValue({ ...mockOrder, status: 'confirmed', crmStatusVersion: 1 });
+      const payload = {
+        eventId: 'crm-status-12346-1', crmOrderId: 12346, externalOrderId: 'order-bank-1',
+        status: 'confirmed', documentNumber: 'DOC-BANK', version: 1, timestamp: new Date().toISOString(),
+        paymentMethod: 'bank_invoice', paymentStatus: 'paid', invoiceId: 'invoice-1', invoiceNumber: 'BI-2026-1',
+        amountMinor: '12500', currency: 'RUB', paidAt: new Date().toISOString(), paymentConfirmationId: 'confirmation-1',
+      };
+      const req = { body: payload, headers: { 'x-webhook-signature': signPayload(payload) } } as unknown as Request;
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() } as unknown as Response;
+      await handleOrderStatusWebhook(req, res);
+      expect((mockPrisma as any).invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'invoice-1', paymentStatus: 'unpaid', documentStatus: 'issued' },
+        data: expect.objectContaining({ paymentStatus: 'paid' }),
+      }));
+      expect(res.status).toHaveBeenCalledWith(200);
+
+      (mockPrisma.invoice.updateMany as jest.Mock).mockClear();
+      const replay = { ...mockOrder, invoice: { ...invoice, paymentStatus: 'paid' }, crmStatusVersion: 1 };
+      (mockPrisma.order.findFirst as jest.Mock).mockResolvedValue(replay);
+      (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue(replay);
+      const replayPayload = { ...payload, version: 2, eventId: 'crm-status-12346-2' };
+      await handleOrderStatusWebhook({ body: replayPayload, headers: { 'x-webhook-signature': signPayload(replayPayload) } } as any, res);
+      expect((mockPrisma as any).invoice.updateMany).not.toHaveBeenCalled();
     });
 
     it('should return 401 if signature missing', async () => {

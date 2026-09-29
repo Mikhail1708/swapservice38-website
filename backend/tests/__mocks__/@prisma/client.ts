@@ -35,6 +35,12 @@ const mockPrisma = {
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
+  invoice: {
+    create: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
+    update: jest.fn(),
+  },
   emailOutboxEvent: {
     upsert: jest.fn(),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),

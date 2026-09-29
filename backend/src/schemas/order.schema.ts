@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { phoneSchema, emailSchema, nameSchema, addressSchema } from './common.schema';
 import { personalDataAcceptanceSchema, offerAcceptanceSchema } from '../services/consent.service';
+import { invoiceBuyerSchema } from './invoice.schema';
 
 // ============================================================
 // ТОВАР В ЗАКАЗЕ
@@ -29,6 +30,14 @@ export const clientSchema = z.object({
 // СОЗДАНИЕ ЗАКАЗА
 // ============================================================
 export const createOrderSchema = z.object({
+  paymentMethod: z.enum(['online', 'bank_invoice']).default('online'),
+  invoiceBuyer: invoiceBuyerSchema.optional(),
+  amount: z.never().optional(),
+  total: z.never().optional(),
+  paymentStatus: z.never().optional(),
+  sellerSnapshot: z.never().optional(),
+  invoiceNumber: z.never().optional(),
+  paidAt: z.never().optional(),
   personalDataConsent: personalDataAcceptanceSchema.optional(),
   offerAcceptance: offerAcceptanceSchema,
   client: clientSchema,
@@ -38,6 +47,10 @@ export const createOrderSchema = z.object({
   contactMethod: z.enum(['phone', 'whatsapp', 'telegram', 'email']).default('phone'),
   comment: z.string().max(1000, 'Максимум 1000 символов').optional(),
   source: z.string().default('website'),
+}).superRefine((order, context) => {
+  if ((order.paymentMethod === 'bank_invoice') !== Boolean(order.invoiceBuyer)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['invoiceBuyer'], message: 'Реквизиты покупателя обязательны только для оплаты по счёту' });
+  }
 });
 
 // ============================================================

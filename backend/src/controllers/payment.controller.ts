@@ -15,6 +15,7 @@ import { lockPaymentWorkflowOrder } from '../services/paymentWorkflowLock.servic
 import { log } from '../config/logger';
 
 import { prisma } from '../config/prisma';
+import { isOnlinePaymentBlocked } from '../services/orderPaymentView.service';
 
 import { matchesDurablePaymentAttempt, matchesAuthoritativePayment } from '../services/paymentValidation.service';
 
@@ -51,11 +52,16 @@ export const createPaymentController = async (req: Request, res: Response): Prom
         id: orderId,
         userId: userId,
       },
-      include: { paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      include: { invoice: true, paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
 
     if (!order) {
       res.status(404).json({ error: 'Заказ не найден' });
+      return;
+    }
+
+    if (isOnlinePaymentBlocked(order, order.invoice)) {
+      res.status(409).json({ code: 'BANK_INVOICE_ONLINE_BLOCKED', error: 'Заказ оплачивается по банковскому счёту' });
       return;
     }
 

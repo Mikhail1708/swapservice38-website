@@ -35,6 +35,7 @@ import {
   paymentRefundDeduplicationKey,
 } from './crmOutbox.service';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
+import { isOnlinePaymentBlocked, PaymentViewInvoice } from './orderPaymentView.service';
 import { replayFailedCrmDelivery } from './crmDelivery.service';
 
 import { prisma } from '../config/prisma';
@@ -89,7 +90,12 @@ const cleanPhone = (phone: string): string => {
   return phone;
 };
 
-const assertPaymentStartEligible = (order: { status: string; cancellationState?: string }) => {
+const assertPaymentStartEligible = (order: { status: string; cancellationState?: string; paymentMethod?: string; invoice?: PaymentViewInvoice | null }) => {
+  if (isOnlinePaymentBlocked(order, order.invoice)) {
+    throw new PaymentPreparationError(
+      'Для заказа выбран банковский счёт; онлайн-оплата недоступна', 409, 'BANK_INVOICE_PAYMENT_LOCKED',
+    );
+  }
   if (order.status === 'cancelled' || ['requested', 'accepted'].includes(order.cancellationState || 'none')) {
     throw new PaymentPreparationError(
       'Оплата недоступна во время отмены заказа', 409, 'ORDER_CANCELLATION_ACTIVE',
@@ -100,7 +106,7 @@ const assertPaymentStartEligible = (order: { status: string; cancellationState?:
 const markProviderRequestStartedIfEligible = async (orderId: string, attemptId: string) =>
   prisma.$transaction(async tx => {
     await lockPaymentWorkflowOrder(tx, orderId);
-    const currentOrder = await tx.order.findUnique({ where: { id: orderId } });
+    const currentOrder = await tx.order.findUnique({ where: { id: orderId }, include: { invoice: true } });
     if (!currentOrder) throw new Error('Заказ не найден');
     assertPaymentStartEligible(currentOrder);
     return tx.paymentAttempt.update({
@@ -123,6 +129,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     // ============================================================
     const order = await prisma.order.findUnique({
       where: { id: orderId },
+      include: { invoice: true },
     });
 
     if (!order) {
@@ -160,7 +167,7 @@ export const createPayment = async (orderId: string, returnUrl: string) => {
     // lost response: recover it by externalOrderId instead of checking free stock.
     let attempt = await prisma.$transaction(async tx => {
       await lockPaymentWorkflowOrder(tx, orderId);
-      const currentOrder = await tx.order.findUnique({ where: { id: orderId } });
+      const currentOrder = await tx.order.findUnique({ where: { id: orderId }, include: { invoice: true } });
       if (!currentOrder) throw new Error('Заказ не найден');
       if (currentOrder.status === 'paid') throw new Error('Заказ уже оплачен');
       assertPaymentStartEligible(currentOrder);

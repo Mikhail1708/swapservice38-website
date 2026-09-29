@@ -29,6 +29,9 @@ import { useCart } from '@/lib/context/CartContext';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { getSafePaymentRedirect } from '@/lib/safe-navigation';
 import { readApiError, userMessageFromError } from '@/lib/api-error';
+import { InvoiceBuyerForm, emptyInvoiceBuyer, validateInvoiceBuyer } from '@/components/invoice/InvoiceBuyerForm';
+import type { InvoiceBuyer } from '@/lib/invoice/types';
+import { serializeInvoiceBuyer } from '@/lib/invoice/buyer';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AddressInput } from '@/components/AddressInput';
 import {
@@ -68,6 +71,9 @@ export default function CartPage() {
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'post'>('pickup');
   const [contactMethod, setContactMethod] = useState<'phone' | 'whatsapp' | 'telegram' | 'email'>('phone');
   const [tcName, setTcName] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'bank_invoice'>('online');
+  const [invoiceBuyer, setInvoiceBuyer] = useState<InvoiceBuyer>(() => emptyInvoiceBuyer());
+  const [invoiceErrors, setInvoiceErrors] = useState<Record<string, string>>({});
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [orderError, setOrderError] = useState<string | null>(null);
@@ -90,6 +96,12 @@ export default function CartPage() {
         phone: user.phone || '',
         email: user.email || '',
         address: user.address || '',
+      }));
+      setInvoiceBuyer(prev => ({
+        ...prev,
+        contactName: prev.contactName || [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' '),
+        phone: prev.phone || user.phone || '',
+        email: prev.email || user.email || '',
       }));
     }
   }, [user]);
@@ -193,6 +205,15 @@ export default function CartPage() {
     }
 
     setFormErrors(errors);
+
+    if (paymentMethod === 'bank_invoice') {
+      const buyerErrors = validateInvoiceBuyer(invoiceBuyer);
+      setInvoiceErrors(buyerErrors);
+      if (Object.keys(buyerErrors).length > 0) return false;
+    } else {
+      setInvoiceErrors({});
+    }
+
     return Object.keys(errors).length === 0;
   };
 
@@ -207,6 +228,7 @@ export default function CartPage() {
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
 
     if (checkoutInFlightRef.current) return;
     if (!user) {
@@ -240,6 +262,7 @@ export default function CartPage() {
 
       // ✅ ЗАПРОС С ОТЧЕСТВОМ
       const orderData = {
+        ...(paymentMethod === 'bank_invoice' ? { paymentMethod, invoiceBuyer: serializeInvoiceBuyer(invoiceBuyer) } : {}),
         offerAcceptance: { accepted: true, documentVersion: documents.offerVersion },
         ...(requiresPersonalDataConsent ? { personalDataConsent: personalDataAcceptance(documents) } : {}),
         client: {
@@ -275,16 +298,17 @@ export default function CartPage() {
       setOfferAccepted(false);
       void reloadConsent();
 
-      if (data.paymentUrl) {
+      const createdOrderId = data.order?.id || data.orderId;
+      if (!createdOrderId) {
+        router.push('/payment/success');
+      } else if (paymentMethod === 'bank_invoice') {
+        router.push(`/profile/orders/details?id=${encodeURIComponent(createdOrderId)}`);
+      } else if (data.paymentUrl) {
         const safePaymentUrl = getSafePaymentRedirect(data.paymentUrl);
         if (!safePaymentUrl) throw new Error('Платёжный сервис вернул небезопасный адрес');
         window.location.assign(safePaymentUrl);
-      } else if (data.order?.id) {
-        router.push(`/payment/${data.order.id}`);
-      } else if (data.orderId) {
-        router.push(`/payment/${data.orderId}`);
       } else {
-        router.push('/payment/success');
+        router.push(`/payment/${createdOrderId}`);
       }
 
       // Backend already clears the persisted cart when it creates the order.
@@ -741,6 +765,23 @@ export default function CartPage() {
                     />
                   </div>}
 
+                  {/* Способ оплаты */}
+                  <div className="border-t border-border pt-5 mt-5">
+                    <label className="block text-sm text-muted-foreground font-medium mb-3">Способ оплаты</label>
+                    <div className="grid gap-3">
+                      <button type="button" disabled={isCheckingOut} onClick={() => setPaymentMethod('online')} className={`text-left p-4 rounded-xl border transition ${paymentMethod === 'online' ? 'border-foreground bg-foreground/5' : 'border-border hover:border-foreground/30'}`}>
+                        <div className="flex items-center gap-3"><CreditCard className="w-5 h-5" /><div><p className="font-medium text-foreground">Оплатить онлайн</p><p className="text-xs text-muted-foreground mt-0.5">Банковской картой через ЮKassa</p></div></div>
+                      </button>
+                      <button type="button" disabled={isCheckingOut} onClick={() => setPaymentMethod('bank_invoice')} className={`text-left p-4 rounded-xl border transition ${paymentMethod === 'bank_invoice' ? 'border-foreground bg-foreground/5' : 'border-border hover:border-foreground/30'}`}>
+                        <div className="flex items-center gap-3"><Building2 className="w-5 h-5" /><div><p className="font-medium text-foreground">Получить счёт для ЮЛ / ИП</p><p className="text-xs text-muted-foreground mt-0.5">Банковский перевод, без НДС</p></div></div>
+                      </button>
+                    </div>
+                    {paymentMethod === 'bank_invoice' && <div className="mt-5 p-4 rounded-xl bg-muted/40 border border-border">
+                      <h3 className="font-medium text-foreground mb-4">Реквизиты покупателя</h3>
+                      <InvoiceBuyerForm value={invoiceBuyer} onChange={setInvoiceBuyer} errors={invoiceErrors} disabled={isCheckingOut} />
+                    </div>}
+                  </div>
+
                   {/* Итог */}
                   <div className="border-t border-border pt-4 mt-4 space-y-2">
                     <div className="flex justify-between text-sm">
@@ -775,8 +816,8 @@ export default function CartPage() {
                       </>
                     ) : (
                       <>
-                        <CreditCard className="w-5 h-5" />
-                        Перейти к оплате
+                        {paymentMethod === 'online' ? <CreditCard className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+                        {paymentMethod === 'online' ? 'Перейти к оплате' : 'Оформить и получить счёт'}
                       </>
                     )}
                   </button>

@@ -21,12 +21,16 @@ import {
   Calendar, 
   User, 
   ShoppingBag, 
-  ChevronRight
+  ChevronRight,
+  FileText
 } from 'lucide-react';
 import { useAuth }  from '@/lib/hooks/useAuth';
 import { fetchWithCsrf }  from '@/lib/csrf';
 import { getSafePaymentRedirect } from '@/lib/safe-navigation';
 import { readApiError, userMessageFromError } from '@/lib/api-error';
+import { InvoiceBuyerForm, emptyInvoiceBuyer, validateInvoiceBuyer } from '@/components/invoice/InvoiceBuyerForm';
+import type { InvoiceBuyer, InvoiceView, OrderPaymentView } from '@/lib/invoice/types';
+import { serializeInvoiceBuyer } from '@/lib/invoice/buyer';
 
 interface OrderItem {
   productId: string;
@@ -56,6 +60,8 @@ interface Order {
   cancellationResolvedAt?: string;
   cancellationReason?: string;
   cancellationDecisionReason?: string;
+  payment?: OrderPaymentView;
+  invoice?: InvoiceView | null;
   paymentAttempts?: Array<{
     status: string;
     refundReason?: string;
@@ -140,6 +146,11 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [isRequestingInvoice, setIsRequestingInvoice] = useState(false);
+  const [invoiceBuyer, setInvoiceBuyer] = useState<InvoiceBuyer>(() => emptyInvoiceBuyer());
+  const [invoiceErrors, setInvoiceErrors] = useState<Record<string, string>>({});
+  const [invoiceActionError, setInvoiceActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
@@ -178,7 +189,8 @@ export default function OrderDetailPage() {
         }
 
         const data = await response.json();
-        setOrder(data.order || data);
+        const loadedOrder = data.order || data;
+        setOrder(loadedOrder);
         setError(null);
       } catch (error: unknown) {
         setError(error instanceof TypeError ? userMessageFromError(error, 'Не удалось загрузить заказ.') : error instanceof Error ? error.message : 'Не удалось загрузить заказ.');
@@ -190,6 +202,27 @@ export default function OrderDetailPage() {
     fetchOrder();
   }, [orderId, user, authLoading]);
 
+  useEffect(() => {
+    if (!orderId || order?.payment?.paymentMethod !== 'bank_invoice' || order.payment.paymentStatus === 'paid' || order.invoice?.documentStatus === 'void') return;
+    const controller = new AbortController();
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+      try {
+        const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { credentials: 'include', signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          if (!controller.signal.aborted) setOrder(data.order || data);
+        }
+      } catch { /* Keep the last confirmed server state; the next poll can retry. */ }
+      finally { refreshing = false; }
+    };
+    const timer = window.setInterval(() => void refresh(), 5000);
+    window.addEventListener('focus', refresh);
+    return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [orderId, order?.payment?.paymentMethod, order?.payment?.paymentStatus, order?.invoice?.documentStatus, order?.cancellationState]);
+
   const canCancel = (): boolean => {
     if (!order) return false;
     if (order.cancellationState && order.cancellationState !== 'none') return false;
@@ -199,11 +232,7 @@ export default function OrderDetailPage() {
     return hoursDiff <= 12;
   };
 
-  const canPay = (): boolean => {
-    if (!order) return false;
-    return order.status === 'pending'
-      && (!order.cancellationState || ['none', 'rejected'].includes(order.cancellationState));
-  };
+  const canPay = (): boolean => Boolean(order?.payment?.canPayOnline);
 
 const handleCancelOrder = async () => {
   if (!order) return;
@@ -231,7 +260,7 @@ const handleCancelOrder = async () => {
 };
 
   const handlePayOrder = async () => {
-    if (!order) return;
+    if (!order?.payment?.canPayOnline || isPaying) return;
     setIsPaying(true);
     try {
       const response = await fetchWithCsrf('/api/payment/create', {
@@ -257,6 +286,31 @@ const handleCancelOrder = async () => {
     } finally {
       setIsPaying(false);
     }
+  };
+
+  const handleRequestInvoice = async () => {
+    if (!order?.payment?.canRequestInvoice || isRequestingInvoice) return;
+    const errors = validateInvoiceBuyer(invoiceBuyer);
+    setInvoiceErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    setIsRequestingInvoice(true);
+    setInvoiceActionError(null);
+    try {
+      const response = await fetchWithCsrf(`/api/orders/${order.id}/invoice`, {
+        method: 'POST',
+        body: JSON.stringify({ buyer: serializeInvoiceBuyer(invoiceBuyer) }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Не удалось подготовить счёт.'));
+      const invoiceState = await response.json();
+      setOrder(current => current ? {
+        ...current,
+        payment: invoiceState.payment,
+        invoice: invoiceState.invoice,
+      } : current);
+      setShowInvoiceForm(false);
+    } catch (requestError: unknown) {
+      setInvoiceActionError(requestError instanceof Error ? requestError.message : 'Не удалось подготовить счёт.');
+    } finally { setIsRequestingInvoice(false); }
   };
 
   const getStatus = (status: string) => {
@@ -339,7 +393,10 @@ const handleCancelOrder = async () => {
     );
   }
 
-  const status = getStatus(order.status);
+  const baseStatus = getStatus(order.status);
+  const status = order.status === 'pending' && order.payment?.paymentMethod === 'bank_invoice'
+    ? { ...baseStatus, label: 'Ожидает оплаты по счёту' }
+    : baseStatus;
   const displayNumber = order.orderNumber || order.documentNumber || order.id.slice(0, 8);
   const isCancellable = canCancel();
   const isPayable = canPay();
@@ -410,6 +467,51 @@ const handleCancelOrder = async () => {
             <span>Запросить отмену можно в течение 12 часов с момента создания. После передачи заказа в CRM отмена требует подтверждения.</span>
           </div>
         )}
+
+        <div className="bg-card border border-border rounded-2xl p-6 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-sm text-muted-foreground">Оплата</p>
+              <h2 className="text-lg font-semibold text-foreground mt-1">
+                {order.payment?.paymentMethod === 'bank_invoice' ? 'По счёту' : order.payment?.paymentMethod === 'online' ? 'Онлайн через ЮKassa' : 'Информация об оплате недоступна'}
+              </h2>
+              <p className={`text-sm mt-1 ${order.payment?.paymentStatus === 'paid' ? 'text-green-500' : 'text-yellow-500'}`}>
+                {!order.payment ? 'Обновите страницу для получения статуса' : order.payment.paymentStatus === 'refunded' ? 'Возвращено' : order.payment.paymentMethod === 'bank_invoice' ? (order.payment.paymentStatus === 'paid' ? 'Оплачено по счёту' : order.invoice?.documentStatus === 'void' ? 'Счёт аннулирован' : 'Ожидает оплаты по счёту') : order.payment.paymentStatus === 'paid' ? 'Оплачено' : ['pending', 'unknown'].includes(order.payment.paymentStatus) ? 'Платёж обрабатывается' : 'Ожидает оплаты'}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {order.payment?.canPayOnline && <button onClick={handlePayOrder} disabled={isPaying} className="px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                {isPaying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />} Оплатить онлайн
+              </button>}
+              {order.payment?.canRequestInvoice && <button onClick={() => setShowInvoiceForm(v => !v)} className="px-4 py-2.5 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-muted">
+                <FileText className="w-4 h-4" /> Получить счёт для ЮЛ / ИП
+              </button>}
+            </div>
+          </div>
+          {order.invoice && <div className="mt-5 p-4 rounded-xl bg-muted/50 border border-border text-sm">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div><span className="text-muted-foreground">Счёт:</span> <span className="font-medium">{order.invoice.invoiceNumber || 'готовится'}</span></div>
+              <div><span className="text-muted-foreground">Статус:</span> <span className="font-medium">{order.invoice.documentStatus === 'issued' ? 'выставлен' : order.invoice.documentStatus === 'preparing' ? 'формируется' : order.invoice.documentStatus === 'void' ? 'аннулирован' : order.invoice.documentStatus}</span></div>
+              <div><span className="text-muted-foreground">Сумма:</span> {(BigInt(order.invoice.amountMinor) / 100n).toLocaleString('ru-RU')},{(BigInt(order.invoice.amountMinor) % 100n).toString().padStart(2, '0')} ₽</div>
+              {order.invoice.issuedAt && <div><span className="text-muted-foreground">Выставлен:</span> {formatDate(order.invoice.issuedAt)}</div>}
+              {order.invoice.dueAt && <div><span className="text-muted-foreground">Оплатить до:</span> {formatDate(order.invoice.dueAt)}</div>}
+            </div>
+            {order.payment?.canDownloadInvoice && <a href={`/api/orders/${encodeURIComponent(order.id)}/invoice/pdf`} className="inline-flex items-center gap-2 mt-4 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium"><FileText className="w-4 h-4" /> Скачать счёт PDF</a>}
+            <p className="text-xs text-muted-foreground mt-3">Без НДС. После подтверждения поступления оплаты статус обновится автоматически из CRM.</p>
+          </div>}
+          {order.payment?.paymentMethod === 'bank_invoice' && !order.invoice && <p role="status" className="mt-4 text-sm">Счёт готовится. Статус обновится автоматически.</p>}
+          {invoiceActionError && <p role="alert" className="mt-4 text-sm text-red-500">{invoiceActionError}</p>}
+          {showInvoiceForm && order.payment?.canRequestInvoice && <div className="mt-5 p-4 rounded-xl bg-muted/40 border border-border">
+            <h3 className="font-medium text-foreground mb-4">Реквизиты покупателя</h3>
+            <InvoiceBuyerForm value={invoiceBuyer} onChange={setInvoiceBuyer} errors={invoiceErrors} disabled={isRequestingInvoice} />
+            <div className="flex gap-3 mt-5">
+              <button onClick={handleRequestInvoice} disabled={isRequestingInvoice} className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                {isRequestingInvoice && <Loader2 className="w-4 h-4 animate-spin" />} Сформировать счёт
+              </button>
+              <button onClick={() => setShowInvoiceForm(false)} disabled={isRequestingInvoice} className="px-5 py-2.5 border border-border rounded-lg text-sm">Отмена</button>
+            </div>
+          </div>}
+        </div>
 
         <div className="bg-muted border border-border rounded-lg p-4 mb-6 text-sm text-foreground">
             <p className="font-medium">
@@ -522,7 +624,7 @@ const handleCancelOrder = async () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Доставка</span>
-                  <span className="text-green-500 font-medium">Расчитывается менеджером</span>
+                  <span className="text-green-500 font-medium">По тарифам выбранной ТЛК</span>
                 </div>
                 <div className="border-t border-border pt-3 mt-1">
                   <div className="flex justify-between text-lg font-bold">

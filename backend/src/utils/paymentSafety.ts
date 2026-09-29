@@ -5,4 +5,5 @@
 export const noStartedPaymentWhere = {
   paymentId: null,
   paymentAttempts: { none: {} },
+  invoice: { is: null },
 } as const;
