@@ -97,7 +97,11 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       }
     }
 
-    const { crmOrderId, status, documentNumber, version } = payload;
+    const {
+      crmOrderId, status, documentNumber, version, externalOrderId,
+      paymentMethod, paymentStatus, invoiceId, invoiceNumber, amountMinor, currency,
+      paidAt, paymentConfirmationId,
+    } = payload;
 
     if (!crmOrderId || !status) {
       console.error('❌ Webhook: Отсутствуют обязательные поля');
@@ -124,6 +128,7 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
       where: {
         crmOrderId: String(crmOrderId),
       },
+      include: { invoice: true },
     });
 
     if (!locatedOrder) {
@@ -137,9 +142,39 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
 
     const projection = await prisma.$transaction(async (tx) => {
       await lockPaymentWorkflowOrder(tx, locatedOrder.id);
-      const order = await tx.order.findUnique({ where: { id: locatedOrder.id } });
+      const order = await tx.order.findUnique({ where: { id: locatedOrder.id }, include: { invoice: true } });
       if (!order || order.crmOrderId !== String(crmOrderId)) {
         throw new Error('Order identity changed during CRM projection');
+      }
+      if (externalOrderId !== undefined && externalOrderId !== order.id) {
+        throw new Error('CRM external order identity conflict');
+      }
+      if (order.paymentMethod === 'bank_invoice') {
+        if (paymentMethod !== 'bank_invoice' || !['unpaid', 'paid'].includes(paymentStatus)
+          || typeof invoiceId !== 'string' || invoiceId !== order.invoice?.id
+          || invoiceNumber !== order.invoice?.invoiceNumber
+          || amountMinor !== order.invoice?.amountMinor.toString()
+          || currency !== order.invoice?.currency) {
+          throw new Error('CRM bank invoice payment projection is invalid');
+        }
+        if (paymentStatus === 'paid') {
+          if (typeof paymentConfirmationId !== 'string' || !paymentConfirmationId
+            || typeof paidAt !== 'string' || !Number.isFinite(Date.parse(paidAt))) {
+            throw new Error('CRM bank invoice confirmation is incomplete');
+          }
+          if (order.invoice.paymentStatus === 'unpaid') {
+            const paid = await tx.invoice.updateMany({
+              where: { id: order.invoice.id, paymentStatus: 'unpaid', documentStatus: 'issued' },
+              data: { paymentStatus: 'paid', paidAt: new Date(paidAt) },
+            });
+            if (paid.count !== 1) throw new Error('Invoice payment projection was concurrently changed');
+          } else if (order.invoice.paymentStatus !== 'paid') {
+            throw new Error('Invoice payment state conflict');
+          }
+        } else if (order.invoice.paymentStatus === 'paid') {
+          // A signed older unpaid status may never downgrade a confirmed payment.
+          return { applied: false, order };
+        }
       }
       if (!shouldApplyCrmStatusVersion(order.crmStatusVersion, version)) {
         await ensureAuthoritativeCancellationRefund(tx, order, new Date());

@@ -55,6 +55,21 @@ describe('payment status ownership', () => {
 describe('payment creation truth source', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  it.each([
+    { paymentMethod: 'bank_invoice', status: 'pending' },
+    { paymentMethod: 'bank_invoice', status: 'paid' },
+    { paymentMethod: 'online', status: 'pending', invoice: { documentStatus: 'issued', paymentStatus: 'unpaid' } },
+  ])('rejects bank invoices before provider calls and already-paid redirects: %p', state => {
+    prisma.order.findFirst.mockResolvedValueOnce({ id: 'order-1', userId: 'user-1', paymentAttempts: [], ...state });
+    const req = { body: { orderId: 'order-1' }, user: { id: 'user-1' } } as unknown as Request;
+    const res = response();
+    return createPaymentController(req, res).then(() => {
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'BANK_INVOICE_ONLINE_BLOCKED' }));
+      expect(createPayment).not.toHaveBeenCalled();
+    });
+  });
+
   it('does not treat CRM confirmed fulfillment as proof of payment', async () => {
     prisma.order.findFirst.mockResolvedValueOnce({
       id: 'order-1', userId: 'user-1', status: 'confirmed', paymentAttempts: [],

@@ -1,3 +1,4 @@
+import { bankInvoiceDeliveryService, BANK_INVOICE_INTAKE_TYPE, BANK_INVOICE_RELEASE_TYPE } from './bankInvoiceDelivery.service';
 import { Prisma, PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE, dispatchPaymentProviderReconciliationEvent, scanPaymentProviderReconciliationAttempts } from './paymentProviderReconciliation.service';
@@ -641,6 +642,7 @@ export const reconcileCrmOutbox = async (): Promise<void> => {
         in: [
           EVENT_TYPE, REFUND_EVENT_TYPE, RECONCILIATION_EVENT_TYPE,
           CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE, PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE,
+          BANK_INVOICE_INTAKE_TYPE, BANK_INVOICE_RELEASE_TYPE,
         ],
       },
       OR: [
@@ -722,12 +724,14 @@ export const reconcileCrmOutbox = async (): Promise<void> => {
 const runCrmOutboxCycle = async (): Promise<number> => {
   await reconcileCrmOutbox();
   await scanPaymentProviderReconciliationAttempts();
+  await bankInvoiceDeliveryService.recover();
   const events = await prisma.outboxEvent.findMany({
     where: {
       type: {
         in: [
           EVENT_TYPE, REFUND_EVENT_TYPE, RECONCILIATION_EVENT_TYPE,
           CANCELLATION_EVENT_TYPE, RESERVATION_RELEASE_EVENT_TYPE, PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE,
+          BANK_INVOICE_INTAKE_TYPE, BANK_INVOICE_RELEASE_TYPE,
         ],
       },
       status: 'pending', nextAttemptAt: { lte: new Date() }, processedAt: null,
@@ -737,6 +741,7 @@ const runCrmOutboxCycle = async (): Promise<number> => {
     select: { id: true, type: true },
   });
   const results = await Promise.all(events.map(({ id, type }) => {
+    if (type === BANK_INVOICE_INTAKE_TYPE || type === BANK_INVOICE_RELEASE_TYPE) return bankInvoiceDeliveryService.dispatch(id);
     if (type === PAYMENT_PROVIDER_RECONCILIATION_EVENT_TYPE) return dispatchPaymentProviderReconciliationEvent(id);
     if (type === REFUND_EVENT_TYPE) return dispatchPaymentRefundEvent(id);
     if (type === RECONCILIATION_EVENT_TYPE) return dispatchPaymentReconciliationEvent(id);

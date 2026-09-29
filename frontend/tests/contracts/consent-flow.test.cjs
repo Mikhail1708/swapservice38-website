@@ -53,7 +53,7 @@ function page(relative, { legacy = false, unavailable = false } = {}) {
       if (name === '@/lib/hooks/useConsentStatus') return { useConsentStatus: () => consent, personalDataAcceptance: docs => ({ accepted: true, documentVersion: docs.personalDataVersion, privacyVersion: docs.privacyVersion }) };
       if (name === '@/lib/context/CartContext') return { useCart: () => ({ cart: { items: [{ productId: '1', name: 'Product', price: 100, quantity: 1 }] }, isLoading: false, refetch: async () => {}, updateQuantity: async () => {}, clearCart: async () => {} }) };
       if (name === '@/lib/csrf') return { fetchWithCsrf: async (url, options) => { requests.push({ url, body: JSON.parse(options.body) }); return { ok: true, json: async () => ({ verificationToken: 'opaque-context', order: { id: 'order-1' } }) }; } };
-      if (name.startsWith('@/')) return load(`src/${name.slice(2)}.ts`);
+      if (name.startsWith('@/')) { const base = `src/${name.slice(2)}`; return load(fs.existsSync(path.join(root, `${base}.ts`)) ? `${base}.ts` : `${base}.tsx`); }
       return require(name);
     }, exports, { location: { origin: 'https://shop.example.test' } });
     return exports;

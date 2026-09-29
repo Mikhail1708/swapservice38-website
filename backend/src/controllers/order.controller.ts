@@ -17,6 +17,8 @@ import {
 import { log } from '../config/logger';
 
 import { prisma } from '../config/prisma';
+import { InvoiceError, prepareCheckoutInvoice, orderWithPaymentView, loadOrderPaymentView } from '../services/invoice.service';
+import { requestInvoiceSchema } from '../schemas/invoice.schema';
 
 const isSerializableConflict = (error: unknown): boolean => (
   typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034'
@@ -147,6 +149,13 @@ export const createOrderController = async (req: Request, res: Response): Promis
     }
 
 
+    const paymentMethod = req.body.paymentMethod ?? 'online';
+    if (!['online', 'bank_invoice'].includes(paymentMethod)
+      || (paymentMethod === 'bank_invoice' && !requestInvoiceSchema.safeParse({ buyer: req.body.invoiceBuyer }).success)
+      || (paymentMethod === 'online' && req.body.invoiceBuyer !== undefined)) {
+      res.status(400).json({ code: 'INVALID_PAYMENT_METHOD', error: 'Проверьте способ оплаты и реквизиты покупателя' });
+      return;
+    }
     const offer = offerEvidence(req.body.offerAcceptance);
     await ensurePersonalDataConsent(prisma, userId, req.body.personalDataConsent, false);
 
@@ -216,12 +225,16 @@ export const createOrderController = async (req: Request, res: Response): Promis
               items: validatedCart.items as any,
               total: validatedCart.total,
               status: 'pending',
+              paymentMethod,
               deliveryMethod: deliveryMethod || 'pickup',
               deliveryAddress: deliveryAddress || null,
               deliveryProvider: deliveryMethod === 'post' ? (deliveryProvider || null) : null,
               comment: comment || null,
             },
           });
+
+          const invoice = paymentMethod === 'bank_invoice'
+            ? await prepareCheckoutInvoice(tx, order, req.body.invoiceBuyer) : null;
 
           await tx.cart.update({
             where: { id: cart.id },
@@ -240,7 +253,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
           }));
 
           await Promise.all([
-            sendOrderCreatedToCustomer({
+            ...(paymentMethod === 'online' ? [sendOrderCreatedToCustomer({
               orderId: order.id,
               customerName,
               customerEmail: order.customerEmail || '',
@@ -252,7 +265,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
               deliveryAddress: order.deliveryAddress || '',
               deliveryProvider: order.deliveryProvider || '',
               offerVersion: order.offerVersion,
-            }, tx),
+            }, tx)] : []),
             sendOrderNotificationToManager({
               orderId: order.id,
               documentNumber: order.id.slice(0, 8),
@@ -265,7 +278,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
               comment: order.comment || '',
             }, tx),
           ]);
-          return order;
+          return { ...order, invoice };
         }, { isolationLevel: 'Serializable' });
         break;
       } catch (error) {
@@ -284,6 +297,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
     res.status(201).json({
       success: true,
       order: {
+        ...orderWithPaymentView(localOrder),
         id: localOrder.id,
         total: localOrder.total,
         status: localOrder.status,
@@ -293,6 +307,10 @@ export const createOrderController = async (req: Request, res: Response): Promis
 
   } catch (error: any) {
     log.error('Order creation failed', { error: error instanceof Error ? error.message : 'unknown' });
+    if (error instanceof InvoiceError) {
+      res.status(error.status).json({ code: error.code, error: error.message });
+      return;
+    }
     if (error instanceof AppError) {
       res.status(error.statusCode).json({ code: error.code, error: error.message });
       return;
@@ -324,6 +342,7 @@ export const getOrderController = async (req: Request, res: Response): Promise<v
         userId: userId,
       },
       include: {
+        invoice: true,
         user: {
           select: {
             firstName: true,
@@ -336,6 +355,10 @@ export const getOrderController = async (req: Request, res: Response): Promise<v
         paymentAttempts: {
           select: {
             status: true,
+            providerPaymentId: true,
+            providerRequestStartedAt: true,
+            reservationId: true,
+            lastCheckedAt: true,
             refundReason: true,
             refundRequestedAt: true,
             refundedAt: true,
@@ -350,7 +373,7 @@ export const getOrderController = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    res.json({ order });
+    res.json({ order: await loadOrderPaymentView(order) });
   } catch (error: any) {
     log.error('Order lookup failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ code: 'ORDER_LOAD_FAILED', error: 'Не удалось загрузить заказ' });
@@ -367,6 +390,7 @@ export const getUserOrdersController = async (req: Request, res: Response): Prom
     const orders = await prisma.order.findMany({
       where: { userId },
       include: {
+        invoice: true,
         user: {
           select: {
             firstName: true,
@@ -377,6 +401,10 @@ export const getUserOrdersController = async (req: Request, res: Response): Prom
         paymentAttempts: {
           select: {
             status: true,
+            providerPaymentId: true,
+            providerRequestStartedAt: true,
+            reservationId: true,
+            lastCheckedAt: true,
             refundReason: true,
             refundRequestedAt: true,
             refundedAt: true,
@@ -387,7 +415,7 @@ export const getUserOrdersController = async (req: Request, res: Response): Prom
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ orders });
+    res.json({ orders: await Promise.all(orders.map(loadOrderPaymentView)) });
   } catch (error: any) {
     log.error('Order list failed', { error: error instanceof Error ? error.message : 'unknown' });
     res.status(500).json({ code: 'ORDER_LOAD_FAILED', error: 'Не удалось загрузить заказы' });

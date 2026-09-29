@@ -518,3 +518,21 @@ export const orderStatusCustomerTemplate = (data: { documentNumber: string; cust
     }),
   };
 };
+
+export const invoiceIssuedCustomerTemplate = (data: {
+  orderId: string; orderNumber: string; invoiceNumber: string; amount: string; dueDate: string; vatLabel: string;
+}) => {
+  const link = new URL('/profile/orders/details', publicAppUrl());
+  link.searchParams.set('id', data.orderId);
+  const instruction = 'Заказ оформлен. Скачайте счёт PDF в личном кабинете и переведите указанную сумму по реквизитам счёта. После проверки поступления денег менеджер подтвердит оплату. До этого заказ ожидает оплаты по счёту.';
+  return {
+    subject: `Счёт на оплату по заказу №${data.orderNumber}`,
+    text: [instruction, 'Способ оплаты: по счёту', `Счёт №${data.invoiceNumber}`, `Сумма: ${data.amount}`,
+      `Оплатить до: ${data.dueDate}`, data.vatLabel, `Скачать счёт в личном кабинете: ${link.toString()}`].join('\n\n'),
+    html: emailShell({ title: 'Счёт на оплату', preheader: `Счёт №${data.invoiceNumber} по заказу №${data.orderNumber}`,
+      icon: '→', content: `${greeting('', instruction)}${summaryTable([
+        { label: 'Счёт', value: data.invoiceNumber, description: 'Способ оплаты: по счёту' }, { label: 'Сумма', value: data.amount, description: data.vatLabel },
+        { label: 'Оплатить до', value: data.dueDate },
+      ])}${fullWidthCta('Открыть заказ и скачать счёт PDF', escapeHtml(link.toString()))}` }),
+  };
+};

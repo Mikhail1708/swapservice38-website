@@ -60,6 +60,7 @@ describe('admin order deletion error contract', () => {
       where: {
         id: 'order-1',
         paymentId: null,
+        invoice: { is: null },
         paymentAttempts: { none: {} },
       },
     });
