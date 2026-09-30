@@ -15,6 +15,7 @@ export interface EmailPayload {
   subject: string;
   html: string;
   text?: string;
+  invoiceAttachment?: { invoiceId: string; orderId: string };
 }
 export type EmailEnqueue = (payload: EmailPayload, jobId: string) => Promise<unknown>;
 

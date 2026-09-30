@@ -95,6 +95,18 @@ describe('bank invoice durable delivery', () => {
     expect(f.post).not.toHaveBeenCalled();
   });
 
+  it('resolves cancellation when CRM confirmation wins release race', async () => {
+    const f = fixture();
+    f.event.type = 'bank_invoice_release_requested';
+    f.event.payload = { ...f.request, requestId: 'bank-invoice-release:invoice-1' } as any;
+    f.order.cancellationState = 'requested';
+    f.post.mockRejectedValue({ response: { status: 409, data: { code: 'INVOICE_RELEASE_FORBIDDEN' } } });
+    await expect(f.service.dispatch(f.event.id)).resolves.toBe(false);
+    expect(f.db.order.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ cancellationState: 'rejected' }) }));
+    expect(f.db.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'completed' }) }));
+    expect(f.db.invoice.update).not.toHaveBeenCalled();
+  });
+
   it('does not store transport secrets or response bodies in failure diagnostics', async () => {
     const f = fixture();
     f.post.mockRejectedValue({ message: 'credential-and-personal-data', response: { status: 503, data: { secret: 'secret-value' } } });

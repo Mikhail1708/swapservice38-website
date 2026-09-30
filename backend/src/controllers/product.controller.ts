@@ -67,7 +67,44 @@ const normalizeProducts = (data: any) => {
 // ============================================================
 export const getProducts = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { category, search, page = '1', limit = '16', sort } = req.query;
+    const { category, search, page = '1', limit = '16', sort, availability } = req.query;
+    if ((availability !== undefined && !['in_stock', 'on_order'].includes(availability as string))
+      || (sort !== undefined && !['price_asc', 'price_desc'].includes(sort as string))) {
+      res.status(400).json({ error: 'Некорректные параметры каталога' });
+      return;
+    }
+    if (availability || sort) {
+      const requestedPage = Number(page);
+      const requestedLimit = Number(limit);
+      if (!Number.isSafeInteger(requestedPage) || requestedPage < 1
+        || !Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 999) {
+        res.status(400).json({ error: 'Некорректная страница каталога' });
+        return;
+      }
+      // CRM owns the catalogue but has no availability/price ordering contract.
+      // Apply these operations to ALL upstream pages before slicing the SITE page.
+      const products = new Map<string, ReturnType<typeof normalizeProduct>>();
+      let upstreamPage = 1;
+      let totalPages = 1;
+      do {
+        const response = await axios.get(`${CRM_API_URL}/api/public/products`, {
+          params: { category, search, page: upstreamPage, limit: 999 }, timeout: 10000,
+        });
+        const data = normalizeProducts(response.data);
+        for (const product of data.items || data) products.set(String(product.id), product);
+        totalPages = Number.isSafeInteger(data.totalPages) ? Math.max(1, data.totalPages) : 1;
+        upstreamPage += 1;
+      } while (upstreamPage <= totalPages);
+      const items = [...products.values()].filter(product => availability === 'in_stock'
+        ? product.stock > 0 : availability === 'on_order' ? product.stock <= 0 : true);
+      if (sort === 'price_asc') items.sort((a, b) => Number(a.price) - Number(b.price));
+      else if (sort === 'price_desc') items.sort((a, b) => Number(b.price) - Number(a.price));
+      else if (availability === 'in_stock') items.sort((a, b) => b.stock - a.stock);
+      res.json({ items: items.slice((requestedPage - 1) * requestedLimit, requestedPage * requestedLimit),
+        total: items.length, page: requestedPage, limit: requestedLimit,
+        totalPages: Math.ceil(items.length / requestedLimit) });
+      return;
+    }
     
     const response = await axios.get(`${CRM_API_URL}/api/public/products`, {
       params: { category, search, page, limit },

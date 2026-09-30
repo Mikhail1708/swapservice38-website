@@ -3,7 +3,7 @@ import { invoiceBuyerSchema, requestInvoiceSchema } from '../../../src/schemas/i
 import { addInvoiceBusinessDays, calculateInvoiceDueAt } from '../../../src/utils/invoiceBusinessDays';
 
 const buyer = {
-  buyerType: 'legal_entity', legalName: 'ООО Покупатель', inn: '1234567890',
+  buyerType: 'legal_entity', legalName: 'ООО Покупатель', inn: '7707083893',
   legalAddress: 'г. Иркутск, ул. Ленина, д. 1', contactName: 'Иван Иванов',
   phone: '+7 (999) 123-45-67', email: 'buyer@example.com',
 };
@@ -26,6 +26,14 @@ describe('Invoice seller snapshot', () => {
 });
 
 describe('Invoice buyer validation', () => {
+  it.each([
+    ['legal_entity', '1234567890'], ['individual_entrepreneur', '123456789012'],
+    ['legal_entity', '7707083894'], ['individual_entrepreneur', '672708470601'],
+  ])('rejects invalid checksum for %s %s', (buyerType, inn) => {
+    const result = invoiceBuyerSchema.safeParse({ ...buyer, buyerType, inn });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some(issue => issue.message === 'Некорректный ИНН. Проверьте введённые данные.')).toBe(true);
+  });
   it('accepts legal entity and normalizes whitespace and phone punctuation', () => {
     const result = invoiceBuyerSchema.parse({ ...buyer, legalName: ' ООО Покупатель ', kpp: '771001001' });
     expect(result.legalName).toBe('ООО Покупатель');
@@ -34,12 +42,12 @@ describe('Invoice buyer validation', () => {
   });
 
   it('accepts an entrepreneur without KPP', () => {
-    expect(invoiceBuyerSchema.safeParse({ ...buyer, buyerType: 'individual_entrepreneur', inn: '123456789012' }).success).toBe(true);
+    expect(invoiceBuyerSchema.safeParse({ ...buyer, buyerType: 'individual_entrepreneur', inn: '672708470600' }).success).toBe(true);
   });
 
-  it('accepts format-only test INNs for both buyer types', () => {
-    expect(invoiceBuyerSchema.safeParse({ ...buyer, inn: '1234567890' }).success).toBe(true);
-    expect(invoiceBuyerSchema.safeParse({ ...buyer, buyerType: 'individual_entrepreneur', inn: '123456789012' }).success).toBe(true);
+  it('accepts checksum-valid INNs for both buyer types', () => {
+    expect(invoiceBuyerSchema.safeParse({ ...buyer, inn: '7707083893' }).success).toBe(true);
+    expect(invoiceBuyerSchema.safeParse({ ...buyer, buyerType: 'individual_entrepreneur', inn: '672708470600' }).success).toBe(true);
   });
 
   it.each([

@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { claimSmtpAttempt, createEmailCleanup, EMAIL_MAX_ATTEMPTS, EMAIL_OUTBOX_MAX_ATTEMPTS } from './emailQueuePolicy';
 import { EmailPayload, persistEmailEvent, emailOutboxPrisma } from './emailOutbox.service';
 import { createEmailJobData, EmailJobData } from './emailAttachments';
+import { resolveEmailAttachments, emailErrorDetails } from './invoiceEmailAttachment.service';
 import {
   OrderEmailData,
   OrderCreatedEmailData,
@@ -66,13 +67,13 @@ const transporter = nodemailer.createTransport({
 });
 
 transporter.verify((error) => {
-  if (error) console.error('❌ Ошибка подключения к почтовому серверу:', { errorName: error.name });
+  if (error) console.error('❌ Ошибка подключения к почтовому серверу:', emailErrorDetails(error));
   else console.log('✅ Почтовый сервер настроен успешно');
 });
 
 const sendEmailSync = async (data: EmailJobData) => transporter.sendMail({
   from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
-  ...data,
+  ...await resolveEmailAttachments(data),
 });
 
 emailQueue.process(async (job) => {
@@ -80,10 +81,10 @@ emailQueue.process(async (job) => {
     await claimSmtpAttempt(emailQueue, job);
     return await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'swapservice38@yandex.ru',
-      ...job.data,
+      ...await resolveEmailAttachments(job.data, job.id),
     });
   } catch (error) {
-    console.error('❌ Ошибка отправки письма:', { errorName: error instanceof Error ? error.name : 'unknown' });
+    console.error('❌ Ошибка отправки письма:', emailErrorDetails(error));
     throw error;
   }
 });
@@ -109,7 +110,8 @@ export const sendEmail = (to: string, subject: string, html: string, jobId?: str
 // Retained completed jobs deduplicate a crash after enqueue but before DB ACK.
 export const enqueueOutboxEmail = (payload: EmailPayload, jobId: string) => {
   if (!queueAvailable) throw new Error('Email queue unavailable');
-  return emailQueue.add(createEmailJobData(payload.to, payload.subject, payload.html, payload.text), {
+  return emailQueue.add({ ...createEmailJobData(payload.to, payload.subject, payload.html, payload.text),
+    ...(payload.invoiceAttachment ? { invoiceAttachment: payload.invoiceAttachment } : {}) }, {
     jobId, attempts: EMAIL_OUTBOX_MAX_ATTEMPTS, backoff: { type: 'exponential', delay: 5000 },
     removeOnComplete: false, removeOnFail: false,
   });

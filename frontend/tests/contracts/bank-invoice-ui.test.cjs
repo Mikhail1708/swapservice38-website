@@ -50,13 +50,16 @@ test('invalid KPP blocks checkout submit; legal INN10/IP INN12 and optional KPP9
   assert.equal(app.requests.length, 0);
 });
 
-test('INN validation is format-only and rejects wrong length or non-digits before POST', () => {
+test('INN validation includes checksum and rejects wrong length or non-digits before POST', () => {
   const validate = page('src/app/(public)/cart/page.tsx').load('src/components/invoice/InvoiceBuyerForm.tsx').validateInvoiceBuyer;
-  assert.deepEqual(validate({ ...buyer, inn: '1234567890' }), {});
+  for (const [buyerType, inn] of [['legal_entity', '1234567890'], ['legal_entity', '7707083894'], ['individual_entrepreneur', '123456789012'], ['individual_entrepreneur', '672708470601']]) {
+    assert.equal(validate({ ...buyer, buyerType, inn, kpp: undefined }).inn, 'Некорректный ИНН. Проверьте введённые данные.');
+  }
+  assert.deepEqual(validate({ ...buyer, inn: '7707083893' }), {});
   assert.ok(validate({ ...buyer, inn: '123456789' }).inn);
   assert.ok(validate({ ...buyer, inn: '12345678901' }).inn);
   assert.ok(validate({ ...buyer, inn: '123456789a' }).inn);
-  assert.deepEqual(validate({ ...buyer, buyerType: 'individual_entrepreneur', inn: '123456789012', kpp: undefined }), {});
+  assert.deepEqual(validate({ ...buyer, buyerType: 'individual_entrepreneur', inn: '672708470600', kpp: undefined }), {});
   for (const inn of ['1234567890', '12345678901', '1234567890123', '12345678901a']) {
     assert.ok(validate({ ...buyer, buyerType: 'individual_entrepreneur', inn, kpp: undefined }).inn);
   }

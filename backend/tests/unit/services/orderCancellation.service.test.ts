@@ -109,6 +109,24 @@ describe('order cancellation service', () => {
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 
+  it('queues unpaid bank release once until CRM accepts', async () => {
+    const order = { id: 'order-1', userId: 'user-1', paymentMethod: 'bank_invoice', cancellationState: 'none', createdAt: new Date() };
+    prisma.order.findUnique.mockResolvedValue(order);
+    prisma.invoice.findUnique.mockResolvedValue({ id: 'invoice-1', paymentStatus: 'unpaid' });
+    prisma.order.update.mockImplementation(async ({ data }: any) => Object.assign(order, data));
+    await requestOrderCancellation(order.id, order.userId, null);
+    await requestOrderCancellation(order.id, order.userId, null);
+    expect(prisma.outboxEvent.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.outboxEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { deduplicationKey: 'bank-invoice-release:invoice-1' } }));
+  });
+
+  it('rejects paid bank cancellation with a business code', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'order-1', userId: 'user-1', paymentMethod: 'bank_invoice', cancellationState: 'none', createdAt: new Date() });
+    prisma.invoice.findUnique.mockResolvedValue({ id: 'invoice-1', paymentStatus: 'paid' });
+    await expect(requestOrderCancellation('order-1', 'user-1', null)).rejects.toMatchObject({ statusCode: 409, code: 'BANK_INVOICE_ALREADY_PAID' });
+    expect(prisma.outboxEvent.upsert).not.toHaveBeenCalled();
+  });
+
   it('keeps a previously persisted request idempotent after the window expires', async () => {
     const requested = {
       id: 'order-1', userId: 'user-1', crmOrderId: '42', status: 'assembling',

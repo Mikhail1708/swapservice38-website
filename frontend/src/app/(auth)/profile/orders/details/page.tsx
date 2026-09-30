@@ -78,6 +78,8 @@ const cancellationLabels: Record<string, string> = {
 };
 
 const cancellationDecisionLabels: Record<string, string> = {
+  bank_invoice_already_paid: 'Оплата по счёту уже подтверждена. Для отмены оплаченного заказа свяжитесь с нами.',
+  bank_invoice_release_forbidden: 'Отмена заказа недоступна на текущем этапе. Свяжитесь с нами.',
   FULFILLMENT_ALREADY_SHIPPED: 'Заказ уже передан в доставку, поэтому отмена невозможна.',
   CANCELLATION_NOT_ALLOWED: 'На текущем этапе заказ отменить нельзя.',
   CANCELLATION_ACCEPTED: 'CRM подтвердила отмену заказа.',

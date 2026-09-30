@@ -524,14 +524,14 @@ export const invoiceIssuedCustomerTemplate = (data: {
 }) => {
   const link = new URL('/profile/orders/details', publicAppUrl());
   link.searchParams.set('id', data.orderId);
-  const instruction = 'Заказ оформлен. Скачайте счёт PDF в личном кабинете и переведите указанную сумму по реквизитам счёта. После проверки поступления денег менеджер подтвердит оплату. До этого заказ ожидает оплаты по счёту.';
+  const instruction = 'Счёт на оплату прикреплён к письму в формате PDF. После поступления денежных средств мы подтвердим оплату заказа. До этого заказ ожидает оплаты по счёту.';
   return {
-    subject: `Счёт на оплату по заказу №${data.orderNumber}`,
-    text: [instruction, 'Способ оплаты: по счёту', `Счёт №${data.invoiceNumber}`, `Сумма: ${data.amount}`,
+    subject: `Счёт на оплату №${data.invoiceNumber} — SWAP SERVICE 38`,
+    text: ['Ваш счёт на оплату готов', `Заказ: ${data.orderNumber}`, instruction, 'Способ оплаты: по счёту', `Счёт №${data.invoiceNumber}`, `Сумма: ${data.amount}`,
       `Оплатить до: ${data.dueDate}`, data.vatLabel, `Скачать счёт в личном кабинете: ${link.toString()}`].join('\n\n'),
-    html: emailShell({ title: 'Счёт на оплату', preheader: `Счёт №${data.invoiceNumber} по заказу №${data.orderNumber}`,
+    html: emailShell({ title: 'Ваш счёт на оплату готов', preheader: `Счёт №${data.invoiceNumber} по заказу №${data.orderNumber}`,
       icon: '→', content: `${greeting('', instruction)}${summaryTable([
-        { label: 'Счёт', value: data.invoiceNumber, description: 'Способ оплаты: по счёту' }, { label: 'Сумма', value: data.amount, description: data.vatLabel },
+        { label: 'Счёт', value: data.invoiceNumber, description: `Заказ: ${data.orderNumber}. Способ оплаты: по счёту` }, { label: 'Сумма', value: data.amount, description: data.vatLabel },
         { label: 'Оплатить до', value: data.dueDate },
       ])}${fullWidthCta('Открыть заказ и скачать счёт PDF', escapeHtml(link.toString()))}` }),
   };

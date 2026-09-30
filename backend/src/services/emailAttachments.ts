@@ -4,7 +4,7 @@ export const BRAND_LOGO_CID = 'swapservice38-logo';
 
 export const BRAND_LOGO_ATTACHMENT = Object.freeze({
   filename: 'swapservice38-logo.png',
-  path: path.resolve(__dirname, '../../../frontend/public/images/logo/logo.png'),
+  path: path.resolve(__dirname, '../../assets/brand/logo.png'),
   cid: BRAND_LOGO_CID,
 });
 
@@ -13,6 +13,7 @@ export type EmailJobData = {
   subject: string;
   html: string;
   text?: string;
+  invoiceAttachment?: { invoiceId: string; orderId: string };
   attachments: Array<typeof BRAND_LOGO_ATTACHMENT>;
 };
 

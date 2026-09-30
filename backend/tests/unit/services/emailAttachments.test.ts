@@ -7,12 +7,12 @@ import {
 } from '../../../src/services/emailAttachments';
 
 describe('Email CID attachments', () => {
-  it('resolves the real frontend logo to a safe absolute path', () => {
+  it('resolves the official logo packaged with the backend to a safe absolute path', () => {
     expect(BRAND_LOGO_CID).toBe('swapservice38-logo');
     expect(BRAND_LOGO_ATTACHMENT.cid).toBe(BRAND_LOGO_CID);
     expect(BRAND_LOGO_ATTACHMENT.filename).toBe('swapservice38-logo.png');
     expect(path.isAbsolute(BRAND_LOGO_ATTACHMENT.path)).toBe(true);
-    expect(BRAND_LOGO_ATTACHMENT.path.replace(/\\/g, '/')).toMatch(/frontend\/public\/images\/logo\/logo\.png$/);
+    expect(BRAND_LOGO_ATTACHMENT.path.replace(/\\/g, '/')).toMatch(/backend\/assets\/brand\/logo\.png$/);
     expect(fs.existsSync(BRAND_LOGO_ATTACHMENT.path)).toBe(true);
   });
 

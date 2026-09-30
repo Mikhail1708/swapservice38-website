@@ -116,6 +116,8 @@ export function createBankInvoiceDeliveryService(db: PrismaClient = prisma, post
           await tx.order.update({ where: { id: order.id }, data: {
             status: 'cancelled', cancellationState: 'accepted', cancellationResolvedAt: new Date(),
             cancellationDecisionReason: 'bank_invoice_allocation_released',
+            ...(Number.isSafeInteger(result.statusVersion) && result.statusVersion >= 0
+              ? { crmStatusVersion: Math.max(order.crmStatusVersion || 0, result.statusVersion) } : {}),
             ...(result.crmOrderId != null ? { crmOrderId: String(result.crmOrderId), orderNumber: result.documentNumber } : {}),
           } });
         } else if (['requested', 'accepted'].includes(order.cancellationState) || order.status === 'cancelled') {
@@ -141,6 +143,28 @@ export function createBankInvoiceDeliveryService(db: PrismaClient = prisma, post
         return true;
       });
     } catch (error) {
+      // CRM serializes release against payment confirmation. A definitive business
+      // refusal resolves the request; transport failures must remain retryable.
+      if (release && (error as any)?.response?.status === 409
+        && (error as any)?.response?.data?.code === 'INVOICE_RELEASE_FORBIDDEN') {
+        return db.$transaction(async tx => {
+          await lockPaymentWorkflowOrder(tx, claim.orderId);
+          const owned = await tx.outboxEvent.findFirst({ where: deliveryClaimWhere(claim) });
+          if (!owned) return false;
+          const order = await tx.order.findUnique({ where: { id: claim.orderId }, include: { invoice: true } });
+          if (order?.cancellationState === 'requested') {
+            await tx.order.update({ where: { id: order.id }, data: {
+              cancellationState: 'rejected', cancellationResolvedAt: new Date(),
+              cancellationDecisionReason: order.invoice?.paymentStatus === 'paid' ? 'bank_invoice_already_paid' : 'bank_invoice_release_forbidden',
+            } });
+          }
+          const completed = await tx.outboxEvent.updateMany({ where: deliveryClaimWhere(claim), data: {
+            status: 'completed', processedAt: new Date(), lockedAt: null, lastError: 'INVOICE_RELEASE_FORBIDDEN',
+          } });
+          if (completed.count !== 1) throw new Error('Invoice release lease lost');
+          return false;
+        });
+      }
       const classification = classifyCrmDeliveryError(error);
       await db.outboxEvent.updateMany({ where: deliveryClaimWhere(claim), data: {
         status: !classification.transient || claim.attempts >= CRM_DELIVERY_MAX_ATTEMPTS ? 'failed' : 'pending',

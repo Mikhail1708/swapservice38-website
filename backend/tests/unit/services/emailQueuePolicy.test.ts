@@ -25,6 +25,10 @@ describe('F22 SITE bounded SMTP budget', () => {
       const Bull = require('bull'); q = Bull.mock.results[Bull.mock.results.length - 1].value;
       const nodemailer = require('nodemailer'); mailer = nodemailer.createTransport.mock.results[nodemailer.createTransport.mock.results.length - 1].value;
       processor = q.process.mock.calls[0][0];
+      // Legacy retained outbox jobs resolve their durable event before SMTP.
+      require('../../../src/config/prisma').prisma.emailOutboxEvent.findUnique.mockResolvedValue({
+        id: 'fixture', eventType: 'order_created', aggregateId: 'order-fixture',
+      });
     });
     let claims = 0;
     q.token = 'owner'; q.toKey = (id: string) => id;

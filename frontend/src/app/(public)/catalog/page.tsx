@@ -1,7 +1,7 @@
 // frontend/app/(public)/catalog/page.tsx
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Image, Link, useSearchParams, useRouter } from '@/lib/next-shims';
 import { 
   Search, 
@@ -45,13 +45,18 @@ const ITEMS_PER_PAGE = 16;
 // ============================================================
 // API ФУНКЦИИ — БЕЗ КЕША!
 // ============================================================
-const fetchProducts = async (): Promise<Product[]> => {
+const fetchProducts = async (availability = '', sort = '', category = '', search = ''): Promise<Product[]> => {
   const timestamp = Date.now();
   const products = new Map<string, Product>();
   let page = 1;
   let totalPages = 1;
   do {
-    const response = await fetchWithCsrf(`/api/products?limit=999&page=${page}&_t=${timestamp}`, {
+    const params = new URLSearchParams({ limit: '999', page: String(page), _t: String(timestamp) });
+    if (availability) params.set('availability', availability);
+    if (sort) params.set('sort', sort);
+    if (category) params.set('category', category);
+    if (search) params.set('search', search);
+    const response = await fetchWithCsrf(`/api/products?${params}`, {
       method: 'GET', cache: 'no-store',
     });
     if (!response.ok) throw new Error('Ошибка загрузки товаров');
@@ -260,6 +265,9 @@ export default function CatalogPage() {
   const categoryFromUrl = searchParams.get('category') || '';
   const searchFromUrl = searchParams.get('search') || '';
   const pageFromUrl = parseInt(searchParams.get('page') || '1');
+  const availability = ['in_stock', 'on_order'].includes(searchParams.get('availability') || '') ? searchParams.get('availability')! : '';
+  const sort = ['price_asc', 'price_desc'].includes(searchParams.get('sort') || '') ? searchParams.get('sort')! : '';
+  const loadVersion = useRef(0);
 
   const [search, setSearch] = useState(searchFromUrl);
   const [selectedCategory, setSelectedCategory] = useState(categoryFromUrl);
@@ -272,43 +280,50 @@ export default function CatalogPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   // ===== ЗАГРУЗКА ДАННЫХ (БЕЗ КЕША) =====
-  const loadData = async (showLoading: boolean = true) => {
+  const loadData = useCallback(async (showLoading: boolean = true) => {
+    const version = ++loadVersion.current;
     if (showLoading) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     
     try {
       // Загружаем товары
-      const products = await fetchProducts();
+      const products = await fetchProducts(availability, sort, categoryFromUrl, searchFromUrl);
+      if (version !== loadVersion.current) return;
       const normalized = products.map(normalizeProduct);
       setAllProducts(normalized);
       
       // Загружаем категории
       const cats = await fetchCategories();
+      if (version !== loadVersion.current) return;
       setCategories(cats);
       
     } catch (err: unknown) {
+      if (version !== loadVersion.current) return;
       setError(userMessageFromError(err, 'Не удалось загрузить товары. Попробуйте позже.'));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (version === loadVersion.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  };
+  }, [availability, sort, categoryFromUrl, searchFromUrl]);
 
   // Загрузка при монтировании
   useEffect(() => {
-    loadData(true);
+    loadData(false);
     const reload = () => { void loadData(false); };
     window.addEventListener('focus', reload);
-    return () => window.removeEventListener('focus', reload);
-  }, []);
+    return () => { ++loadVersion.current; window.removeEventListener('focus', reload); };
+  }, [loadData]);
 
   // ===== СИНХРОНИЗАЦИЯ С URL =====
   useEffect(() => {
-    if (categoryFromUrl) setSelectedCategory(categoryFromUrl);
+    setSelectedCategory(categoryFromUrl);
   }, [categoryFromUrl]);
 
   useEffect(() => {
-    if (searchFromUrl) setSearch(searchFromUrl);
+    setSearch(searchFromUrl);
   }, [searchFromUrl]);
 
   useEffect(() => {
@@ -350,16 +365,16 @@ export default function CatalogPage() {
   }, [filteredProducts, currentPage]);
 
   // ===== ОБНОВЛЕНИЕ URL =====
-  const updateUrl = useCallback((category: string, page: number, searchTerm: string) => {
-    const params = new URLSearchParams();
-    if (category) params.set('category', category);
-    if (page > 1) params.set('page', String(page));
-    if (searchTerm) params.set('search', searchTerm);
+  const updateUrl = useCallback((category: string, page: number, searchTerm: string, nextAvailability = availability, nextSort = sort) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries({ category, page: page > 1 ? String(page) : '', search: searchTerm, availability: nextAvailability, sort: nextSort })) {
+      if (value) params.set(key, value); else params.delete(key);
+    }
 
     const queryString = params.toString();
     const newUrl = queryString ? `/catalog?${queryString}` : '/catalog';
     router.push(newUrl);
-  }, [router]);
+  }, [router, searchParams, availability, sort]);
 
   // ===== ОБРАБОТЧИКИ =====
   const selectCategory = useCallback((category: string) => {
@@ -504,7 +519,7 @@ export default function CatalogPage() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition ${
-              showFilters || selectedCategory || search
+              showFilters || selectedCategory || search || availability || sort
                 ? 'bg-foreground text-background'
                 : 'bg-muted border border-border text-foreground hover:bg-muted/80'
             }`}
@@ -514,7 +529,7 @@ export default function CatalogPage() {
             <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
 
-          {(selectedCategory || search) && (
+          {(selectedCategory || search || availability || sort) && (
             <button
               onClick={clearFilters}
               className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-foreground transition"
@@ -529,6 +544,26 @@ export default function CatalogPage() {
         {showFilters && (
           <div className="bg-card border border-border rounded-2xl p-6 mb-8 animate-in slide-in-from-top-2 duration-200">
             <div className="grid md:grid-cols-2 gap-6">
+              <label className="block text-sm font-medium text-muted-foreground">
+                Наличие
+                <select aria-label="Наличие" value={availability}
+                  onChange={e => { setCurrentPage(1); updateUrl(selectedCategory, 1, search, e.target.value, sort); }}
+                  className="mt-2 w-full px-4 py-3 bg-muted border border-border rounded-lg text-foreground">
+                  <option value="">Все</option>
+                  <option value="in_stock">В наличии</option>
+                  <option value="on_order">Под заказ</option>
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-muted-foreground">
+                Сортировка
+                <select aria-label="Сортировка" value={sort}
+                  onChange={e => { setCurrentPage(1); updateUrl(selectedCategory, 1, search, availability, e.target.value); }}
+                  className="mt-2 w-full px-4 py-3 bg-muted border border-border rounded-lg text-foreground">
+                  <option value="">По умолчанию</option>
+                  <option value="price_asc">Цена: сначала дешевле</option>
+                  <option value="price_desc">Цена: сначала дороже</option>
+                </select>
+              </label>
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-2">
                   Категория
