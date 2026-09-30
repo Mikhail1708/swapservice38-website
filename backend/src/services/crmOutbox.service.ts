@@ -11,6 +11,7 @@ import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 import { getInternalApiKey } from '../utils/internalApiKey';
 
 import { prisma } from '../config/prisma';
+import { reconcileYooKassaRefund, refundFailure, RefundProviderError } from './yooKassaRefund.service';
 const EVENT_TYPE = 'crm_order_create_requested';
 const REFUND_EVENT_TYPE = 'payment_refund_requested';
 const RECONCILIATION_EVENT_TYPE = 'payment_reconciliation_required';
@@ -52,7 +53,7 @@ export const ensurePaymentRefundOutboxEvent = async (
     aggregateId: orderId,
     type: REFUND_EVENT_TYPE,
     deduplicationKey: paymentRefundDeduplicationKey(paymentId),
-    payload: { orderId, paymentId, amountMinor, currency, reason } as Prisma.InputJsonValue,
+    payload: { orderId, paymentId, amountMinor, currency, reason, refundWorkflowVersion: 2 } as Prisma.InputJsonValue,
   },
   // The first deterministic refund intent is immutable. Eligibility checks in
   // the worker reject any later state that is incompatible with that reason.
@@ -457,36 +458,41 @@ export const dispatchReservationReleaseEvent = async (eventId: string): Promise<
 };
 
 export const dispatchPaymentRefundEvent = async (eventId: string): Promise<boolean> => {
+  const lockedAt = new Date();
   const claimed = await prisma.outboxEvent.updateMany({
     where: {
       id: eventId, type: REFUND_EVENT_TYPE, status: 'pending',
       nextAttemptAt: { lte: new Date() }, processedAt: null,
     },
-    data: { status: 'processing', lockedAt: new Date(), attempts: { increment: 1 }, lastError: null },
+    data: { status: 'processing', lockedAt, attempts: { increment: 1 }, lastError: null },
   });
   if (claimed.count !== 1) return false;
   const event = await prisma.outboxEvent.findUnique({ where: { id: eventId } });
-  if (!event) return false;
+  if (!event || event.status !== 'processing' || event.lockedAt?.getTime() !== lockedAt.getTime()) return false;
+  const owned = { id: event.id, status: 'processing', processedAt: null, lockedAt, attempts: event.attempts };
 
   const payload = event.payload as {
     orderId?: string; paymentId?: string; amountMinor?: number; currency?: string;
     reason?: 'pre_handoff_compensation' | 'pre_handoff_customer_cancellation' | 'post_handoff_cancellation';
+    refundPostStartedAt?: string; refundWorkflowVersion?: number;
   };
   const reason = payload.reason || 'pre_handoff_compensation';
   try {
     if (
       !payload.orderId || !payload.paymentId || !Number.isSafeInteger(payload.amountMinor)
-      || payload.currency !== 'RUB'
+      || (payload.amountMinor as number) <= 0 || payload.currency !== 'RUB' || payload.orderId !== event.aggregateId
       || !['pre_handoff_compensation', 'pre_handoff_customer_cancellation', 'post_handoff_cancellation'].includes(reason)
     ) throw new Error('Invalid refund outbox payload');
 
     const preflight = await prisma.$transaction(async (tx) => {
       await lockPaymentWorkflowOrder(tx, payload.orderId!);
+      if ((await tx.outboxEvent.updateMany({ where: owned, data: { lockedAt } })).count !== 1) throw new RefundProviderError('REFUND_LEASE_LOST');
       const [order, attempt] = await Promise.all([
         tx.order.findUnique({ where: { id: payload.orderId } }),
         tx.paymentAttempt.findUnique({ where: { orderId: payload.orderId } }),
       ]);
-      if (!order || !attempt || attempt.providerPaymentId !== payload.paymentId) {
+      if (!order || !attempt || attempt.providerPaymentId !== payload.paymentId
+        || attempt.amountMinor !== payload.amountMinor || attempt.currency !== payload.currency) {
         throw new Error('REFUND_RECONCILIATION_REQUIRED: refund identity mismatch');
       }
       if (attempt.status === 'refunded') return { alreadyRefunded: true, refundId: attempt.refundId };
@@ -509,42 +515,59 @@ export const dispatchPaymentRefundEvent = async (eventId: string): Promise<boole
           lastCheckedAt: new Date(),
         },
       });
-      return { alreadyRefunded: false, refundId: null };
+      return { alreadyRefunded: false, refundId: attempt.refundId,
+        legacyStartedAt: payload.refundWorkflowVersion !== 2 && event.attempts > 1 ? event.createdAt || attempt.refundRequestedAt : null };
     });
 
     let refundId = preflight.refundId || null;
+    if (!payload.refundPostStartedAt && preflight.legacyStartedAt) payload.refundPostStartedAt = preflight.legacyStartedAt.toISOString();
     if (!preflight.alreadyRefunded) {
-      let refundStatus = 'succeeded';
-      refundId = `mock-refund-${payload.paymentId}`;
-      if (process.env.PAYMENT_PROVIDER !== 'mock') {
-        const shopId = process.env.YOO_KASSA_SHOP_ID || '';
-        const secret = process.env.YOO_KASSA_SECRET_KEY || '';
-        if (!shopId || !secret) throw new Error('YooKassa credentials are not configured');
-        const auth = Buffer.from(`${shopId}:${secret}`).toString('base64');
-        const response = await axios.post(
-          'https://api.yookassa.ru/v3/refunds',
-          {
-            payment_id: payload.paymentId,
-            amount: { value: ((payload.amountMinor as number) / 100).toFixed(2), currency: payload.currency },
-            description: `Automatic ${reason} refund for order ${payload.orderId}`,
+      if (process.env.PAYMENT_PROVIDER === 'mock' && process.env.NODE_ENV !== 'production') {
+        refundId = `mock-refund-${payload.paymentId}`;
+      } else {
+        let admittedFreshPost = false;
+        const result = await reconcileYooKassaRefund({ paymentId: payload.paymentId, amountMinor: payload.amountMinor!,
+          currency: payload.currency, orderId: payload.orderId, reason, idempotencyKey: event.deduplicationKey, refundId,
+          beforePost: async () => {
+            // Persist admission before the socket write. The provider only guarantees
+            // this key for 24h; ambiguous older submissions require operator review.
+            const started = payload.refundPostStartedAt || preflight.legacyStartedAt?.toISOString();
+            if (started && (!Number.isFinite(Date.parse(started)) || Date.now() - Date.parse(started) >= 23 * 60 * 60_000)) {
+              throw new RefundProviderError('REFUND_IDEMPOTENCY_WINDOW_EXPIRED');
+            }
+            const nextPayload = { ...payload, refundWorkflowVersion: 2, refundPostStartedAt: started || new Date().toISOString() };
+            const updated = await prisma.outboxEvent.updateMany({ where: owned, data: { payload: nextPayload as Prisma.InputJsonValue } });
+            if (updated.count !== 1) throw new RefundProviderError('REFUND_LEASE_LOST');
+            admittedFreshPost = !started;
+            Object.assign(payload, nextPayload);
           },
-          {
-            timeout: paymentHttpTimeoutMs(),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Basic ${auth}`,
-              'Idempotence-Key': event.deduplicationKey,
-            },
+          onNotRefundableRejection: async () => {
+            // A definitive rejection of the FIRST submission cannot have created a
+            // refund. Never clear the clock of an earlier ambiguous submission.
+            if (!admittedFreshPost) return;
+            const nextPayload = { ...payload };
+            delete nextPayload.refundPostStartedAt;
+            if ((await prisma.outboxEvent.updateMany({ where: owned,
+              data: { payload: nextPayload as Prisma.InputJsonValue } })).count !== 1) throw new RefundProviderError('REFUND_LEASE_LOST');
+            delete payload.refundPostStartedAt;
           },
-        );
-        refundStatus = response.data?.status;
-        refundId = response.data?.id || null;
+          saveRefundId: async id => {
+            await prisma.$transaction(async tx => {
+              await lockPaymentWorkflowOrder(tx, payload.orderId!);
+              if ((await tx.outboxEvent.updateMany({ where: owned, data: { lockedAt } })).count !== 1) throw new RefundProviderError('REFUND_LEASE_LOST');
+              const saved = await tx.paymentAttempt.updateMany({ where: { orderId: payload.orderId, providerPaymentId: payload.paymentId,
+                status: { in: ['compensation_required', 'refund_required'] } }, data: { refundId: id } });
+              if (saved.count !== 1) throw new RefundProviderError('REFUND_ATTEMPT_STATE_CHANGED');
+            });
+          },
+        });
+        refundId = result.refundId;
       }
-      if (refundStatus !== 'succeeded') throw new Error(`Refund is ${refundStatus || 'unknown'}`);
     }
 
     await prisma.$transaction(async (tx) => {
       await lockPaymentWorkflowOrder(tx, payload.orderId!);
+      if ((await tx.outboxEvent.updateMany({ where: owned, data: { lockedAt } })).count !== 1) throw new RefundProviderError('REFUND_LEASE_LOST');
       const attempt = await tx.paymentAttempt.findUnique({ where: { orderId: payload.orderId } });
       if (!attempt || attempt.providerPaymentId !== payload.paymentId) {
         throw new Error('REFUND_RECONCILIATION_REQUIRED: state changed during refund');
@@ -563,18 +586,21 @@ export const dispatchPaymentRefundEvent = async (eventId: string): Promise<boole
         }
       }
       await tx.outboxEvent.updateMany({
-        where: { id: event.id, status: 'processing', processedAt: null },
+        where: owned,
         data: { status: 'completed', processedAt: new Date(), lockedAt: null, lastError: null },
       });
     });
     return true;
   } catch (error: any) {
-    const lastError = String(error?.message || error).slice(0, 1000);
+    const failure = refundFailure(error);
+    const lastError = JSON.stringify(failure.diagnostic);
+    const waiting = error instanceof RefundProviderError && error.temporary;
     const configuredMax = Number.parseInt(process.env.REFUND_MAX_ATTEMPTS || '8', 10);
     const maxAttempts = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : 8;
-    if (payload.orderId && event.attempts >= maxAttempts) {
+    if (payload.orderId && !waiting && (failure.terminal || event.attempts >= maxAttempts)) {
       await prisma.$transaction(async (tx) => {
         await lockPaymentWorkflowOrder(tx, payload.orderId!);
+        if ((await tx.outboxEvent.updateMany({ where: owned, data: { lockedAt } })).count !== 1) return;
         await tx.paymentAttempt.updateMany({
           where: {
             orderId: payload.orderId,
@@ -584,21 +610,29 @@ export const dispatchPaymentRefundEvent = async (eventId: string): Promise<boole
           data: { status: 'refund_failed', refundReason: reason, lastCheckedAt: new Date(), lastError },
         });
         await tx.outboxEvent.updateMany({
-          where: { id: event.id, status: 'processing', processedAt: null },
+          where: owned,
           data: { status: 'failed', lockedAt: null, lastError },
         });
       });
     } else {
-      await prisma.outboxEvent.updateMany({
-        where: { id: event.id, status: 'processing', processedAt: null },
-        data: {
-          status: 'pending', lockedAt: null,
-          nextAttemptAt: new Date(Date.now() + retryDelayMs(event.attempts)),
-          lastError,
-        },
+      await prisma.$transaction(async tx => {
+        if (payload.orderId) await lockPaymentWorkflowOrder(tx, payload.orderId);
+        const updated = await tx.outboxEvent.updateMany({ where: owned, data: {
+          status: 'pending', lockedAt: null, lastError,
+          nextAttemptAt: new Date(Date.now() + (waiting
+            ? Math.min(6 * 60 * 60_000, 5 * 60_000 * 2 ** Math.min(Math.max(0,
+                Math.floor((Date.now() - (event.createdAt?.getTime() || Date.now())) / 3_600_000)), 7))
+            : Math.min(30 * 60_000, 30_000 * 2 ** Math.min(event.attempts - 1, 6)))),
+          ...(waiting ? { attempts: Math.max(0, event.attempts - 1), payload: { ...payload, refundWorkflowVersion: 2,
+            ...(payload.refundPostStartedAt ? { refundPostStartedAt: payload.refundPostStartedAt } : {}) } as Prisma.InputJsonValue } : {}),
+        } });
+        if (updated.count && payload.orderId) await tx.paymentAttempt.updateMany({
+          where: { orderId: payload.orderId, providerPaymentId: payload.paymentId, status: { in: ['refund_required', 'compensation_required'] } },
+          data: { lastCheckedAt: new Date(), lastError },
+        });
       });
     }
-    log.error('Payment refund dispatch failed', { eventId, orderId: event.aggregateId, error: error?.message });
+    (waiting ? log.info : log.error)('Payment refund dispatch deferred or failed', { eventId, orderId: event.aggregateId, ...failure.diagnostic });
     return false;
   }
 };
@@ -627,6 +661,10 @@ export const replayFailedPaymentRefund = async (orderId: string) => prisma.$tran
     data: {
       status: 'pending', attempts: 0, nextAttemptAt: new Date(), lockedAt: null,
       processedAt: null, lastError: null,
+      ...((event.payload as any)?.refundWorkflowVersion !== 2 && event.attempts > 0 ? {
+        payload: { ...(event.payload as Prisma.JsonObject), refundWorkflowVersion: 2,
+          refundPostStartedAt: (event.createdAt || attempt.refundRequestedAt!).toISOString() },
+      } : {}),
     },
   });
   return { paymentAttempt, outboxEvent };

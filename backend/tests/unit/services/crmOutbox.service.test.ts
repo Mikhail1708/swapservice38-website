@@ -97,16 +97,18 @@ describe('CRM transactional outbox', () => {
     process.env.YOO_KASSA_SECRET_KEY = 'secret';
     (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValueOnce({ count: 1 });
     (mockPrisma.outboxEvent.findUnique as jest.Mock).mockResolvedValue({
-      id: 'refund-event', aggregateId: 'order-1', attempts: 1,
+      id: 'refund-event', aggregateId: 'order-1', status: 'processing', get lockedAt() { return mockPrisma.outboxEvent.updateMany.mock.calls[0][0].data.lockedAt; }, attempts: 1,
       deduplicationKey: 'payment-refund:payment-1',
       payload: { orderId: 'order-1', paymentId: 'payment-1', amountMinor: 20_000, currency: 'RUB' },
     });
     (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({ crmOrderId: null });
     (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue({
       id: 'attempt-1', orderId: 'order-1', providerPaymentId: 'payment-1',
-      status: 'compensation_required', refundRequestedAt: null,
+      status: 'compensation_required', amountMinor: 20000, currency: 'RUB', refundRequestedAt: null,
     });
-    mockedAxios.post.mockResolvedValueOnce({ data: { status: 'succeeded' } } as any);
+    mockedAxios.get.mockResolvedValue({ data: { id: 'payment-1', status: 'succeeded', paid: true, refundable: true, amount: { value: '200.00', currency: 'RUB' } } });
+    (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+    mockedAxios.post.mockResolvedValueOnce({ data: { status: 'succeeded', id: 'refund-1', payment_id: 'payment-1', amount: { value: '200.00', currency: 'RUB' } } } as any);
     (mockPrisma.paymentAttempt.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
     (mockPrisma.order.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
     (mockPrisma.outboxEvent.update as jest.Mock).mockResolvedValue({});
@@ -132,7 +134,7 @@ describe('CRM transactional outbox', () => {
     process.env.REFUND_MAX_ATTEMPTS = '8';
     (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
     (mockPrisma.outboxEvent.findUnique as jest.Mock).mockResolvedValue({
-      id: 'refund-event', aggregateId: 'order-1', attempts: 8,
+      id: 'refund-event', aggregateId: 'order-1', status: 'processing', get lockedAt() { return mockPrisma.outboxEvent.updateMany.mock.calls[0][0].data.lockedAt; }, attempts: 8,
       deduplicationKey: 'payment-refund:payment-1',
       payload: {
         orderId: 'order-1', paymentId: 'payment-1', amountMinor: 20_000,
@@ -142,17 +144,17 @@ describe('CRM transactional outbox', () => {
     (mockPrisma.order.findUnique as jest.Mock).mockResolvedValue({ crmOrderId: null });
     (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValue({
       id: 'attempt-1', providerPaymentId: 'payment-1', status: 'compensation_required',
-      refundRequestedAt: null,
+      amountMinor: 20000, currency: 'RUB', refundRequestedAt: null,
     });
-    mockedAxios.post.mockRejectedValueOnce(new Error('provider timeout'));
+    mockedAxios.get.mockRejectedValueOnce(new Error('provider timeout'));
 
     await expect(dispatchPaymentRefundEvent('refund-event')).resolves.toBe(false);
 
     expect(mockPrisma.paymentAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'refund_failed', lastError: 'provider timeout' }),
+      data: expect.objectContaining({ status: 'refund_failed', lastError: expect.stringContaining('REFUND_PROVIDER_REQUEST_FAILED') }),
     }));
     expect(mockPrisma.outboxEvent.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'failed', lastError: 'provider timeout' }),
+      data: expect.objectContaining({ status: 'failed', lastError: expect.stringContaining('REFUND_PROVIDER_REQUEST_FAILED') }),
     }));
   });
 
@@ -340,15 +342,15 @@ describe('CRM transactional outbox', () => {
   });
 
   it('refuses automatic refund when a CRM order is already known', async () => {
-    (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValueOnce({ count: 1 });
+    (mockPrisma.outboxEvent.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
     (mockPrisma.outboxEvent.findUnique as jest.Mock).mockResolvedValueOnce({
-      id: 'refund-event', aggregateId: 'order-1', attempts: 1,
+      id: 'refund-event', aggregateId: 'order-1', status: 'processing', get lockedAt() { return mockPrisma.outboxEvent.updateMany.mock.calls[0][0].data.lockedAt; }, attempts: 1,
       deduplicationKey: 'payment-refund:payment-1',
       payload: { orderId: 'order-1', paymentId: 'payment-1', amountMinor: 100, currency: 'RUB' },
     });
     (mockPrisma.order.findUnique as jest.Mock).mockResolvedValueOnce({ crmOrderId: 'crm-1' });
     (mockPrisma.paymentAttempt.findUnique as jest.Mock).mockResolvedValueOnce({
-      providerPaymentId: 'payment-1', status: 'compensation_required',
+      providerPaymentId: 'payment-1', status: 'compensation_required', amountMinor: 100, currency: 'RUB',
     });
 
     await expect(dispatchPaymentRefundEvent('refund-event')).resolves.toBe(false);

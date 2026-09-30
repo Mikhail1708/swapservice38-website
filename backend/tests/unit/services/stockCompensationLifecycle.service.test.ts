@@ -3,7 +3,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { requestOrderCancellation } from '../../../src/services/orderCancellation.service';
 import { handlePaymentSuccess, handlePaymentWebhook } from '../../../src/services/payment.service';
-import { dispatchPaymentRefundEvent, dispatchReservationReleaseEvent } from '../../../src/services/crmOutbox.service';
+import { dispatchPaymentRefundEvent, dispatchReservationReleaseEvent, replayFailedPaymentRefund } from '../../../src/services/crmOutbox.service';
 import { handleOrderStatusWebhook } from '../../../src/controllers/webhook.controller';
 
 jest.mock('axios');
@@ -18,6 +18,7 @@ const copy = (value: any): any => structuredClone(value);
 // services, but deliberately makes no claim about PostgreSQL lock execution.
 const matches = (row: any, where: any): boolean => Object.entries(where).every(([key, value]: any) => {
   if (key === 'OR') return value.some((part: any) => matches(row, part));
+  if (value instanceof Date) return row[key] instanceof Date && row[key].getTime() === value.getTime();
   if (value && typeof value === 'object' && !(value instanceof Date)) {
     if ('in' in value) return value.in.includes(row[key]);
     if ('notIn' in value) return !value.notIn.includes(row[key]);
@@ -84,11 +85,24 @@ describe('F07 SITE compensation lifecycle with durable in-memory state', () => {
       const rows = events.filter(row => matches(row, where));
       rows.forEach(row => apply(row, data)); return { count: rows.length };
     });
-    http.post.mockReset().mockResolvedValue({ data: { status: 'succeeded', id: 'refund-1' } });
+    db.outboxEvent.update.mockImplementation(async ({ where, data }: any) => {
+      const row = events.find(row => matches(row, where));
+      apply(row, data); return copy(row);
+    });
+    http.get.mockReset().mockResolvedValue({ data: { id: 'payment-1', status: 'succeeded', paid: true, refundable: true,
+      amount: { value: '100.00', currency: 'RUB' }, refunded_amount: { value: '0.00', currency: 'RUB' } } });
+    http.post.mockReset().mockResolvedValue({ data: { status: 'succeeded', id: 'refund-1', payment_id: 'payment-1', amount: { value: '100.00', currency: 'RUB' } } });
   });
   afterAll(() => { process.env = savedEnv; });
 
   const cancel = () => requestOrderCancellation('order-1', 'user-1', 'customer_request');
+  const payment = (refundable: boolean, refunded = '0.00') => ({ data: { id: 'payment-1', status: 'succeeded', paid: true,
+    refundable, amount: { value: '100.00', currency: 'RUB' }, refunded_amount: { value: refunded, currency: 'RUB' } } });
+  const refundIntent = async () => {
+    order.crmOrderId = '42'; order.status = 'confirmed'; attempt.status = 'succeeded';
+    await callback();
+    return events.find(row => row.type === 'payment_refund_requested');
+  };
   const callback = async (status = 'cancelled', version = 1, valid = true) => {
     const payload = { crmOrderId: '42', status, version };
     const canonical = JSON.stringify(Object.fromEntries(Object.entries(payload).sort(([a], [b]) => a.localeCompare(b))));
@@ -149,6 +163,132 @@ describe('F07 SITE compensation lifecycle with durable in-memory state', () => {
       'payment-refund:payment-1', 'payment-refund:payment-1',
     ]);
     expect(events).toHaveLength(1); expect(attempt.status).toBe('refunded');
+  });
+
+  it('waits durably beyond eight non-refundable checks, then completes the same intent exactly once', async () => {
+    const event = await refundIntent();
+    http.get.mockResolvedValue(payment(false));
+    for (let i = 0; i < 10; i++) {
+      event.nextAttemptAt = new Date(0);
+      expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+      expect(attempt.status).toBe('refund_required');
+      expect(event.status).toBe('pending'); expect(event.processedAt).toBeNull();
+      expect(event.nextAttemptAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 299000);
+      expect(await dispatchPaymentRefundEvent(event.id)).toBe(false); // Immediate retry cannot claim.
+    }
+    expect(http.post).not.toHaveBeenCalled();
+    expect(event.attempts).toBe(0);
+    http.get.mockResolvedValue(payment(true)); event.nextAttemptAt = new Date(0);
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(http.post).toHaveBeenCalledTimes(1);
+    expect(events).toHaveLength(1); expect(event.status).toBe('completed');
+    expect(attempt).toMatchObject({ status: 'refunded', refundId: 'refund-1', lastError: null });
+    expect(attempt.refundedAt).toBeInstanceOf(Date);
+  });
+
+  it.each([undefined, 500, 503, 429])('GET failure %s remains retryable without POST', async status => {
+    const event = await refundIntent();
+    http.get.mockRejectedValueOnce(Object.assign(new Error('timeout with SECRET'), { response: status ? { status } : undefined }));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(event.status).toBe('pending'); expect(attempt.status).toBe('refund_required');
+    expect(event.lastError).not.toContain('SECRET'); expect(http.post).not.toHaveBeenCalled();
+    expect(event.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('terminal rejection fails once with safe provider diagnostics', async () => {
+    const event = await refundIntent();
+    http.post.mockRejectedValueOnce({ response: { status: 400, data: { code: 'invalid_request', parameter: 'amount.value',
+      description: 'SECRET buyer@example.com credentials' } } });
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(event.status).toBe('failed'); expect(attempt.status).toBe('refund_failed');
+    expect(JSON.parse(event.lastError)).toMatchObject({ httpStatus: 400, code: 'invalid_request', parameter: 'amount.value' });
+    expect(event.lastError).not.toMatch(/SECRET|buyer@example/);
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false); expect(http.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('provider aggregate full refund reconciles without a new POST or invented refund ID', async () => {
+    const event = await refundIntent();
+    http.get.mockResolvedValue(payment(false, '100.00'));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+    expect(attempt.status).toBe('refunded'); expect(attempt.refundId).toBeNull();
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('pending provider refund persists identity and polls it without another POST', async () => {
+    const event = await refundIntent();
+    const providerRefund = { id: 'refund-1', payment_id: 'payment-1', status: 'pending', amount: { value: '100.00', currency: 'RUB' } };
+    http.post.mockResolvedValueOnce({ data: providerRefund });
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(attempt.refundId).toBe('refund-1'); expect(attempt.status).toBe('refund_required');
+    event.nextAttemptAt = new Date(0);
+    http.get.mockImplementation(async url => String(url).includes('/refunds/')
+      ? { data: { ...providerRefund, status: 'succeeded' } } : payment(false));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+    expect(http.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('refundable becoming false between GET and POST 403 defers instead of failing', async () => {
+    const event = await refundIntent();
+    http.get.mockResolvedValueOnce(payment(true)).mockResolvedValueOnce(payment(false));
+    http.post.mockRejectedValueOnce({ response: { status: 403, data: { code: 'forbidden' } } });
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(event.status).toBe('pending'); expect(attempt.status).toBe('refund_required');
+    expect(event.payload.refundPostStartedAt).toBeUndefined();
+    event.nextAttemptAt = new Date(0);
+    http.get.mockResolvedValue(payment(true));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+  });
+
+  it('manual retry keeps the original clock/key and reconciles provider full refund after the window expires', async () => {
+    const event = await refundIntent();
+    event.payload.refundPostStartedAt = new Date(Date.now() - 25 * 3600000).toISOString();
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(event.status).toBe('failed'); expect(event.lastError).toContain('REFUND_IDEMPOTENCY_WINDOW_EXPIRED');
+    expect(http.post).not.toHaveBeenCalled();
+    const started = event.payload.refundPostStartedAt;
+    await replayFailedPaymentRefund(order.id);
+    expect(event.payload.refundPostStartedAt).toBe(started);
+    http.get.mockResolvedValue(payment(false, '100.00'));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+    expect(attempt.status).toBe('refunded'); expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('manual replay of a legacy failed intent conservatively preserves the earliest possible POST time', async () => {
+    const event = await refundIntent();
+    delete event.payload.refundWorkflowVersion;
+    event.attempts = 8; event.status = 'failed'; event.createdAt = new Date(Date.now() - 25 * 3600000);
+    attempt.status = 'refund_failed'; attempt.refundReason = 'post_handoff_cancellation';
+    await replayFailedPaymentRefund(order.id);
+    expect(event.payload.refundPostStartedAt).toBe(event.createdAt.toISOString());
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('POST 5xx retries with same admission marker and idempotency key', async () => {
+    const event = await refundIntent();
+    http.post.mockRejectedValueOnce({ response: { status: 503 } });
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    const started = event.payload.refundPostStartedAt;
+    event.nextAttemptAt = new Date(0);
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(true);
+    expect(event.payload.refundPostStartedAt).toBe(started);
+    expect(http.post.mock.calls.map(call => call[2]?.headers?.['Idempotence-Key'])).toEqual([event.deduplicationKey, event.deduplicationKey]);
+  });
+
+  it('partial refund or mismatched provider amount never triggers a new refund', async () => {
+    const event = await refundIntent();
+    http.get.mockResolvedValue(payment(true, '50.00'));
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(event.status).toBe('failed'); expect(event.lastError).toContain('REFUND_PARTIAL_REQUIRES_REVIEW');
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('a revoked worker lease cannot post or finalize refund', async () => {
+    const event = await refundIntent();
+    http.get.mockImplementationOnce(async () => { event.lockedAt = new Date(0); return payment(true); });
+    expect(await dispatchPaymentRefundEvent(event.id)).toBe(false);
+    expect(http.post).not.toHaveBeenCalled(); expect(attempt.status).toBe('refund_required');
   });
 
   it('invalid HMAC is rejected while authoritative post-shipment cancellation is applied', async () => {

@@ -19,6 +19,7 @@ jest.mock('@prisma/client', () => {
     invoice: { create: jest.fn() },
     outboxEvent: { upsert: jest.fn(), findUnique: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
   return { PrismaClient: jest.fn(() => prisma) };
@@ -186,6 +187,8 @@ describe('createOrderController checkout validation', () => {
       id: 'invoice-1', documentStatus: 'preparing', paymentStatus: 'unpaid', currency: 'RUB', ...data,
     }));
     mockPrisma.outboxEvent.upsert.mockResolvedValue({ id: 'intake-1' });
+    mockPrisma.outboxEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.$queryRaw.mockResolvedValue([{ value: 10001n }]);
     const res = response();
     await createOrderController(req, res);
     expect(res.status).toHaveBeenCalledWith(201);

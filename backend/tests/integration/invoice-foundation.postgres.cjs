@@ -176,7 +176,7 @@ test('invoice foundation against isolated PostgreSQL', { timeout: 120_000 }, asy
       const issued = await service.issue(record.id);
       assert.equal(issued.id, prepared.id);
       assert.equal(issued.documentStatus, 'issued');
-      assert.match(issued.invoiceNumber, /^BI-2026-/);
+      assert.match(issued.invoiceNumber, /^\d{5}$/);
       assert.equal(issued.issuedAt.toISOString(), now.toISOString());
       assert.equal(issued.dueAt.toISOString(), '2026-09-30T02:30:00.000Z');
       assert.equal(issued.orderNumberSnapshot, crm.orderNumber);
