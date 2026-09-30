@@ -15,6 +15,7 @@ describe('immutable invoice PDF', () => {
     const pdf = await renderInvoicePdf(data);
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pdf.length).toBeGreaterThan(10_000);
+    expect((pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length).toBe(1);
     expect(invoiceDocumentData(data).amountMinor).toBe(12500n);
     expect(pdf.includes(Buffer.from('12500'))).toBe(false); // text is encoded by the embedded font
   });
@@ -23,5 +24,27 @@ describe('immutable invoice PDF', () => {
     expect(() => invoiceDocumentData({ ...invoice(), documentStatus: 'preparing' })).toThrow('INVOICE_NOT_ISSUED');
     expect(() => invoiceDocumentData({ ...invoice(), itemsSnapshot: [] })).toThrow('INVOICE_AMOUNT_MISMATCH');
     expect(() => invoiceDocumentData({ ...invoice(), amountMinor: 12501n })).toThrow('INVOICE_AMOUNT_MISMATCH');
+  });
+
+  it('renders the same issued snapshot independently of current seller settings', async () => {
+    const data = invoice();
+    const before = await renderInvoicePdf(data);
+    const previous = process.env.INVOICE_SELLER_LEGAL_NAME;
+    try {
+      process.env.INVOICE_SELLER_LEGAL_NAME = 'Изменённые реквизиты';
+      expect(await renderInvoicePdf(data)).toEqual(before);
+    } finally {
+      if (previous === undefined) delete process.env.INVOICE_SELLER_LEGAL_NAME;
+      else process.env.INVOICE_SELLER_LEGAL_NAME = previous;
+    }
+  });
+
+  it('paginates long item names and many rows without mutating dirty legacy SKU snapshots', async () => {
+    const data = invoice();
+    const items = Array.from({ length: 35 }, (_, index) => ({ ...data.itemsSnapshot[0],
+      sku: ' ABC-123 ', name: index === 0 ? 'Длинное название детали '.repeat(300) : 'Автомобильная деталь' }));
+    const pdf = await renderInvoicePdf({ ...data, itemsSnapshot: items, amountMinor: 12500n * 35n });
+    expect((pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length).toBeGreaterThan(2);
+    expect(items[0].sku).toBe(' ABC-123 ');
   });
 });

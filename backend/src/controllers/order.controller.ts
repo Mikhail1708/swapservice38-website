@@ -440,10 +440,10 @@ export const requestOrderCancellationController = async (req: Request, res: Resp
       return;
     }
     const order = await requestOrderCancellation(req.params.id, userId, req.body?.reason);
-    res.status(order?.cancellationState === 'requested' ? 202 : 200).json({ success: true, order });
+    res.status(order?.cancellationState === 'requested' ? 202 : 200).json({ success: true, order: order ? await loadOrderPaymentView(order) : order });
   } catch (error: any) {
     if (error instanceof OrderCancellationError) {
-      res.status(error.statusCode).json({ error: error.message });
+      res.status(error.statusCode).json({ code: error.code, error: error.message });
       return;
     }
     log.error('Order cancellation request failed', { error: error instanceof Error ? error.message : 'unknown' });

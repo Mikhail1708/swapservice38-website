@@ -10,5 +10,6 @@ export async function persistInvoiceIssuedEmail(tx: Prisma.TransactionClient, in
     invoiceNumber: invoice.invoiceNumber, amount: invoiceMoney(invoice.amountMinor), dueDate: invoiceDate(invoice.dueAt),
     vatLabel: invoice.sellerSnapshot.vatLabel });
   return persistEmailEvent(tx, { aggregateId: invoice.orderId, eventType: 'invoice_issued',
-    deduplicationKey: `invoice-issued:${invoice.id}`, payload: { to: invoice.buyerSnapshot.email, ...template } });
+    deduplicationKey: `invoice-issued:${invoice.id}`, payload: { to: invoice.buyerSnapshot.email, ...template,
+      invoiceAttachment: { invoiceId: invoice.id, orderId: invoice.orderId } } });
 }

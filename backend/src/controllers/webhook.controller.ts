@@ -191,6 +191,9 @@ export const handleOrderStatusWebhook = async (req: Request, res: Response): Pro
           status: siteStatus,
           crmStatusVersion: version,
           updatedAt: now,
+          ...(order.paymentMethod === 'bank_invoice' && paymentStatus === 'paid' && order.cancellationState === 'requested'
+            ? { cancellationState: 'rejected', cancellationResolvedAt: now, cancellationDecisionReason: 'bank_invoice_already_paid' }
+            : {}),
           ...(siteStatus === 'cancelled' && order.cancellationState === 'requested'
             ? {
                 cancellationState: 'accepted',

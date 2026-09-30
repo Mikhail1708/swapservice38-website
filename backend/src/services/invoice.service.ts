@@ -44,7 +44,7 @@ export function buildInvoiceItemsSnapshot(items: unknown, total: number) {
     sum += line;
     return {
       productId: String(item.productId), name: item.name,
-      sku: typeof item.sku === 'string' ? item.sku : null,
+      sku: typeof item.sku === 'string' && item.sku.trim() ? item.sku.trim() : null,
       quantity: item.quantity, unitPriceMinor: price.toString(), totalMinor: line.toString(),
     };
   });

@@ -6,6 +6,7 @@ interface ApiErrorBody {
 }
 
 const codeMessages: Record<string, string> = {
+  BANK_INVOICE_ALREADY_PAID: 'Оплата по счёту уже подтверждена. Для отмены оплаченного заказа свяжитесь с нами.',
   INVALID_CREDENTIALS: 'Неверный email или пароль.',
   EMAIL_UNVERIFIED: 'Подтвердите email, чтобы продолжить.',
   VERIFICATION_RATE_LIMITED: 'Слишком много попыток. Попробуйте позже.',

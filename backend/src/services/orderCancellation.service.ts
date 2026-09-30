@@ -7,7 +7,7 @@ import { prisma } from '../config/prisma';
 const CANCELLATION_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 export class OrderCancellationError extends Error {
-  constructor(message: string, public readonly statusCode: number) {
+  constructor(message: string, public readonly statusCode: number, public readonly code = 'ORDER_CANCELLATION_FORBIDDEN') {
     super(message);
     this.name = 'OrderCancellationError';
   }
@@ -109,7 +109,7 @@ export const requestOrderCancellation = async (
   // Once a request is durably recorded, retries remain idempotent even if the
   // original 12-hour eligibility window expires while CRM is deciding it.
   if (['requested', 'accepted', 'rejected'].includes(order.cancellationState)) {
-    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true } });
+    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
   }
   if (Date.now() - order.createdAt.getTime() > CANCELLATION_WINDOW_MS) {
     throw new OrderCancellationError('Срок запроса отмены истёк (12 часов с момента создания)', 409);
@@ -117,8 +117,11 @@ export const requestOrderCancellation = async (
 
   if (order.paymentMethod === 'bank_invoice') {
     const invoice = await tx.invoice.findUnique({ where: { orderId: order.id } });
+    if (invoice?.paymentStatus === 'paid') {
+      throw new OrderCancellationError('Оплата по счёту уже подтверждена. Для отмены оплаченного заказа свяжитесь с нами.', 409, 'BANK_INVOICE_ALREADY_PAID');
+    }
     if (!invoice || invoice.paymentStatus !== 'unpaid') {
-      throw new OrderCancellationError('Unpaid bank invoice required for cancellation', 409);
+      throw new OrderCancellationError('Отмена по счёту сейчас недоступна. Свяжитесь с нами.', 409);
     }
     await tx.order.update({ where: { id: order.id }, data: {
       cancellationState: 'requested', cancellationRequestedAt: new Date(),
@@ -126,7 +129,7 @@ export const requestOrderCancellation = async (
     } });
     // Release must be durable even if the intake response was lost.
     await ensureBankInvoiceRelease(tx, order, invoice, reason);
-    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true } });
+    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
   }
 
   const attempt = await tx.paymentAttempt.findUnique({ where: { orderId: order.id } });
@@ -201,5 +204,5 @@ export const requestOrderCancellation = async (
       await acceptPreHandoffCancellation(tx, order, attempt, reason);
     }
   }
-  return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true } });
+  return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
 }, { maxWait: 5_000, timeout: 10_000 });
