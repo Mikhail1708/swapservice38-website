@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { prisma } from '../config/prisma';
 import { createInvoiceSellerSnapshot } from '../config/invoiceSeller';
-import { calculateInvoiceDueAt, INVOICE_TIME_ZONE } from '../utils/invoiceBusinessDays';
+import { calculateInvoiceDueAt } from '../utils/invoiceBusinessDays';
 import { getInternalApiKey } from '../utils/internalApiKey';
 import { lockPaymentWorkflowOrder } from './paymentWorkflowLock.service';
 import { persistInvoiceIssuedEmail } from './invoiceEmail.service';
@@ -22,10 +22,18 @@ export async function ensureBankInvoiceIntake(tx: Writer, order: any, invoice: a
   if (invoice.documentStatus !== 'preparing' || invoice.paymentStatus !== 'unpaid'
     || order.paymentMethod !== 'bank_invoice') throw new Error('Invoice is not eligible for intake');
   const key = bankInvoiceIntakeKey(invoice.id);
-  const year = new Intl.DateTimeFormat('en', { timeZone: INVOICE_TIME_ZONE, year: 'numeric' }).format(now);
+  // Recovery/retry must reuse the immutable request, including legacy BI-* numbers.
+  // The caller's order lock serializes this lookup with first-time allocation.
+  const existing = await tx.outboxEvent.findUnique({ where: { deduplicationKey: key } });
+  if (existing) return existing;
+  const [allocated] = await tx.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('bank_invoice_number_seq') AS value
+  `;
+  const invoiceNumber = String(allocated.value);
+  if (!/^\d{5}$/.test(invoiceNumber)) throw new Error('Invoice number is outside the supported five-digit range');
   const request = {
     contractVersion: 1, requestId: key, externalOrderId: order.id, invoiceId: invoice.id,
-    invoiceNumber: `BI-${year}-${invoice.id}`, issuedAt: now.toISOString(),
+    invoiceNumber, issuedAt: now.toISOString(),
     dueAt: calculateInvoiceDueAt(now).toISOString(), amountMinor: invoice.amountMinor.toString(),
     currency: invoice.currency, paymentMethod: 'bank_invoice', paymentStatus: 'unpaid',
     buyerSnapshot: invoice.buyerSnapshot, itemsSnapshot: invoice.itemsSnapshot,
