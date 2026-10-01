@@ -90,6 +90,55 @@ export default function ServiceDetailPage() {
     }
   }, [id]);
 
+  // SEO конкретной услуги после загрузки данных
+  useEffect(() => {
+    if (!service) return;
+
+    const title = `${service.name} в Иркутске — SWAPSERVICE38`;
+    const descriptionText =
+      service.description?.trim() ||
+      `${service.name} в автосервисе SWAPSERVICE38 в Иркутске.`;
+
+    document.title = title;
+
+    let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!description) {
+      description = document.createElement('meta');
+      description.name = 'description';
+      document.head.appendChild(description);
+    }
+    description.content = descriptionText;
+
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = `https://swap38.ru/services/${encodeURIComponent(service.id)}`;
+
+    const setOg = (property: string, content: string) => {
+      let tag = document.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
+      if (!tag) {
+        tag = document.createElement('meta');
+        tag.setAttribute('property', property);
+        document.head.appendChild(tag);
+      }
+      tag.content = content;
+    };
+
+    setOg('og:title', title);
+    setOg('og:description', descriptionText);
+    setOg('og:url', canonical.href);
+
+    if (service.imageUrl) {
+      const imageUrl = service.imageUrl.startsWith('http')
+        ? service.imageUrl
+        : `https://swap38.ru${service.imageUrl}`;
+      setOg('og:image', imageUrl);
+    }
+  }, [service]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background pt-32 pb-20 flex items-center justify-center">
