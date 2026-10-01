@@ -102,7 +102,7 @@ export default function OAuthCallbackPage() {
           <Link href="/" className="inline-block">
             <Image 
               src="/images/logo/logo.png" 
-              alt="SWAP SERVICE 38" 
+              alt="SWAPSERVICE38" 
               width={220} 
               height={55} 
               className="h-12 w-auto brightness-0 invert mx-auto"

@@ -38,7 +38,7 @@ export default function OAuthSuccessPage() {
           <Link href="/" className="inline-block">
             <Image 
               src="/images/logo/logo.png" 
-              alt="SWAP SERVICE 38" 
+              alt="SWAPSERVICE38" 
               width={220} 
               height={55} 
               className="h-12 w-auto brightness-0 invert mx-auto"
@@ -63,7 +63,7 @@ export default function OAuthSuccessPage() {
           </h1>
           
           <p className="text-muted-foreground">
-            Добро пожаловать в SWAP SERVICE 38
+            Добро пожаловать в SWAPSERVICE38
           </p>
           
           <div className="mt-4 text-sm text-muted-foreground/70">

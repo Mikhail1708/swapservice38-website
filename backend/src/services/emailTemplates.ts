@@ -1,6 +1,6 @@
 const BRAND = {
   name: 'SWAPSERVICE38',
-  siteName: 'SWAP SERVICE 38',
+  siteName: 'SWAPSERVICE38',
   phone: '+7 983 446 08 88',
   email: 'swapservice38@yandex.ru',
   address: 'Иркутск, ул. Новаторов, 36',
@@ -526,7 +526,7 @@ export const invoiceIssuedCustomerTemplate = (data: {
   link.searchParams.set('id', data.orderId);
   const instruction = 'Счёт на оплату прикреплён к письму в формате PDF. После поступления денежных средств мы подтвердим оплату заказа. До этого заказ ожидает оплаты по счёту.';
   return {
-    subject: `Счёт на оплату №${data.invoiceNumber} — SWAP SERVICE 38`,
+    subject: `Счёт на оплату №${data.invoiceNumber} — SWAPSERVICE38`,
     text: ['Ваш счёт на оплату готов', `Заказ: ${data.orderNumber}`, instruction, 'Способ оплаты: по счёту', `Счёт №${data.invoiceNumber}`, `Сумма: ${data.amount}`,
       `Оплатить до: ${data.dueDate}`, data.vatLabel, `Скачать счёт в личном кабинете: ${link.toString()}`].join('\n\n'),
     html: emailShell({ title: 'Ваш счёт на оплату готов', preheader: `Счёт №${data.invoiceNumber} по заказу №${data.orderNumber}`,

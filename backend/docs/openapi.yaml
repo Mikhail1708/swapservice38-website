@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
-  title: SWAP SERVICE 38 API
-  description: API для публичного сайта SWAP SERVICE 38 — тюнинг и обслуживание внедорожников
+  title: SWAPSERVICE38 API
+  description: API для публичного сайта SWAPSERVICE38 — тюнинг и обслуживание внедорожников
   version: 1.0.0
   contact:
-    name: SWAP SERVICE 38
+    name: SWAPSERVICE38
     email: swapservice38@yandex.ru
     url: https://swapservice38.ru
   license:
@@ -682,7 +682,7 @@ components:
       properties:
         siteName:
           type: string
-          example: SWAP SERVICE 38
+          example: SWAPSERVICE38
         siteDescription:
           type: string
           example: Тюнинг и обслуживание внедорожников

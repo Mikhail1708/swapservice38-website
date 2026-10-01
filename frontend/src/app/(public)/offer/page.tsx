@@ -25,7 +25,7 @@ export default function OfferPage() {
           </h1>
           <p className="text-muted-foreground mt-4 max-w-3xl">
             Настоящий документ определяет условия дистанционной розничной купли-продажи товаров
-            интернет-магазина SWAP SERVICE 38 на сайте swapservice38.ru.
+            интернет-магазина SWAPSERVICE38 на сайте swapservice38.ru.
           </p>
           <p className="text-sm text-muted-foreground/60 mt-2">Редакция от {UPDATED}</p>
         </div>

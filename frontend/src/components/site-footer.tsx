@@ -52,13 +52,13 @@ export function SiteFooter() {
           <div className="flex items-center gap-3">
             <Image
               src="/images/logo/logo.png"
-              alt="SWAP SERVICE 38"
+              alt="SWAPSERVICE38"
               width={40}
               height={40}
               className="h-9 w-9 object-contain brightness-0 invert"
             />
             <span className="heading-display text-base text-foreground">
-              SWAP SERVICE 38
+              SWAPSERVICE38
             </span>
           </div>
           <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
@@ -157,7 +157,7 @@ export function SiteFooter() {
       {/* Нижняя часть с документами */}
       <div className="border-t border-border py-6">
         <div className="container-custom flex flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">
-          <span>© {new Date().getFullYear()} SWAP SERVICE 38. Все права защищены.</span>
+          <span>© {new Date().getFullYear()} SWAPSERVICE38. Все права защищены.</span>
           <div className="flex items-center gap-4">
             <Link href="/privacy" className="hover:text-foreground transition">
               Политика конфиденциальности

@@ -63,7 +63,7 @@ export default function OAuthConsentPage() {
   return <main className="min-h-screen flex items-center justify-center bg-background px-5 py-12">
     <div className="w-full max-w-md space-y-8">
       <Link href="/" className="block text-center">
-        <Image src="/images/logo/logo.png" alt="SWAP SERVICE 38" width={220} height={55} className="h-12 w-auto brightness-0 invert mx-auto" />
+        <Image src="/images/logo/logo.png" alt="SWAPSERVICE38" width={220} height={55} className="h-12 w-auto brightness-0 invert mx-auto" />
       </Link>
       <section className="rounded-2xl border border-border bg-card p-6 sm:p-8 space-y-6">
         <h1 className="text-2xl font-bold uppercase tracking-wide">Завершение регистрации</h1>
