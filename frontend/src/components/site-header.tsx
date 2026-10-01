@@ -129,13 +129,13 @@ export function SiteHeader() {
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/images/logo/logo.png"
-            alt="SWAP SERVICE 38"
+            alt="SWAPSERVICE38"
             width={44}
             height={44}
             className="h-10 w-10 object-contain brightness-0 invert"
           />
           <span className="heading-display text-lg leading-none tracking-tight text-foreground hidden sm:inline">
-            SWAP SERVICE 38
+            SWAPSERVICE38
           </span>
         </Link>
 

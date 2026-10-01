@@ -194,7 +194,7 @@ export default function ContactsPage() {
                 className="hover:opacity-95 transition"
                 allowFullScreen
                 loading="lazy"
-                title="Карта SWAP SERVICE 38"
+                title="Карта SWAPSERVICE38"
               /> : <div className="h-full flex flex-col items-center justify-center gap-5 p-8 text-center">
                 <p className="max-w-md text-sm leading-6 text-muted-foreground">Карта предоставляется Яндексом. После загрузки сервис получит технические данные соединения и может использовать свои cookie. Карту можно не загружать: наш адрес — г. Иркутск, ул. Новаторов, 36.</p>
                 <button type="button" onClick={() => setMapEnabled(true)} className="rounded-sm bg-foreground px-6 py-3 text-sm font-semibold text-background">Загрузить карту Яндекс</button>

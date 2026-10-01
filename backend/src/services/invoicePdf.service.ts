@@ -164,7 +164,7 @@ export async function renderInvoicePdf(invoice: any): Promise<Buffer> {
     doc.page.margins.bottom = 0;
     const y = doc.page.height - 42;
     line(y - 8);
-    doc.fontSize(7).fillColor('#555555').text('SWAP SERVICE 38  |  swap38.ru', left, y, { width, lineBreak: false });
+    doc.fontSize(7).fillColor('#555555').text('SWAPSERVICE38  |  swap38.ru', left, y, { width, lineBreak: false });
     doc.text(`${i + 1} / ${pages.count}`, left, y, { width, align: 'right', lineBreak: false });
     doc.page.margins.bottom = marginBottom;
   }

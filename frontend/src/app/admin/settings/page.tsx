@@ -16,7 +16,7 @@ interface Settings {
 }
 
 const defaultSettings: Settings = {
-  siteName: 'SWAP SERVICE 38',
+  siteName: 'SWAPSERVICE38',
   siteDescription: 'Тюнинг и обслуживание внедорожников',
   contactPhone: '+7 (914) 895-58-88',
   contactEmail: 'swapservice38@yandex.ru',

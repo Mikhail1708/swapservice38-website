@@ -128,7 +128,7 @@ export function Hero() {
           {/* Индикатор текущего слайда */}
           <div className="flex items-center gap-3 mb-6">
             <span className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">
-              SWAP SERVICE 38
+              SWAPSERVICE38
             </span>
           </div>
 

@@ -120,7 +120,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
           <div className={`flex items-center gap-2 ${isSidebarOpen ? 'mb-6' : 'mb-4 justify-center'}`}>
             <Link href="/admin" className="flex items-center gap-2">
               <span className={`heading-display ${isSidebarOpen ? 'text-lg' : 'text-base'} text-foreground`}>
-                {isSidebarOpen ? 'SWAP SERVICE 38' : 'SS'}
+                {isSidebarOpen ? 'SWAPSERVICE38' : 'SS'}
               </span>
             </Link>
           </div>
