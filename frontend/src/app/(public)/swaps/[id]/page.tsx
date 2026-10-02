@@ -214,6 +214,31 @@ export default function ArticlePage() {
     fetchArticle();
   }, [id]);
 
+  // SEO конкретного свапа после загрузки данных статьи
+  useEffect(() => {
+    if (!article) return;
+
+    document.title = `${article.title} — свап автомобиля | SWAPSERVICE38`;
+
+    let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!description) {
+      description = document.createElement('meta');
+      description.name = 'description';
+      document.head.appendChild(description);
+    }
+    description.content =
+      article.description?.trim() ||
+      `Свап ${article.title} от SWAPSERVICE38 в Иркутске.`;
+
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = `https://swap38.ru/swaps/${encodeURIComponent(article.slug)}`;
+  }, [article]);
+
   // Проверка лайка
   useEffect(() => {
     if (!user || !article) return;

@@ -39,6 +39,7 @@ try {
     redis: {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
+      connectTimeout: 5000,
       password: process.env.REDIS_PASSWORD || undefined,
     },
   });

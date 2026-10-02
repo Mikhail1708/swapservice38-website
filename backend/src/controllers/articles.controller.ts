@@ -1,6 +1,6 @@
 // backend/src/controllers/articles.controller.ts
 import { Request, Response } from 'express';
-import redis from '@config/redis';
+import redis from '../config/redis';
 import { sanitizeArticleHtml } from '../utils/sanitizeArticleHtml';
 
 import { prisma } from '../config/prisma';

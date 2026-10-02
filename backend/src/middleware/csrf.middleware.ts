@@ -117,6 +117,12 @@ export const csrfMiddleware = (req: Request, res: Response, next: NextFunction) 
   // ✅ НЕ УДАЛЯЕМ ТОКЕН — ОСТАВЛЯЕМ ДЛЯ ПОВТОРНЫХ ЗАПРОСОВ
   console.log('✅ CSRF токен валиден (оставляем для повторных запросов)');
 
+  // _csrf — служебное поле middleware и не должно попадать
+  // в последующую бизнес-валидацию body.
+  if (req.body && typeof req.body === 'object') {
+    delete req.body._csrf;
+  }
+
   next();
 };
 

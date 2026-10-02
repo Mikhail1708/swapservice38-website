@@ -20,7 +20,9 @@ const normalizePositiveInt = (value: unknown, fallback: number, max = 10000): nu
 
 const normalizeTags = (value: unknown): string[] | null => {
   if (!Array.isArray(value) || value.length > MAX_TAGS) return null;
-  const tags = value.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean);
+  const tags = value
+    .map((tag) => typeof tag === 'string' ? tag.trim().toLowerCase() : '')
+    .filter(Boolean);
   if (tags.some((tag) => tag.length > 80)) return null;
   return [...new Set(tags)];
 };

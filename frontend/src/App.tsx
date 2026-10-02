@@ -1,5 +1,6 @@
 // frontend/src/App.tsx
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { RouteScroll } from '@/components/RouteScroll'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
@@ -85,9 +86,77 @@ function PageLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+
+function SeoManager() {
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    const pages: Record<string, { title: string; description: string }> = {
+      '/': {
+        title: 'SWAPSERVICE38 — свапы, автосервис и тюнинг в Иркутске',
+        description: 'SWAPSERVICE38 — свапы автомобилей в Иркутске, автосервис и тюнинг. Замена и установка двигателей, ремонт и обслуживание автомобилей, подготовка внедорожников и собственное производство тюнинга.',
+      },
+      '/swaps': {
+        title: 'Свапы автомобилей в Иркутске — SWAPSERVICE38',
+        description: 'Свапы автомобилей в Иркутске от SWAPSERVICE38. Замена и установка двигателей, адаптация электроники, трансмиссии, охлаждения и других систем автомобиля.',
+      },
+      '/services': {
+        title: 'Автосервис в Иркутске — SWAPSERVICE38',
+        description: 'Автосервис SWAPSERVICE38 в Иркутске. Ремонт и обслуживание автомобилей, двигателей, подвески и внедорожников.',
+      },
+      '/catalog': {
+        title: 'Тюнинг и запчасти — SWAPSERVICE38',
+        description: 'Каталог SWAPSERVICE38: детали и решения для тюнинга автомобилей и внедорожников, собственное производство.',
+      },
+      '/contacts': {
+        title: 'Контакты SWAPSERVICE38 — Иркутск',
+        description: 'Контакты SWAPSERVICE38 в Иркутске. Свапы автомобилей, автосервис и тюнинг.',
+      },
+    }
+
+    const meta =
+      pages[pathname] ||
+      (pathname.startsWith('/swaps/')
+        ? {
+            title: 'Свап автомобиля — SWAPSERVICE38',
+            description: 'Проект свапа автомобиля от SWAPSERVICE38 в Иркутске.',
+          }
+        : pathname.startsWith('/services/')
+          ? {
+              title: 'Услуга автосервиса — SWAPSERVICE38',
+              description: 'Услуги автосервиса SWAPSERVICE38 в Иркутске.',
+            }
+          : null)
+
+    if (meta) {
+      document.title = meta.title
+
+      let description = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+      if (!description) {
+        description = document.createElement('meta')
+        description.name = 'description'
+        document.head.appendChild(description)
+      }
+      description.content = meta.description
+    }
+
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+    if (!canonical) {
+      canonical = document.createElement('link')
+      canonical.rel = 'canonical'
+      document.head.appendChild(canonical)
+    }
+
+    canonical.href = `https://swap38.ru${pathname === '/' ? '/' : pathname}`
+  }, [pathname])
+
+  return null
+}
+
 function App() {
   return (
     <BrowserRouter>
+      <SeoManager />
       <RouteScroll />
       <CookieBanner />
       <Routes>
