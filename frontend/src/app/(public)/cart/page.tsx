@@ -69,7 +69,7 @@ export default function CartPage() {
   });
 
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'post'>('pickup');
-  const [contactMethod, setContactMethod] = useState<'phone' | 'whatsapp' | 'telegram' | 'email'>('phone');
+  const [contactMethod, setContactMethod] = useState<'phone' | 'max' | 'telegram' | 'email'>('phone');
   const [tcName, setTcName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'bank_invoice'>('online');
   const [invoiceBuyer, setInvoiceBuyer] = useState<InvoiceBuyer>(() => emptyInvoiceBuyer());
@@ -731,7 +731,7 @@ export default function CartPage() {
                       className="w-full px-4 py-2.5 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/10"
                     >
                       <option value="phone">Телефонный звонок</option>
-                      <option value="MAX">MAX</option>
+                      <option value="max">MAX</option>
                       <option value="telegram">Telegram</option>
                       <option value="email">Email</option>
                     </select>

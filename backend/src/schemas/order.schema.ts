@@ -44,7 +44,7 @@ export const createOrderSchema = z.object({
   deliveryMethod: z.enum(['pickup', 'courier', 'post']).default('courier'),
   deliveryAddress: addressSchema.optional(),
   deliveryProvider: z.string().trim().max(120).optional().nullable(),
-  contactMethod: z.enum(['phone', 'whatsapp', 'telegram', 'email']).default('phone'),
+  contactMethod: z.enum(['phone', 'max', 'telegram', 'email']).default('phone'),
   comment: z.string().max(1000, 'Максимум 1000 символов').optional(),
   source: z.string().default('website'),
 }).superRefine((order, context) => {
@@ -64,7 +64,7 @@ export const updateOrderSchema = z.object({
   comment: z.string().max(1000).optional(),
   deliveryMethod: z.enum(['pickup', 'courier', 'post']).optional(),
   deliveryProvider: z.string().trim().max(120).optional().nullable(),
-  contactMethod: z.enum(['phone', 'whatsapp', 'telegram', 'email']).optional(),
+  contactMethod: z.enum(['phone', 'max', 'telegram', 'email']).optional(),
   items: z.array(orderItemSchema).optional(),
   status: z.enum(['pending', 'paid', 'confirmed', 'assembling', 'shipped', 'delivered', 'cancelled']).optional(),
 });

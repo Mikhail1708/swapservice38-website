@@ -178,7 +178,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
       comment,
     } = req.body;
 
-    const allowedContactMethods = new Set(['phone', 'whatsapp', 'telegram', 'email']);
+    const allowedContactMethods = new Set(['phone', 'max', 'telegram', 'email']);
     const normalizedContactMethod = allowedContactMethods.has(contactMethod) ? contactMethod : 'phone';
     if (!client?.firstName || !client?.lastName || !client?.phone || !client?.email) {
       res.status(400).json({ error: 'Укажите имя, фамилию, телефон и email покупателя' });
