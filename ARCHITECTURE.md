@@ -1,346 +1,867 @@
-# Архитектура SWAPSERVICE38 Website
+# Архитектура SWAPSERVICE38
 
-Этот документ описывает фактическое состояние репозитория на 19 августа 2026 года. Источником истины служит исполняемый код и конфигурация проекта; сохранённые, но не подключённые заготовки отмечены отдельно.
+**Проект:** SWAPSERVICE38 Website  
+**Production:** https://swap38.ru  
+**Репозиторий:** https://github.com/Mikhail1708/swapservice38-website  
+**Основной язык:** TypeScript  
+**Тип:** Full-stack e-commerce / Automotive Services  
+**Статус:** Production  
+**Актуализация документации:** 5 октября 2026 года
 
-## 1. Назначение системы
+---
 
-Репозиторий содержит сайт SWAPSERVICE38: публичный каталог товаров и услуг, контентные страницы, корзину, оформление и оплату заказов, личный кабинет и административную панель. Товары и складские остатки принадлежат внешней CRM, а пользователи, корзины, локальные заказы, статьи, комментарии, услуги и настройки хранятся в собственной PostgreSQL.
+## 1. Обзор проекта
 
-Система состоит из двух запускаемых приложений:
+**SWAPSERVICE38** — веб-платформа для автомобильного сервиса, специализирующегося на свапах, ремонте автомобилей, производстве и продаже компонентов для тюнинга.
 
-- `frontend/` — одностраничное React-приложение, собираемое Vite;
-- `backend/` — HTTP API на Express, одновременно выполняющее фоновые Bull-задачи.
+Проект разработан как полноценная коммерческая система и объединяет:
 
-PostgreSQL и Redis являются обязательными инфраструктурными зависимостями backend. CRM, YooKassa, OAuth-провайдеры, SMTP и DaData — внешние интеграции.
+- Интернет-магазин автомобильных комплектующих.
+- Каталог услуг автосервиса.
+- Публикации о свапах и выполненных работах.
+- Регистрацию и авторизацию пользователей.
+- Корзину и оформление заказов.
+- Онлайн-оплату через YooKassa.
+- Выставление счетов для банковских переводов.
+- Административную панель.
+- Синхронизацию заказов и остатков с CRM.
+- Email-уведомления и документы.
+- SEO-инфраструктуру.
+
+Система состоит из двух основных приложений в данном репозитории:
+
+- `frontend/` — клиентское React-приложение.
+- `backend/` — серверное Express API.
+
+Отдельная CRM является самостоятельной системой и не входит в состав этого репозитория.
+
+## 2. Технологический стек
+
+| Уровень | Технологии |
+|---|---|
+| Frontend | React, TypeScript, Vite |
+| Маршрутизация | React Router |
+| UI | Tailwind CSS |
+| Backend | Node.js, Express, TypeScript |
+| Validation | Zod |
+| ORM | Prisma |
+| Database | PostgreSQL |
+| Cache / Queues | Redis, Bull |
+| HTTP Security | Helmet, CORS, CSRF |
+| Authentication | JWT, cookies, OAuth |
+| Payments | YooKassa, Bank Invoice |
+| Email | SMTP |
+| Deployment | Docker, Docker Compose |
+| Reverse Proxy | nginx |
+| Hosting | Linux VPS |
+
+## 3. Общая архитектура
 
 ```mermaid
-flowchart LR
-    Browser[Браузер] -->|HTML, JS, CSS| Frontend[Vite + React SPA\nпорт 3001]
-    Browser -->|/api через Vite proxy| API[Express API\nпорт 5001]
-    API --> DB[(PostgreSQL)]
-    API --> Redis[(Redis)]
-    API -->|каталог, остатки, заказы| CRM[Внешняя CRM\nобычно порт 5000]
-    API --> YooKassa[YooKassa]
-    API --> OAuth[Yandex OAuth]
-    API --> SMTP[SMTP]
-    Browser -->|POST /api/address/suggestions| WebsiteBackend
-    WebsiteBackend -->|server-side request| DaData[DaData Suggestions]
+flowchart TB
+    U["Пользователь"]
+    N["nginx / HTTPS"]
+
+    subgraph WEB["SWAPSERVICE38 Website"]
+        F["React SPA / Vite"]
+        A["Express REST API"]
+        DB[("PostgreSQL")]
+        R[("Redis / Bull")]
+        FS[("Uploads")]
+    end
+
+    subgraph EXT["Внешние системы"]
+        CRM["CRM"]
+        PAY["YooKassa"]
+        MAIL["SMTP"]
+        OAUTH["OAuth"]
+        ADDRESS["DaData"]
+    end
+
+    U --> N
+    N --> F
+    N --> A
+    F --> A
+
+    A --> DB
+    A --> R
+    A --> FS
+
+    A <--> CRM
+    A <--> PAY
+    A --> MAIL
+    A <--> OAUTH
+    A --> ADDRESS
 ```
 
-## 2. Структура репозитория
+### 3.1. Принципы разделения ответственности
+
+**Frontend**
+
+Отвечает за отображение интерфейса, клиентскую навигацию, взаимодействие пользователя с формами и вызовы API.
+
+**Backend**
+
+Отвечает за проверку запросов, аутентификацию, бизнес-логику, работу с данными, интеграции и платежи.
+
+**PostgreSQL**
+
+Хранит постоянные данные сайта.
+
+**Redis**
+
+Используется для временных данных, фоновых очередей, кеширования и механизмов идемпотентности.
+
+**CRM**
+
+Управляет товарным каталогом, складскими остатками и операционной обработкой заказов.
+
+Ключевой принцип: **сайт не является самостоятельным источником истины для складских остатков**.
+
+---
+
+## 4. Структура репозитория
 
 ```text
-.
+swapservice38-website/
 ├── backend/
-│   ├── src/
-│   │   ├── config/       # Redis и структурированное логирование
-│   │   ├── controllers/  # HTTP-обработчики, включая admin
-│   │   ├── middleware/   # auth, роли, CSRF, validation, errors, rate limit
-│   │   ├── queues/       # очередь синхронизации заказов с CRM
-│   │   ├── routes/       # Express Router по областям API
-│   │   ├── schemas/      # входные Zod-схемы
-│   │   ├── services/     # auth, cart, order, payment, CRM, email, OAuth
-│   │   ├── utils/        # статусы заказов, HTML sanitizer, internal API key
-│   │   └── server.ts     # composition root и точка входа API
 │   ├── prisma/
-│   │   ├── schema.prisma # модель PostgreSQL
-│   │   └── migrations/   # история миграций
-│   ├── docs/openapi.yaml # частичная документация HTTP API
-│   ├── tests/            # unit и integration тесты Jest
-│   └── uploads/          # локальное файловое хранилище загруженных изображений
-├── frontend/
+│   │   ├── schema.prisma
+│   │   └── migrations/
 │   ├── src/
-│   │   ├── app/          # компоненты страниц, сгруппированные по URL/области
-│   │   ├── components/   # общие публичные и административные компоненты
-│   │   ├── lib/          # hooks, contexts, CSRF, cache, Next compatibility shims
-│   │   ├── App.tsx       # таблица маршрутов React Router
-│   │   └── main.tsx      # точка входа Vite и глобальные providers
-│   ├── public/           # статические изображения и старые article uploads
-│   └── tests/            # unit, integration API и e2e-сценарии
-├── tests/load/           # k6-нагрузочные сценарии и сохранённые результаты
-└── docker-compose.yml    # предполагаемая локальная топология сервисов
+│   │   ├── config/
+│   │   ├── controllers/
+│   │   ├── middleware/
+│   │   ├── queues/
+│   │   ├── routes/
+│   │   ├── schemas/
+│   │   ├── services/
+│   │   ├── utils/
+│   │   └── server.ts
+│   ├── docs/
+│   └── tests/
+│
+├── frontend/
+│   ├── public/
+│   ├── src/
+│   │   ├── app/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   └── tests/
+│
+├── docs/
+├── tests/load/
+├── docker-compose.yml
+├── docker-compose.prod.yml
+├── ARCHITECTURE.md
+└── README.md
 ```
 
-## 3. Frontend
+Структура `src/app` унаследована от предыдущей организации frontend и не означает использование Next.js App Router.
 
-### 3.1. Фактический runtime
+Фактический frontend runtime основан на **Vite и React Router**.
 
-Frontend запускается командами `vite`, `tsc && vite build` и `vite preview` из `frontend/package.json`. Точка входа — `frontend/src/main.tsx`, маршрутизация — `BrowserRouter` в `frontend/src/App.tsx`. Все страницы рендерятся на клиенте; серверного рендеринга и Next App Router в текущем runtime нет.
+---
 
-Каталог `src/app`, директивы `'use client'`, `frontend/next.config.js` и Jest-конфигурация через `next/jest` остались от Next-подобной структуры. Для совместимости компоненты импортируют `Link`, `Image`, `useRouter`, `usePathname` и `useParams` из `src/lib/next-shims.ts`, где они адаптированы к React Router и обычному `<img>`.
+## 5. Frontend
 
-Vite dev server работает на порту `3001` и проксирует `/api` на `http://localhost:5001`. Alias `@` указывает на `frontend/src`.
+### 5.1. Общая организация
 
-### 3.2. Композиция и состояние
+Frontend реализован как Single Page Application.
 
-`main.tsx` оборачивает приложение в:
+Основные точки входа:
 
-1. `QueryClientProvider` — кэш серверных запросов TanStack Query;
-2. `CartProvider` — один экземпляр клиентского состояния корзины;
-3. `BrowserRouter` внутри `App` — клиентская навигация.
+- `frontend/index.html` — HTML-документ.
+- `frontend/src/main.tsx` — инициализация приложения.
+- `frontend/src/App.tsx` — маршрутизация и композиция страниц.
 
-`useCart` загружает `/api/cart`, хранит представление корзины и вызывает мутации через CSRF-aware fetch. `useAuth` проверяет `/api/auth/me`, кэширует пользователя в пределах экземпляра hook и реализует logout. Единого глобального AuthProvider нет: разные компоненты создают собственные экземпляры `useAuth`.
+Приложение использует клиентский рендеринг.
 
-TanStack Query и devtools подключены глобально, но страницы и hooks текущей ревизии не используют `useQuery`/`useMutation`: server state фактически загружается ручными `fetch` + `useEffect` и хранится в локальном state. `src/lib/cache.ts` также не включён в активный поток.
+### 5.2. Маршрутизация
 
-### 3.3. Группы маршрутов
+Основные группы маршрутов:
 
-| Область | URL | Layout |
-|---|---|---|
-| Публичная | `/`, `/catalog`, `/catalog/:id`, `/cart`, `/contacts`, `/services`, `/services/:id`, `/swaps`, `/swaps/:id`, `/offer`, `/privacy`, `/payment/*` | `SiteHeader` + контент + `SiteFooter` |
-| Авторизация | `/login`, `/register`, `/verify`, `/reset-password/*`, `/oauth-*` | полноэкранные страницы без общего header/footer |
-| Профиль | `/profile`, `/profile/change-password`, `/profile/orders`, `/profile/orders/details` | публичный layout |
-| Администрирование | `/admin`, `/admin/orders/*`, `/admin/users/*`, `/admin/settings`, `/admin/content/*` | `AdminLayout` |
+| Группа | Примеры |
+|---|---|
+| Главная | `/` |
+| Каталог | `/catalog`, `/catalog/:id` |
+| Услуги | `/services`, `/services/:id` |
+| Свапы | `/swaps`, `/swaps/:id` |
+| Корзина | `/cart` |
+| Контакты | `/contacts` |
+| Авторизация | `/login`, `/register` |
+| Личный кабинет | `/profile`, `/profile/orders` |
+| Администрирование | `/admin/*` |
+| Документы | `/offer`, `/privacy` |
 
-`AdminLayout` загружает текущего пользователя и показывает UI только для роли `admin`. Серверный `requireAdmin` допускает роли `admin` и `manager`, поэтому права UI и API сейчас не полностью совпадают.
+### 5.3. Состояние приложения
 
-Catch-all route для 404 не зарегистрирован. Файлы `src/app/error.tsx` и error-файлы групп, `src/app/providers.tsx`, пустой `AdminRoute.tsx`, а также отдельные admin `Sidebar.tsx`/`TopBar.tsx` не подключены в фактическую композицию из `main.tsx`/`App.tsx`.
+Для управления данными используются React hooks, contexts и локальное состояние компонентов.
 
-### 3.4. Работа с API
+Основные области состояния:
 
-Frontend использует относительные URL `/api/...` и преимущественно ручной `fetch`; React Query provider настроен, но его query/mutation API фактически не задействован. Все cookie-зависимые запросы отправляются с `credentials: 'include'` либо работают через same-origin proxy.
+- Авторизация пользователя.
+- Корзина.
+- Данные каталога.
+- Состояние запросов.
+- Оформление заказа.
+- Пользовательские уведомления.
 
-Для изменяющих запросов `src/lib/csrf.ts`:
+TanStack Query подключён в архитектуре frontend, однако конкретное использование кеширования зависит от реализации соответствующих компонентов.
 
-- получает token через `GET /api/csrf-token`;
-- кэширует его в памяти на четыре минуты;
-- добавляет `X-CSRF-Token`, `CSRF-Token` и `_csrf` в JSON/FormData;
-- всегда включает cookies.
+### 5.4. Работа с API
 
-`AddressInput` обращается к защищённому website backend proxy; секретный ключ DaData хранится только в `DADATA_API_KEY` backend. OAuth-кнопки переходят на backend, используя `VITE_BACKEND_URL` либо same-origin URL.
+Frontend преимущественно использует относительные URL:
 
-## 4. Backend
+`/api/...`
 
-### 4.1. Запуск и HTTP pipeline
+Это позволяет направлять запросы через общий origin и reverse proxy.
 
-`backend/src/server.ts` создаёт Express-приложение и экспортирует его для тестов. При прямом запуске оно слушает `PORT` (по умолчанию `5001`). Порядок middleware существенен:
+Для запросов, изменяющих данные, предусмотрена передача CSRF-токена.
 
-1. CORS с credentials и фиксированным списком production/local origins;
-2. compression, кроме webhook-путей;
-3. Helmet и cookie parser;
-4. raw body для `/api/payment/webhook`, затем JSON/urlencoded parsers;
-5. request logging;
-6. Swagger UI на `/api-docs`, если найден `docs/openapi.yaml`;
-7. глобальная CSRF-проверка;
-8. доменные routers;
-9. раздача локального `backend/uploads` по `/uploads`;
-10. 404 и глобальный error handler.
+### 5.5. SEO
 
-При старте обязательно явно выбрать `PAYMENT_PROVIDER=mock|yookassa`. В production mock запрещён, а backend дополнительно проверяет JWT/internal/webhook secrets и production-ключи YooKassa.
+Для публичных страниц реализованы:
 
-### 4.2. Слои
+- Управление заголовками страниц.
+- Meta descriptions.
+- Canonical URL.
+- Open Graph metadata.
+- `robots.txt`.
+- `sitemap.xml`.
+- Отдельные sitemap для страниц, услуг и публикаций.
+- Файлы подтверждения поисковых систем.
+- Favicon.
 
-- Routes задают URL и локальные middleware.
-- Controllers разбирают HTTP-запрос, проверяют владение ресурсом и формируют ответ.
-- Services инкапсулируют бизнес-операции и внешние вызовы, но граница соблюдается не везде: часть controllers обращается к Prisma и CRM напрямую.
-- Prisma используется как data access layer. В проекте создаётся несколько независимых `PrismaClient`, общего singleton пока нет.
-- Bull queues выполняются в том же Node.js-процессе, потому что modules очередей импортируются API-приложением.
+SEO-метаданные отдельных маршрутов обновляются на стороне клиента.
 
-### 4.3. Области API
+**Архитектурное ограничение:** приложение остаётся SPA без полноценного серверного рендеринга. При дальнейшем развитии SEO может быть рассмотрен prerender или SSR.
 
-| Prefix | Ответственность | Доступ |
-|---|---|---|
-| `/api/auth` | регистрация, email verification, login/logout, профиль, пароль, Yandex OAuth | смешанный |
-| `/api/products` | каталог, карточка и категории, проксируемые из CRM | публичный GET |
-| `/api/cart` | гостевая и пользовательская корзина | optional auth, CSRF для мутаций |
-| `/api/orders` | создание и чтение собственных заказов | authenticated |
-| `/api/payment` | создание/подтверждение платежа, status, resend, webhook | смешанный |
-| `/api/webhooks` | входящие статусы заказов из CRM | HMAC webhook |
-| `/api/articles`, `/api/comments`, `/api/likes` | контент, комментарии, реакции | чтение публичное, запись по auth/role |
-| `/api/services` | опубликованные услуги | публичный GET |
-| `/api/admin` | dashboard, заказы, пользователи, контент, услуги, настройки, CRM queue | `admin` или `manager` на backend |
-| `/api/upload` | загрузка изображений в локальный каталог | `admin` или `manager` |
-| `/api/csrf-token`, `/api/health`, `/api-docs` | служебные endpoints | публичный GET |
+---
 
-Входные auth/order/cart payloads частично проверяются Zod через `validate` middleware. Административные controllers содержат дополнительные ручные проверки.
+## 6. Backend
 
-## 5. Данные и владение ими
+### 6.1. HTTP API
 
-### 5.1. PostgreSQL / Prisma
+Backend построен на Express.
 
-Основные модели из `backend/prisma/schema.prisma`:
+Основная точка входа:
 
-- `User` — локальная учётная запись, роли `user|manager|admin`, профиль, блокировка и Yandex/MAX identifiers;
-- `Session` — табличная модель сессии, но текущая аутентификация её не создаёт и проверяет JWT напрямую;
-- `Cart` — одна JSON-корзина на `userId` либо `guestId`;
-- `Order` — локальный снимок клиента, доставки, JSON-позиций, суммы, оплаты и CRM identifiers/version;
-- `Article`, `ArticleTag`, `ArticleTagRelation`, `ArticleImage` — публикации, теги и галерея;
-- `Comment` — древовидные комментарии к статьям;
-- `Like` — уникальная реакция пользователя на статью;
-- `Service` — локально управляемая услуга;
-- `Setting` — key/value настройки сайта.
+`backend/src/server.ts`
 
-`Order.items` и `Cart.items` — JSON snapshots. Это осознанно отделяет историю заказа и корзину от внешнего каталога: в локальной БД нет модели Product и внешнего ключа на товар CRM.
+Сервер обеспечивает:
 
-### 5.2. Внешняя CRM
+- Обработку HTTP-запросов.
+- Проверку входных данных.
+- Авторизацию.
+- Проверку прав.
+- Выполнение бизнес-операций.
+- Взаимодействие с PostgreSQL и Redis.
+- Интеграцию с внешними API.
+- Обработку webhook.
+- Централизованную обработку ошибок.
 
-CRM является источником истины для товаров, категорий, цен и остатков. Активный `product.controller.ts` запрашивает CRM напрямую и нормализует различные варианты её ответа. Добавление и изменение количества в корзине повторно запрашивает карточку товара и проверяет актуальный остаток.
+### 6.2. Организация слоёв
 
-После успешной оплаты локальный заказ отправляется в CRM через очередь `crm queue`. Ответ CRM записывает в заказ `crmOrderId`, `orderNumber`, начальный status и `crmStatusVersion`. Последующие статусы приходят на `/api/webhooks/crm/order-status`.
+```mermaid
+flowchart TD
+    HTTP["HTTP Request"]
+    MW["Middleware"]
+    ROUTE["Routes"]
+    CTRL["Controllers"]
+    SERVICE["Services"]
+    DB["Prisma / PostgreSQL"]
+    EXT["External APIs"]
+    QUEUE["Redis / Bull"]
 
-CRM webhook:
+    HTTP --> MW
+    MW --> ROUTE
+    ROUTE --> CTRL
+    CTRL --> SERVICE
+    SERVICE --> DB
+    SERVICE --> EXT
+    SERVICE --> QUEUE
+```
 
-- проверяет HMAC-SHA256 из `X-Webhook-Signature`;
-- переводит CRM status в локальный status;
-- требует монотонную целочисленную `version`;
-- применяет обновление compare-and-swap по `crmStatusVersion`;
-- отклоняет запрещённые переходы состояния;
-- идемпотентно ставит email-уведомление клиенту.
+**Routes** определяют endpoints и подключают необходимые middleware.
 
-### 5.3. Redis
+**Controllers** обрабатывают запросы, проверяют доступ и формируют ответы.
 
-Redis используется сразу в нескольких ролях:
+**Services** реализуют бизнес-операции и взаимодействие с внешними системами.
 
-- backend обязан подключиться к нему при загрузке `config/redis.ts`; после десяти неудачных reconnect-попыток процесс завершается;
-- Bull хранит очереди `crm queue` и `email queue`;
-- auth хранит verification/reset/change-password codes с TTL;
-- payment flow хранит короткую processing lock и семидневный processed marker;
-- статьи используют Redis для дедупликации просмотров;
-- email service использует ключи идемпотентности уведомлений;
-- вспомогательные CRM/product services содержат кэш, хотя активный product controller намеренно работает без него.
+**Prisma** обеспечивает доступ к PostgreSQL.
 
-CSRF tokens, в отличие от перечисленного, хранятся в локальном `Map` процесса на пять минут, а не в Redis.
+Схема отражает логическое разделение ответственности. В некоторых участках кода controllers также непосредственно обращаются к Prisma и внешним интеграциям.
 
-### 5.4. Файлы
+### 6.3. Основные API
 
-Администратор/менеджер загружает изображения через Multer. Допускаются JPEG, PNG, WebP, GIF и SVG до 10 MB. Файлы записываются в `backend/uploads` и раздаются backend как `/uploads/<filename>`. В Docker volume для uploads не объявлен, поэтому сохранность файлов зависит от способа запуска контейнера.
+| Endpoint | Назначение |
+|---|---|
+| `/api/auth` | Регистрация, авторизация, профиль |
+| `/api/products` | Каталог товаров |
+| `/api/cart` | Корзина |
+| `/api/orders` | Заказы |
+| `/api/payment` | Онлайн-оплата |
+| `/api/webhooks` | Входящие события |
+| `/api/articles` | Публикации |
+| `/api/services` | Услуги |
+| `/api/admin` | Администрирование |
+| `/api/upload` | Загрузка изображений |
+| `/api/health` | Проверка состояния API |
 
-`frontend/public/uploads/articles` — отдельный набор уже включённых в frontend статических изображений; runtime upload туда не пишет.
+Полный перечень endpoints определяется зарегистрированными Express routes.
 
-## 6. Ключевые потоки
+---
 
-### 6.1. Аутентификация
+## 7. Модель данных
 
-1. При регистрации backend хэширует пароль, создаёт `User` и кладёт шестизначный verification code в Redis; email ставится в Bull queue.
-2. После подтверждения `User.isVerified` обновляется в PostgreSQL.
-3. Login проверяет пароль/блокировку, выпускает JWT и устанавливает его в `httpOnly`, `sameSite=lax` cookie `token` на семь дней.
-4. `requireAuth` также принимает `Authorization: Bearer`, валидирует JWT, заново читает пользователя из БД и запрещает заблокированные аккаунты.
-5. Yandex OAuth обменивает code через provider API, связывает/создаёт пользователя, устанавливает тот же JWT cookie и возвращает браузер на frontend.
-6. Если существовала гостевая корзина, login/OAuth переносят её в корзину пользователя.
+### 7.1. PostgreSQL
 
-### 6.2. Корзина
+Сайт использует собственную базу данных PostgreSQL.
 
-1. Неавторизованному посетителю backend создаёт UUID в `httpOnly` cookie `guestId` и строку `Cart` по `guestId`.
-2. Авторизованный посетитель получает `Cart` по `userId`.
-3. При добавлении/обновлении backend читает товар из CRM, проверяет наличие и сохраняет snapshot товара в `Cart.items`.
-4. При login гостевые позиции объединяются с пользовательскими по `productId`, затем гостевая корзина удаляется.
+Основные предметные области:
 
-### 6.3. Заказ, платёж и CRM
+| Модель / область | Назначение |
+|---|---|
+| User | Учётные записи |
+| Cart | Корзины |
+| Order | Заказы |
+| PaymentAttempt | Попытки оплаты |
+| Invoice | Банковские счета |
+| Article | Публикации |
+| Comment | Комментарии |
+| Like | Реакции |
+| Service | Услуги |
+| Setting | Настройки |
+
+Точная схема, типы и ограничения определяются `backend/prisma/schema.prisma` и миграциями.
+
+### 7.2. Снимки данных
+
+Позиции корзины и заказа представлены снимками товарных данных.
+
+Это позволяет хранить историю заказа независимо от последующих изменений карточек товаров в CRM.
+
+### 7.3. Разделение владения данными
+
+**Website Database:**
+
+- Пользователи.
+- Корзины.
+- Локальные заказы.
+- Платёжные состояния.
+- Счета.
+- Публикации.
+- Настройки.
+
+**CRM:**
+
+- Товары.
+- Категории.
+- Складские остатки.
+- Операционная обработка заказов.
+- Складские операции.
+
+Разделение уменьшает связанность пользовательского интерфейса с внутренними складскими процессами.
+
+---
+
+## 8. Интеграция с CRM
+
+CRM является самостоятельной системой.
+
+Сайт обращается к ней для получения товарных данных и синхронизации заказов.
+
+### 8.1. Получение товаров
 
 ```mermaid
 sequenceDiagram
     participant U as Browser
-    participant API as Express
-    participant DB as PostgreSQL
-    participant Pay as YooKassa/mock
-    participant R as Redis/Bull
+    participant API as Website API
     participant CRM as CRM
 
-    U->>API: POST /api/orders
-    API->>DB: создать Order(pending) из Cart snapshot
-    API->>DB: очистить Cart
-    U->>API: POST /api/payment/create
-    API->>Pay: создать payment с metadata.orderId
-    API->>DB: сохранить paymentId
-    Pay-->>API: webhook или Browser вызывает confirm
-    API->>Pay: заново проверить status, сумму, валюту, metadata
-    API->>DB: CAS pending/crm_failed -> paid
-    API->>R: поставить createOrder в crm queue
-    API->>R: поставить email notifications
-    R->>CRM: POST sale-documents/public
-    CRM-->>R: orderId, documentNumber, statusVersion
-    R->>DB: сохранить CRM identifiers/status/version
-    CRM->>API: подписанный status webhook
-    API->>DB: versioned status transition
+    U->>API: Запрос каталога
+    API->>CRM: Запрос товаров
+    CRM-->>API: Товары, цены, остатки
+    API-->>U: Нормализованный ответ
 ```
 
-Заказ может создавать только авторизованный пользователь. Его позиции и итог берутся из серверной корзины, а не доверяются входному body. Создание локального заказа и его оплата разделены.
+### 8.2. Синхронизация заказов
 
-`PAYMENT_PROVIDER=mock` доступен только вне production и хранит mock payments в памяти процесса. `PAYMENT_PROVIDER=yookassa` создаёт платежи через API YooKassa с idempotence key. Redirect на success page сам по себе не считается подтверждением: backend повторно запрашивает платёж и сверяет payment id, status `succeeded`, RUB, сумму и `metadata.orderId`. Та же серверная перепроверка выполняется для webhook YooKassa.
+Передача заказов организована с учётом повторных попыток, возможных сетевых ошибок и необходимости согласования статусов.
 
-Успешная обработка оплаты защищена Redis markers и условным обновлением status в PostgreSQL. CRM job имеет стабильный id по локальному order id, пять попыток с exponential backoff и после исчерпания попыток переводит заказ в `crm_failed`. Администратор может повторно поставить failed jobs или повторно отправить конкретный заказ.
+Для обмена используются механизмы:
 
-## 7. Безопасность
+- Идентификации заказов.
+- Фоновой обработки.
+- Повторных попыток.
+- Подписанных входящих событий.
+- Контроля версий статусов.
+- Идемпотентности.
 
-- JWT хранится в `httpOnly` cookie; Bearer оставлен как альтернативный транспорт.
-- Все mutating-запросы после глобального CSRF middleware требуют token, кроме явно разрешённых auth/webhook paths.
-- CSRF session идентифицируется cookie `sessionId`, иначе IP; хранилище process-local, поэтому без sticky sessions несколько backend instances несовместимы с текущей реализацией.
-- Admin API всегда проходит `requireAuth` и role check.
-- CRM outbound requests подписываются `X-API-Key` из `INTERNAL_API_KEY`.
-- CRM status webhook использует HMAC secret и timing-safe comparison.
-- YooKassa notifications рассматриваются как сигнал: авторитетные данные повторно читаются из YooKassa.
-- Статьи перед сохранением очищаются через `sanitize-html`.
-- Helmet, CORS и общие error handlers подключены глобально.
+### 8.3. Входящие статусы
 
-`rateLimiter.middleware.ts` содержит набор limiter-ов, но `server.ts` и routes их сейчас не подключают; фактического rate limiting в runtime нет.
+CRM может отправлять события изменения состояния заказа.
 
-## 8. Конфигурация
+Backend проверяет подпись события и допустимость перехода состояния.
 
-Ключевые backend variables:
+Контроль версии защищает от применения устаревших событий поверх более новых.
 
-| Группа | Variables |
-|---|---|
-| Runtime/DB | `NODE_ENV`, `PORT`, `DATABASE_URL`, `LOG_LEVEL` |
-| Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` |
-| Auth | `JWT_SECRET`, `JWT_EXPIRES_IN` |
-| URLs/secrets | `CLIENT_URL`, `API_URL`, `CRM_API_URL`, `INTERNAL_API_KEY`, `WEBHOOK_SECRET` |
-| Payment | `PAYMENT_PROVIDER`, `YOO_KASSA_SHOP_ID`, `YOO_KASSA_SECRET_KEY` |
-| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `MANAGER_EMAIL` |
-| OAuth | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_REDIRECT_URI` |
+---
 
-Frontend compile-time variables: `VITE_BACKEND_URL` и необязательный allowlist `VITE_PAYMENT_REDIRECT_HOSTS`. Секреты внешних API не передаются в browser bundle.
+## 9. Корзина и оформление заказов
 
-## 9. Сборка, запуск и тесты
+### 9.1. Корзина
 
-Backend:
+Поддерживаются гостевые и пользовательские корзины.
 
-- `npm run dev` — nodemon + tsx;
-- `npm run build` — TypeScript в `dist`;
-- `npm start` — `node dist/server.js`;
-- `npm test` — Jest/ts-jest последовательно, с Prisma mock и test helpers.
+Для гостевой корзины используется отдельный идентификатор.
 
-Frontend:
+После авторизации гостевые позиции могут объединяться с пользовательской корзиной.
 
-- `npm run dev` — Vite;
-- `npm run build` — typecheck и Vite build;
-- `npm run preview` — preview собранного SPA.
+При добавлении товара и изменении количества сервер проверяет товарные данные и доступность через CRM.
 
-Backend Jest запускает TypeScript-тесты через ts-jest последовательно и подменяет Prisma mock-ом. Скомпилированные `.js/.d.ts/.map` копии под `backend/tests` исключены конфигурацией и не являются отдельными выполняемыми наборами. Frontend содержит имена unit/integration/e2e тестов, но эти файлы в текущем checkout пусты; кроме того, `package.json` не объявляет test/e2e scripts и Jest/Playwright dependencies, а `jest.config.js` требует отсутствующий `next/jest`. Фактически запускаемого frontend test suite сейчас нет. Отдельно присутствуют k6 load scripts и сохранённые результаты в `tests/load`.
+### 9.2. Создание заказа
 
-`docker-compose.yml` описывает Redis, PostgreSQL, backend и frontend в одной bridge network; отдельного CRM service в нём нет. Фактическая Docker-сборка в текущем checkout неполна: compose ожидает `backend/Dockerfile` и `frontend/Dockerfile`, тогда как присутствует только `backend/Dockerfile.dev`. Этот dev-файл выставляет порт `5000`, а runtime использует `5001`. Compose также не задаёт обязательный `PAYMENT_PROVIDER` и передаёт `NEXT_PUBLIC_BACKEND_URL`, который Vite runtime не использует. Compose следует считать описанием предполагаемой топологии, а не проверенным способом сборки текущей ревизии.
+Общий процесс:
 
-## 10. Известные архитектурные несоответствия
+1. Пользователь добавляет товары в корзину.
+2. Backend получает актуальные товарные данные.
+3. Пользователь выбирает параметры оформления.
+4. Backend валидирует запрос.
+5. Создаётся локальный заказ.
+6. Далее выполняется выбранный сценарий оплаты.
+7. Состояние заказа синхронизируется с CRM.
 
-Это наблюдения по текущему коду, а не предложения по изменению:
+**Сервер самостоятельно определяет стоимость заказа** на основе доверенных данных, а не принимает произвольную итоговую сумму из браузера.
 
-- Проект мигрировал с Next-подобной структуры на Vite, но `next.config.js`, `next/jest`, `src/app/providers.tsx`, `'use client'` и комментарии про Next ещё присутствуют.
-- `frontend/index.html`/Vite и `src/main.tsx` являются реальными точками входа; файловая структура `src/app/**/page.tsx` сама по себе маршруты не создаёт.
-- Собственный `next-shims.ts` покрывает только используемый минимум Next API; в частности, `useParams` возвращает последний сегмент URL как `id`, а не является общим эквивалентом именованных параметров React Router.
-- Frontend содержит страницы `/admin/content/news` и вызывает `/api/admin/news`, но backend таких routes не регистрирует. В модели Article есть только типы, фактически используемые для `swap` и `service`.
-- Frontend settings вызывает `POST /api/admin/settings/clear-cache`, которого нет в `admin.routes.ts`.
-- Frontend admin layout допускает только `admin`, тогда как backend admin middleware допускает `admin` и `manager`.
-- Переход гостя из checkout ведёт на `/login?redirect=/cart`, но login/register не обрабатывают `redirect` и после входа отправляют пользователя на `/`; автоматический возврат в checkout не завершён.
-- Общий header содержит статический список категорий, тогда как страница каталога получает категории из CRM; источники могут расходиться.
-- `Session` существует в Prisma и очищается при удалении пользователя, но JWT login/logout не использует эту таблицу и не ведёт server-side session registry.
-- `product.service.ts` содержит mock-каталог и Redis cache, `crm.service.ts` — другой CRM abstraction, но активные product routes используют прямой `product.controller.ts`. Аналогично часть order/cart логики продублирована между controllers и services.
-- Создаётся несколько `PrismaClient`; connection lifecycle централизован только частично.
-- Bull workers встроены в API-процесс. Горизонтальное масштабирование увеличит число workers, а process-local CSRF/mock-payment state потребует отдельного решения.
-- Redis connection для основного клиента учитывает пароль, но конструкторы Bull queues передают только host/port; при Redis с `requirepass` это требует проверки/донастройки.
-- В `docker-compose.yml` healthcheck Redis вызывает `redis-cli ping` без пароля при включённом `requirepass`.
-- Для `backend/Dockerfile.dev` нет `.dockerignore`; при его явном использовании весь backend directory становится build context, включая локальные неигнорируемые Docker-ом файлы.
-- OpenAPI-файл существует, но полноту и синхронность с перечисленными runtime routes код автоматически не проверяет.
+---
 
-## 11. Где вносить изменения
+## 10. Платёжная архитектура
 
-| Задача | Основные файлы |
-|---|---|
-| Добавить/изменить страницу или URL | `frontend/src/App.tsx`, затем соответствующий `frontend/src/app/**/page.tsx` |
-| Изменить общую оболочку сайта | `frontend/src/App.tsx`, `frontend/src/components/site-header.tsx`, `site-footer.tsx` |
-| Изменить клиентское состояние корзины/auth | `frontend/src/lib/hooks`, `frontend/src/lib/context` |
-| Добавить endpoint | `backend/src/routes`, controller, при необходимости schema/service и регистрация в `server.ts` |
-| Изменить модель данных | `backend/prisma/schema.prisma` и новая migration |
-| Изменить каталог/остатки | `backend/src/controllers/product.controller.ts`, `cart.controller.ts`, контракт внешней CRM |
-| Изменить checkout/payment | `order.controller.ts`, `payment.controller.ts`, `payment.service.ts`, `crmOrderPayload.service.ts` |
-| Изменить синхронизацию CRM | `backend/src/queues/crm.queue.ts`, `webhook.controller.ts`, `utils/orderStatus.ts` |
-| Изменить письма | `backend/src/services/email.service.ts` |
-| Изменить роли и доступ | `auth.middleware.ts`, `role.middleware.ts`, frontend `AdminLayout.tsx` |
+Система поддерживает два различных способа оплаты:
+
+- Онлайн-оплата через YooKassa.
+- Оплата банковским переводом по счёту.
+
+Оба сценария имеют собственные правила переходов состояния.
+
+### 10.1. YooKassa
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant API as Website
+    participant DB as PostgreSQL
+    participant Y as YooKassa
+    participant CRM as CRM
+
+    U->>API: Оформление заказа
+    API->>DB: Создание заказа
+    U->>API: Начать оплату
+    API->>Y: Создать платёж
+    Y-->>U: Страница оплаты
+    Y->>API: Webhook
+    API->>Y: Проверить платёж
+    Y-->>API: Подтверждённый статус
+    API->>DB: Зафиксировать оплату
+    API->>CRM: Синхронизировать заказ
+```
+
+### 10.2. Проверка оплаты
+
+Возврат пользователя на страницу успешной оплаты сам по себе не является подтверждением платежа.
+
+Backend проверяет состояние через YooKassa.
+
+При обработке используются:
+
+- Идентификатор платежа.
+- Состояние платежа.
+- Сумма.
+- Валюта.
+- Принадлежность платежа заказу.
+- Идемпотентность обработки.
+
+Это предотвращает подтверждение заказа исключительно на основании клиентского запроса.
+
+### 10.3. Банковский счёт
+
+Для банковских переводов предусмотрен отдельный сценарий.
+
+```mermaid
+sequenceDiagram
+    participant U as Customer
+    participant SITE as Website
+    participant DB as PostgreSQL
+    participant CRM as CRM
+    participant M as Manager
+
+    U->>SITE: Выбрать банковский счёт
+    SITE->>DB: Создать Order и Invoice
+    SITE->>CRM: Передать неоплаченный заказ
+    CRM->>CRM: Зарезервировать товар
+    SITE-->>U: PDF и email
+    U->>U: Банковский перевод
+    M->>M: Проверить поступление денег
+    M->>CRM: Подтвердить оплату
+    CRM->>CRM: Зафиксировать резерв
+    CRM->>SITE: Подписанный статус
+    SITE->>DB: Обновить состояние заказа
+```
+
+Счёт формируется на основании зафиксированных данных заказа.
+
+Формирование счёта не означает получение денежных средств.
+
+Оплата подтверждается после фактической проверки поступления денег.
+
+### 10.4. Согласованность платежей
+
+Система должна исключать противоречивые состояния, в частности:
+
+- Повторное подтверждение одной оплаты.
+- Одновременное использование несовместимых сценариев оплаты.
+- Повторное списание складского остатка.
+- Обработку устаревшего события поверх актуального.
+- Подтверждение оплаты только по результату браузерного перенаправления.
+
+---
+
+## 11. Redis и фоновые задачи
+
+Redis используется для нескольких задач:
+
+- Хранения временных кодов.
+- Фоновых очередей.
+- Кеширования.
+- Ограниченных по времени блокировок.
+- Идемпотентности отдельных операций.
+- Дедупликации событий и уведомлений.
+
+### 11.1. Очереди
+
+В проекте применяется Bull.
+
+Фоновые операции позволяют не привязывать выполнение длительных внешних запросов непосредственно к HTTP-ответу.
+
+Примеры:
+
+- Отправка заказов в CRM.
+- Email-уведомления.
+- Повторные попытки после временных ошибок.
+
+### 11.2. Постоянное и временное хранение
+
+PostgreSQL используется для постоянных бизнес-данных.
+
+Redis не заменяет основную базу данных.
+
+Некоторые данные, например временные коды и блокировки, автоматически истекают по TTL.
+
+Точный состав кешируемых данных и сроки хранения определяются соответствующими сервисами.
+
+---
+
+## 12. Аутентификация и доступ
+
+### 12.1. Авторизация
+
+Приложение использует JWT.
+
+Токен может передаваться через `httpOnly` cookie.
+
+Сервер проверяет действительность токена и данные пользователя.
+
+### 12.2. Регистрация
+
+Процесс включает:
+
+1. Получение регистрационных данных.
+2. Валидацию.
+3. Хеширование пароля.
+4. Создание пользователя.
+5. Подтверждение электронной почты.
+6. Активацию необходимых возможностей аккаунта.
+
+### 12.3. Роли
+
+Основные роли:
+
+- `user`
+- `manager`
+- `admin`
+
+Доступ к административным операциям контролируется на backend.
+
+### 12.4. Защита
+
+В архитектуре предусмотрены:
+
+- HTTPS.
+- CSRF-проверки.
+- HTTP security headers.
+- Валидация входных данных.
+- Проверка ролей.
+- Контроль доступа к пользовательским заказам.
+- Проверка webhook-подписей.
+- Серверная проверка платежей.
+
+Открытая публикация архитектуры не требует раскрытия ключей, паролей и внутренних credentials.
+
+---
+
+## 13. Работа с файлами
+
+Backend обрабатывает загрузку изображений.
+
+Для этого используются:
+
+- Проверка типа файла.
+- Ограничение размера.
+- Серверное файловое хранилище.
+- HTTP-раздача загруженных файлов.
+
+В production загружаемые файлы хранятся в Docker volume и доступны приложению через `/app/uploads`.
+
+Это отделяет пользовательские файлы от жизненного цикла конкретного контейнера.
+
+Статические ресурсы frontend находятся в `frontend/public`.
+
+---
+
+## 14. Production-инфраструктура
+
+Production развёрнут на Linux VPS.
+
+Используются Docker Compose и nginx.
+
+### 14.1. Контейнеры сайта
+
+```text
+swapservice38-frontend
+swapservice38-backend
+swapservice38-postgres
+swapservice38-redis
+```
+
+### 14.2. Схема развёртывания
+
+```mermaid
+flowchart TB
+    INTERNET["Internet / HTTPS"]
+    NGINX["Host nginx"]
+
+    subgraph DOCKER["Docker Network"]
+        FRONT["Frontend nginx / SPA"]
+        BACK["Express API"]
+        PG[("PostgreSQL")]
+        REDIS[("Redis")]
+        UPLOAD[("Uploads volume")]
+    end
+
+    INTERNET --> NGINX
+    NGINX --> FRONT
+    NGINX --> BACK
+    FRONT --> BACK
+    BACK --> PG
+    BACK --> REDIS
+    BACK --> UPLOAD
+```
+
+### 14.3. Конфигурация
+
+Production использует основной Compose-файл и отдельную конфигурацию окружения VPS.
+
+Серверные secrets задаются отдельно от исходного кода.
+
+PostgreSQL и Redis не должны публиковаться напрямую в интернет.
+
+### 14.4. Обновления
+
+Изменения frontend/backend развёртываются независимо от контейнеров PostgreSQL и Redis, если обновление не требует изменения схемы или инфраструктуры.
+
+При обновлениях учитываются:
+
+- Совместимость миграций.
+- Сохранность volumes.
+- Резервное копирование.
+- Проверка здоровья сервисов.
+- Возможность восстановления.
+
+**Production-обновление не должно удалять volumes с постоянными данными.**
+
+---
+
+## 15. Локальная разработка
+
+### 15.1. Требования
+
+Для разработки необходимы:
+
+- Git.
+- Node.js.
+- npm.
+- PostgreSQL.
+- Redis.
+- Docker / Docker Compose (опционально, для инфраструктуры).
+
+### 15.2. Получение проекта
+
+```bash
+git clone https://github.com/Mikhail1708/swapservice38-website.git
+cd swapservice38-website
+```
+
+### 15.3. Backend
+
+```bash
+cd backend
+npm ci
+```
+
+Необходимо создать локальную конфигурацию окружения и подключить PostgreSQL и Redis.
+
+После настройки БД применяются совместимые Prisma migrations.
+
+Запуск:
+
+```bash
+npm run dev
+```
+
+По документации исходного приложения локальный API использует порт `5001`.
+
+### 15.4. Frontend
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Локальный frontend использует порт `3001` и Vite proxy для API.
+
+### 15.5. Внешние зависимости
+
+Для полноценной работы всех функций требуются доступные интеграции с CRM, платежами и почтовым сервером.
+
+Самостоятельный локальный запуск интерфейса не гарантирует работоспособность внешних бизнес-процессов без соответствующей конфигурации.
+
+Проверенная пошаговая установка с примерами переменных окружения должна быть описана в отдельном `docs/INSTALLATION.md`.
+
+---
+
+## 16. Тестирование
+
+Проект содержит:
+
+- Backend unit tests.
+- Backend integration tests.
+- Тестовые сценарии для отдельных бизнес-операций.
+- Нагрузочные сценарии k6.
+
+Основные проверки должны охватывать:
+
+- Авторизацию и права доступа.
+- Валидацию API.
+- Корзину.
+- Создание заказов.
+- Обработку платежей.
+- Идемпотентность webhook.
+- Синхронизацию CRM.
+- Согласованность статусов.
+- Отказоустойчивость интеграций.
+
+Backend использует Jest и TypeScript-инструменты тестирования.
+
+Наличие тестовых файлов не следует интерпретировать как гарантию полного покрытия приложения.
+
+---
+
+## 17. SEO и поисковая инфраструктура
+
+Сайт поддерживает:
+
+- `robots.txt`.
+- Sitemap index.
+- Sitemap публичных страниц.
+- Sitemap услуг.
+- Sitemap публикаций.
+- SEO-title и descriptions.
+- Canonical URLs.
+- Open Graph.
+- Структурированные данные.
+- Подтверждение Google Search Console.
+- Подтверждение Яндекс Вебмастера.
+
+Основной sitemap:
+
+`https://swap38.ru/sitemap.xml`
+
+Сайт использует клиентскую маршрутизацию. Поэтому SEO-метаданные динамических страниц требуют отдельного внимания при дальнейшем развитии архитектуры.
+
+---
+
+## 18. Архитектурные решения
+
+### 18.1. Отдельная CRM
+
+**Решение:** товарный каталог и складская логика вынесены во внешнюю CRM.
+
+**Причина:** разделение публичной электронной коммерции и внутренних операций предприятия.
+
+### 18.2. Локальные снимки заказов
+
+**Решение:** позиции заказа сохраняются отдельно от текущих карточек товаров CRM.
+
+**Причина:** история заказа должна оставаться стабильной при изменении цен, названий или остатков.
+
+### 18.3. Асинхронная синхронизация
+
+**Решение:** внешние операции выполняются с поддержкой очередей и повторных попыток.
+
+**Причина:** временная недоступность CRM или SMTP не должна приводить к потере бизнес-операции.
+
+### 18.4. Серверная проверка платежей
+
+**Решение:** состояние платежа подтверждается через платёжную систему.
+
+**Причина:** браузерный redirect или произвольный HTTP-запрос не являются достоверным доказательством оплаты.
+
+### 18.5. Изолированные контейнеры
+
+**Решение:** frontend, backend, PostgreSQL и Redis запускаются раздельно.
+
+**Причина:** независимые обновления, контроль зависимостей и сохранность постоянных данных.
+
+---
+
+## 19. Границы документации
+
+Этот документ описывает архитектуру SWAPSERVICE38 по исходному архитектурному описанию и последующим изменениям проекта.
+
+Первоначальный документ был составлен 19 августа 2026 года. С тех пор были изменены платёжные сценарии, интеграция CRM, инфраструктура и SEO.
+
+Исторические замечания из прежних разделов **«Известные архитектурные несоответствия»** и **«Где вносить изменения»** не перенесены как актуальные дефекты: соответствующие пункты были исправлены в ходе дальнейшей разработки.
+
+Для точного определения текущих API-контрактов, ограничений схемы БД и всех параметров конфигурации источником истины остаются исполняемый код, Prisma schema и миграции.
+
+Документ не является результатом повторного полного аудита исходников на 5 октября 2026 года.
+
+---
+
+## 20. Заключение
+
+SWAPSERVICE38 представляет собой действующую full-stack систему с разделением клиентского приложения, серверной бизнес-логики, постоянного хранения, временных данных и внешних интеграций.
+
+Архитектура охватывает не только отображение каталога и создание заказов, но и процессы оплаты, синхронизации с CRM, обработки событий, администрирования и эксплуатации.
+
+**Главный принцип проекта — согласованность бизнес-данных между публичным сайтом, платёжными сервисами и внутренней CRM при сохранении независимости основных компонентов.**
+
+---
+
+**Автор:** [Mikhail1708](https://github.com/Mikhail1708)  
+**Проект:** [SWAPSERVICE38](https://swap38.ru)
