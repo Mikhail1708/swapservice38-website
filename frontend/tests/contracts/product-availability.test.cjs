@@ -25,11 +25,12 @@ test('catalog category filter includes secondary category names and numeric cate
   assert.equal(api.matchesProductCategory(product, 'unknown'), false);
   assert.match(read('src/app/(public)/catalog/page.tsx'), /matchesProductCategory\(p, selectedCategory\)/);
 });
-test('catalog, home cards, and detail use the shared availability and enquiry components', () => {
+test('catalog, home cards, and detail use shared availability; detail provides enquiries', () => {
   for (const file of ['src/components/products.tsx', 'src/app/(public)/catalog/page.tsx', 'src/app/(public)/catalog/[id]/page.tsx']) {
     const code = read(file);
     assert.match(code, /productAvailability\(product\)/);
-    assert.match(code, /<ProductEnquiry product=\{product\}/);
+    if (file.includes('[id]')) assert.match(code, /<ProductEnquiry product=\{product\}/);
+    else assert.match(code, /href=\{`\/catalog\/\$\{product(?:\.id|Id)\}`\}/);
   }
 });
 test('enquiry buttons are only rendered for on-order products and use real shared contacts', () => {
@@ -38,8 +39,8 @@ test('enquiry buttons are only rendered for on-order products and use real share
   assert.match(code, /href=\{SITE_CONTACTS.telegram\}/);
   assert.match(code, /href=\{SITE_CONTACTS.max\}/);
   const contacts = read('src/lib/site-contacts.ts');
-  assert.match(contacts, /https:\/\/t.me\/swap38/);
-  assert.match(contacts, /https:\/\/web.max.ru\/-70953461855659/);
+  assert.match(contacts, /https:\/\/web.telegram.org\/k\/#@SWAPFABSHOP/);
+  assert.match(contacts, /https:\/\/web.max.ru\/115055426/);
 });
 
 test('catalog follows every CRM page rather than truncating at 999 products', async () => {

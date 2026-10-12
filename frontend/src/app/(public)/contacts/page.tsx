@@ -215,7 +215,7 @@ export default function ContactsPage() {
                   <Wrench className="h-5 w-5" />
                 </div>
                 <p className="text-sm font-medium text-foreground">Осмотр на месте</p>
-                <p className="text-xs text-muted-foreground">Бесплатная диагностика</p>
+                <p className="text-xs text-muted-foreground">Быстрая диагностика</p>
               </div>
               <div className="bg-card border border-border rounded-lg p-5 text-center hover:border-foreground/30 transition group">
                 <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground group-hover:text-foreground group-hover:border-foreground/30 transition mb-3">

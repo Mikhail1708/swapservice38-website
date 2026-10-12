@@ -1,7 +1,8 @@
+
 'use client';
 
-import { ReactNode, useState, useEffect } from 'react';
-import { usePathname, useRouter, Image, Link } from '@/lib/next-shims';
+import { useState, useEffect, type ReactNode } from 'react';
+import { usePathname, useRouter, Link } from '@/lib/next-shims';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -12,67 +13,87 @@ import {
   Menu,
   X,
   ChevronDown,
-  Package,
-  Calendar,
-  BarChart3,
   User,
-  Home
+  Home,
 } from 'lucide-react';
-import { useAuth }  from '@/lib/hooks/useAuth';
+import { useAuth } from '@/lib/hooks/useAuth';
 
 const menuItems = [
-  { icon: LayoutDashboard, label: 'Дашборд', href: '/admin' },
-  { icon: ShoppingBag, label: 'Заказы', href: '/admin/orders' },
-  { icon: Users, label: 'Пользователи', href: '/admin/users', adminOnly: true },
-  { 
-    icon: FileText, 
-    label: 'Контент', 
+  {
+    icon: LayoutDashboard,
+    label: 'Дашборд',
+    href: '/admin',
+  },
+  {
+    icon: ShoppingBag,
+    label: 'Заказы',
+    href: '/admin/orders',
+  },
+  {
+    icon: Users,
+    label: 'Пользователи',
+    href: '/admin/users',
+    adminOnly: true,
+  },
+  {
+    icon: FileText,
+    label: 'Контент',
     href: '/admin/content/articles',
     subItems: [
       { label: 'Статьи', href: '/admin/content/articles' },
       { label: 'Новости', href: '/admin/content/news' },
       { label: 'Услуги', href: '/admin/content/services' },
-    ]
+    ],
   },
-  { icon: Settings, label: 'Настройки', href: '/admin/settings' },
+  {
+    icon: Settings,
+    label: 'Настройки',
+    href: '/admin/settings',
+  },
 ];
 
 export function AdminLayout({ children }: { children: ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
+  const [expandedMenus, setExpandedMenus] = useState<
+    Record<string, boolean>
+  >({});
+
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isLoading } = useAuth();
 
-  // Проверяем права доступа
+  // On mobile, always display the full sidebar content.
+  // On desktop, respect the collapsed/expanded state.
+  const isMenuExpanded = isSidebarOpen || isMobileMenuOpen;
+
+  const isContentRoute = pathname.startsWith('/admin/content/');
+
+  // Access control
   useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
-    } else if (!isLoading && user && !['admin', 'manager'].includes(user.role)) {
+    if (isLoading) return;
+
+    if (!user) {
+      router.replace(
+        `/login?redirect=${encodeURIComponent(pathname)}`
+      );
+      return;
+    }
+
+    if (!['admin', 'manager'].includes(user.role)) {
       router.replace('/');
-    } else if (!isLoading && user?.role === 'manager' && pathname.startsWith('/admin/users')) {
+      return;
+    }
+
+    if (
+      user.role === 'manager' &&
+      pathname.startsWith('/admin/users')
+    ) {
       router.replace('/admin');
     }
   }, [user, isLoading, pathname, router]);
 
-  const toggleMenu = (href: string) => {
-    setExpandedMenus(prev => ({
-      ...prev,
-      [href]: !prev[href]
-    }));
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.replace('/');
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Не удалось выйти');
-    }
-  };
-
-  // Адаптивная ширина
+  // Set initial desktop/mobile layout and respond to resizing.
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 1024) {
@@ -80,182 +101,440 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         setIsMobileMenuOpen(false);
       } else {
         setIsSidebarOpen(true);
+        setIsMobileMenuOpen(false);
       }
     };
+
     handleResize();
+
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
+
+  // Close the mobile drawer when navigating.
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  // Escape closes the drawer, and background scrolling is locked.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isMobileMenuOpen]);
+
+  const toggleMenu = (href: string) => {
+    setExpandedMenus((prev) => ({
+      ...prev,
+      [href]: !(prev[href] ?? isContentRoute),
+    }));
+  };
+
+  const handleNavigate = (href: string) => {
+    setIsMobileMenuOpen(false);
+
+    if (pathname !== href) {
+      router.push(href);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setIsMobileMenuOpen(false);
+      router.replace('/');
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось выйти'
+      );
+    }
+  };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-foreground/20 border-t-foreground rounded-full animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-foreground/20 border-t-foreground" />
       </div>
     );
   }
 
-  if (!user || !['admin', 'manager'].includes(user.role)) {
+  if (!user || !['admin', 'manager'].includes(user.role) ||
+      (user.role === 'manager' && pathname.startsWith('/admin/users'))) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ===== МОБИЛЬНЫЙ ОВЕРЛЕЙ ===== */}
+      {/* Mobile backdrop */}
       {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+        <button
+          type="button"
+          aria-label="Закрыть боковое меню"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
-      {/* ===== САЙДБАР ===== */}
+      {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-full z-50 bg-card border-r border-border transition-all duration-300 ${
-          isSidebarOpen ? 'w-64' : 'w-0 lg:w-20'
-        } ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        id="admin-sidebar"
+        aria-label="Навигация администратора"
+        className={`
+          fixed left-0 top-0 z-50
+          h-dvh w-64 max-w-[85vw]
+          border-r border-border bg-card
+          transition-transform duration-300 ease-in-out
+          lg:max-w-none lg:transition-all
+          ${isSidebarOpen ? 'lg:w-64' : 'lg:w-20'}
+          ${
+            isMobileMenuOpen
+              ? 'translate-x-0 visible'
+              : '-translate-x-full invisible lg:visible lg:translate-x-0'
+          }
+        `}
       >
-        <div className={`${isSidebarOpen ? 'p-4' : 'p-2'} h-full flex flex-col overflow-hidden`}>
-          {/* Логотип */}
-          <div className={`flex items-center gap-2 ${isSidebarOpen ? 'mb-6' : 'mb-4 justify-center'}`}>
-            <Link href="/admin" className="flex items-center gap-2">
-              <span className={`heading-display ${isSidebarOpen ? 'text-lg' : 'text-base'} text-foreground`}>
-                {isSidebarOpen ? 'SWAPSERVICE38' : 'SS'}
+        <div
+          className={`
+            flex h-full min-h-0 flex-col overflow-hidden
+            ${isMenuExpanded ? 'p-4' : 'p-2'}
+          `}
+        >
+          {/* Logo and mobile close button */}
+          <div
+            className={`
+              mb-6 flex min-h-10 items-center gap-2
+              ${isMenuExpanded ? 'justify-between' : 'justify-center'}
+            `}
+          >
+            <Link
+              href="/admin"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex min-w-0 items-center"
+              aria-label="SWAPSERVICE38 — дашборд"
+            >
+              <span
+                className={`
+                  heading-display whitespace-nowrap text-foreground
+                  ${isMenuExpanded ? 'text-lg' : 'text-sm'}
+                `}
+              >
+                {isMenuExpanded ? 'SWAPSERVICE38' : 'SWAP'}
               </span>
             </Link>
+
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="Закрыть меню"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
 
-          {/* Навигация */}
-          <nav className="flex-1 overflow-y-auto">
+          {/* Navigation */}
+          <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             <div className="space-y-1">
-              {menuItems.filter((item) => !item.adminOnly || user.role === 'admin').map((item) => {
-                const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-                const isExpanded = expandedMenus[item.href] || false;
-                const hasSubItems = item.subItems && item.subItems.length > 0;
+              {menuItems
+                .filter(
+                  (item) =>
+                    !item.adminOnly || user.role === 'admin'
+                )
+                .map((item) => {
+                  const hasSubItems =
+                    Boolean(item.subItems?.length);
 
-                return (
-                  <div key={item.href}>
-                    {/* Основной пункт меню */}
-                    <div
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer ${
-                        isActive
-                          ? 'bg-foreground text-background'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                      } ${!isSidebarOpen && 'justify-center'}`}
-                      onClick={() => {
-                        if (hasSubItems) {
-                          toggleMenu(item.href);
-                        } else {
-                          router.push(item.href);
-                          setIsMobileMenuOpen(false);
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href === '/admin'
+                      ? false
+                      : hasSubItems
+                        ? isContentRoute
+                        : pathname.startsWith(item.href + '/'));
+
+                  const isExpanded =
+                    expandedMenus[item.href] ??
+                    (hasSubItems && isContentRoute);
+
+                  const Icon = item.icon;
+
+                  return (
+                    <div key={item.href}>
+                      <button
+                        type="button"
+                        title={
+                          isMenuExpanded
+                            ? undefined
+                            : item.label
                         }
-                      }}
-                    >
-                      <item.icon className={`${isSidebarOpen ? 'w-5 h-5' : 'w-6 h-6'}`} />
-                      {isSidebarOpen && (
-                        <>
-                          <span className="flex-1">{item.label}</span>
-                          {hasSubItems && (
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform ${
-                                isExpanded ? 'rotate-180' : ''
-                              }`}
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
+                        aria-label={item.label}
+                        aria-current={
+                          isActive && !hasSubItems
+                            ? 'page'
+                            : undefined
+                        }
+                        aria-expanded={
+                          hasSubItems
+                            ? Boolean(isExpanded && isMenuExpanded)
+                            : undefined
+                        }
+                        onClick={() => {
+                          if (hasSubItems) {
+                            // Expand the desktop sidebar first,
+                            // then reveal the submenu.
+                            if (
+                              !isMenuExpanded &&
+                              window.innerWidth >= 1024
+                            ) {
+                              setIsSidebarOpen(true);
+                              setExpandedMenus((prev) => ({
+                                ...prev,
+                                [item.href]: true,
+                              }));
+                            } else {
+                              toggleMenu(item.href);
+                            }
+                          } else {
+                            handleNavigate(item.href);
+                          }
+                        }}
+                        className={`
+                          flex min-h-11 w-full items-center gap-3
+                          rounded-lg px-3 py-2.5
+                          text-left text-sm font-medium
+                          transition-colors
+                          ${
+                            isActive
+                              ? 'bg-foreground text-background'
+                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                          }
+                          ${
+                            !isMenuExpanded
+                              ? 'justify-center'
+                              : ''
+                          }
+                        `}
+                      >
+                        <Icon
+                          className={`
+                            shrink-0
+                            ${
+                              isMenuExpanded
+                                ? 'h-5 w-5'
+                                : 'h-6 w-6'
+                            }
+                          `}
+                        />
 
-                    {/* Подменю */}
-                    {hasSubItems && isSidebarOpen && isExpanded && (
-                      <div className="ml-6 mt-1 space-y-1">
-                        {item.subItems.map((subItem) => {
-                          const isSubActive = pathname === subItem.href;
-                          return (
-                            <Link
-                              key={subItem.href}
-                              href={subItem.href}
-                              className={`block px-3 py-2 rounded-lg text-sm transition ${
-                                isSubActive
-                                  ? 'bg-foreground/10 text-foreground'
-                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                              }`}
-                              onClick={() => setIsMobileMenuOpen(false)}
-                            >
-                              {subItem.label}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                        {isMenuExpanded && (
+                          <>
+                            <span className="min-w-0 flex-1">
+                              {item.label}
+                            </span>
+
+                            {hasSubItems && (
+                              <ChevronDown
+                                className={`
+                                  h-4 w-4 shrink-0
+                                  transition-transform
+                                  ${
+                                    isExpanded
+                                      ? 'rotate-180'
+                                      : ''
+                                  }
+                                `}
+                              />
+                            )}
+                          </>
+                        )}
+                      </button>
+
+                      {/* Submenu */}
+                      {hasSubItems &&
+                        isMenuExpanded &&
+                        isExpanded && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            {item.subItems?.map((subItem) => {
+                              const isSubActive =
+                                pathname === subItem.href;
+
+                              return (
+                                <Link
+                                  key={subItem.href}
+                                  href={subItem.href}
+                                  onClick={() =>
+                                    setIsMobileMenuOpen(false)
+                                  }
+                                  aria-current={
+                                    isSubActive
+                                      ? 'page'
+                                      : undefined
+                                  }
+                                  className={`
+                                    block rounded-lg
+                                    px-3 py-2.5 text-sm
+                                    transition-colors
+                                    ${
+                                      isSubActive
+                                        ? 'bg-foreground/10 text-foreground'
+                                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                    }
+                                  `}
+                                >
+                                  {subItem.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+                    </div>
+                  );
+                })}
             </div>
           </nav>
 
-          {/* Выход */}
-          <div className="border-t border-border pt-4">
+          {/* Logout */}
+          <div className="mt-4 shrink-0 border-t border-border pt-4">
             <button
+              type="button"
               onClick={handleLogout}
-              className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-red-500 hover:bg-red-500/10 transition ${
-                !isSidebarOpen && 'justify-center'
-              }`}
+              aria-label="Выйти из аккаунта"
+              title={
+                isMenuExpanded ? undefined : 'Выйти'
+              }
+              className={`
+                flex min-h-11 w-full items-center gap-3
+                rounded-lg px-3 py-2.5
+                text-sm font-medium text-red-500
+                transition-colors hover:bg-red-500/10
+                ${
+                  !isMenuExpanded
+                    ? 'justify-center'
+                    : ''
+                }
+              `}
             >
-              <LogOut className={isSidebarOpen ? 'w-5 h-5' : 'w-6 h-6'} />
-              {isSidebarOpen && <span>Выйти</span>}
+              <LogOut
+                className={`
+                  shrink-0
+                  ${
+                    isMenuExpanded
+                      ? 'h-5 w-5'
+                      : 'h-6 w-6'
+                  }
+                `}
+              />
+
+              {isMenuExpanded && <span>Выйти</span>}
             </button>
           </div>
         </div>
       </aside>
 
-      {/* ===== ОСНОВНАЯ ЧАСТЬ ===== */}
-      <div className={`transition-all duration-300 ${
-        isSidebarOpen ? 'lg:ml-64' : 'lg:ml-20'
-      }`}>
-        {/* ===== ТОП-БАР ===== */}
-        <header className="sticky top-0 z-30 bg-background/85 backdrop-blur-md border-b border-border">
-          <div className="flex items-center justify-between px-4 py-3 lg:px-6">
-            <div className="flex items-center gap-3">
+      {/* Main content */}
+      <div
+        className={`
+          min-w-0 transition-none lg:transition-[margin-left] lg:duration-300
+          ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}
+        `}
+      >
+        {/* Header */}
+        <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-md">
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-3 lg:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              {/* Mobile menu button */}
               <button
-                onClick={() => setIsMobileMenuOpen(true)}
-                className="lg:hidden p-2 rounded-lg hover:bg-muted transition"
+                type="button"
+                onClick={() =>
+                  setIsMobileMenuOpen((prev) => !prev)
+                }
+                aria-label={
+                  isMobileMenuOpen
+                    ? 'Закрыть меню'
+                    : 'Открыть меню'
+                }
+                aria-expanded={isMobileMenuOpen}
+                aria-controls="admin-sidebar"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition hover:bg-muted lg:hidden"
               >
-                <Menu className="w-5 h-5 text-foreground" />
+                <Menu className="h-5 w-5 text-foreground" />
               </button>
+
+              {/* Desktop collapse button */}
               <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="hidden lg:flex p-2 rounded-lg hover:bg-muted transition"
+                type="button"
+                onClick={() =>
+                  setIsSidebarOpen((prev) => !prev)
+                }
+                aria-label={
+                  isSidebarOpen
+                    ? 'Свернуть панель'
+                    : 'Развернуть панель'
+                }
+                aria-expanded={isSidebarOpen}
+                className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-lg transition hover:bg-muted lg:flex"
               >
-                <Menu className="w-5 h-5 text-foreground" />
+                <Menu className="h-5 w-5 text-foreground" />
               </button>
-              <h2 className="text-sm font-medium text-foreground hidden sm:block">
-                {menuItems.find(item => pathname === item.href || pathname?.startsWith(item.href + '/'))?.label || 'Админ-панель'}
+
+              <h2 className="hidden truncate text-sm font-medium text-foreground sm:block">
+                {menuItems.find((item) =>
+                  item.href === '/admin'
+                    ? pathname === '/admin'
+                    : pathname === item.href ||
+                      pathname.startsWith(item.href + '/')
+                )?.label || 'Админ-панель'}
               </h2>
             </div>
 
-            <div className="flex items-center gap-4">
+            {/* Right-side actions */}
+            <div className="flex shrink-0 items-center gap-3 sm:gap-4">
               <Link
                 href="/"
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
+                className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"
+                aria-label="Перейти на сайт"
               >
-                <Home className="w-4 h-4" />
-                <span className="hidden sm:inline">На сайт</span>
+                <Home className="h-4 w-4" />
+                <span className="hidden sm:inline">
+                  На сайт
+                </span>
               </Link>
+
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-foreground/10 flex items-center justify-center">
-                  <User className="w-4 h-4 text-foreground" />
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground/10">
+                  <User className="h-4 w-4 text-foreground" />
                 </div>
-                <span className="text-sm text-foreground hidden sm:inline">
-                  {user?.firstName || 'Admin'}
+
+                <span className="hidden text-sm text-foreground sm:inline">
+                  {user.firstName || 'Admin'}
                 </span>
               </div>
             </div>
           </div>
         </header>
 
-        {/* ===== КОНТЕНТ ===== */}
-        <main className="p-4 lg:p-6">
+        {/* Page content */}
+        <main className="min-w-0 p-4 lg:p-6">
           {children}
         </main>
       </div>

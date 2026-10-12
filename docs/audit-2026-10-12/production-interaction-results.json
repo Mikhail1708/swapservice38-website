@@ -1,0 +1,19 @@
+{
+  "browser": "155.0.8059.39",
+  "results": [],
+  "interactions": [
+    "header scroll without navigation",
+    "mobile menu and Escape",
+    "Hero previous/next and bounded image loading",
+    "gallery portrait/panorama/square/small image containment",
+    "gallery keyboard, synthetic touch swipe and orientation",
+    "gallery focus restoration",
+    "swap/services navigation",
+    "populated cart at 10 widths",
+    "manager users redirect",
+    "admin layout and menu at 4 widths",
+    "failed WebP falls back to original"
+  ],
+  "failures": [],
+  "errors": []
+}

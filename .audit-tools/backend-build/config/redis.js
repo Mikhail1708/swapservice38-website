@@ -1,0 +1,179 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.safeRedis = void 0;
+// backend/src/config/redis.ts
+const ioredis_1 = __importDefault(require("ioredis"));
+// ============================================================
+// ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
+// ============================================================
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
+console.log(`🔌 Подключение к Redis: ${REDIS_HOST}:${REDIS_PORT}`);
+// ============================================================
+// СОЗДАНИЕ КЛИЕНТА REDIS (БЕЗ FALLBACK)
+// ============================================================
+const redis = new ioredis_1.default({
+    host: REDIS_HOST,
+    port: REDIS_PORT,
+    password: REDIS_PASSWORD,
+    retryStrategy: (times) => {
+        // После 10 попыток — критическая ошибка
+        if (times > 10) {
+            console.error(`❌ Redis недоступен после ${times} попыток`);
+            process.exit(1);
+        }
+        // Экспоненциальная задержка: 1с, 2с, 4с, 8с...
+        return Math.min(times * 1000, 5000);
+    },
+    maxRetriesPerRequest: 3,
+    lazyConnect: false,
+    connectTimeout: 5000,
+    commandTimeout: 5000,
+});
+// ============================================================
+// ОБРАБОТЧИКИ СОБЫТИЙ
+// ============================================================
+redis.on('connect', () => {
+    console.log('✅ Redis подключен');
+});
+redis.on('ready', () => {
+    console.log('✅ Redis готов к работе');
+});
+redis.on('error', (error) => {
+    console.error('❌ Redis ошибка:', error.message);
+});
+redis.on('close', () => {
+    console.warn('⚠️ Соединение с Redis закрыто');
+});
+redis.on('reconnecting', (delay) => {
+    console.log(`🔄 Переподключение к Redis через ${delay}ms`);
+});
+// ============================================================
+// ПРОВЕРКА ПОДКЛЮЧЕНИЯ (ПРИ ЗАПУСКЕ)
+// ============================================================
+const checkConnection = async () => {
+    try {
+        await redis.ping();
+        console.log('✅ Redis ping успешен');
+    }
+    catch (error) {
+        console.error('❌ Redis ping не удался:', error);
+        process.exit(1);
+    }
+};
+// Выполняем проверку
+checkConnection();
+// ============================================================
+// ЭКСПОРТ
+// ============================================================
+exports.default = redis;
+// ============================================================
+// БЕЗОПАСНЫЕ ХЕЛПЕРЫ (С ОБРАБОТКОЙ ОШИБОК)
+// ============================================================
+exports.safeRedis = {
+    get: async (key) => {
+        try {
+            return await redis.get(key);
+        }
+        catch (error) {
+            console.error('Redis get failed');
+            throw error;
+        }
+    },
+    setex: async (key, ttl, value) => {
+        try {
+            await redis.setex(key, ttl, value);
+        }
+        catch (error) {
+            console.error('Redis setex failed');
+            throw error;
+        }
+    },
+    del: async (key) => {
+        try {
+            return await redis.del(key);
+        }
+        catch (error) {
+            console.error('Redis del failed');
+            throw error;
+        }
+    },
+    keys: async (pattern) => {
+        try {
+            return await redis.keys(pattern);
+        }
+        catch (error) {
+            console.error('Redis keys failed');
+            throw error;
+        }
+    },
+    incr: async (key) => {
+        try {
+            return await redis.incr(key);
+        }
+        catch (error) {
+            console.error('Redis incr failed');
+            throw error;
+        }
+    },
+    expire: async (key, ttl) => {
+        try {
+            return await redis.expire(key, ttl);
+        }
+        catch (error) {
+            console.error('Redis expire failed');
+            throw error;
+        }
+    },
+    ttl: async (key) => {
+        try {
+            return await redis.ttl(key);
+        }
+        catch (error) {
+            console.error('Redis ttl failed');
+            throw error;
+        }
+    },
+    flushall: async () => {
+        try {
+            await redis.flushall();
+        }
+        catch (error) {
+            console.error('❌ Redis flushall error:', error);
+            throw error;
+        }
+    },
+    // ✅ ДЛЯ РАБОТЫ С JSON
+    setJson: async (key, value, ttl) => {
+        try {
+            const json = JSON.stringify(value);
+            if (ttl) {
+                await redis.setex(key, ttl, json);
+            }
+            else {
+                await redis.set(key, json);
+            }
+        }
+        catch (error) {
+            console.error('Redis JSON write failed');
+            throw error;
+        }
+    },
+    getJson: async (key) => {
+        try {
+            const data = await redis.get(key);
+            if (!data)
+                return null;
+            return JSON.parse(data);
+        }
+        catch (error) {
+            console.error('Redis JSON read failed');
+            throw error;
+        }
+    },
+};
+//# sourceMappingURL=redis.js.map

@@ -397,18 +397,18 @@ export default function CartPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* ЛЕВАЯ КОЛОНКА — ТОВАРЫ */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="min-w-0 lg:col-span-2 space-y-4">
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               {items.map((item: CartItem, index: number) => (
                 <div
                   key={item.productId}
-                  className={`p-5 flex gap-5 hover:bg-muted/30 transition ${
+                  className={`p-4 grid grid-cols-[64px_minmax(0,1fr)] gap-3 sm:p-5 sm:flex sm:gap-5 hover:bg-muted/30 transition ${
                     index !== items.length - 1 ? 'border-b border-border' : ''
                   }`}
                 >
-                  <div className="w-24 h-24 bg-muted rounded-lg overflow-hidden flex-shrink-0">
+                  <div className="w-16 h-16 sm:w-24 sm:h-24 bg-muted rounded-lg overflow-hidden flex-shrink-0">
                     <Image
                       src={item.image || '/images/logo/logo.png'}
                       alt={item.name || 'Товар'}
@@ -462,7 +462,7 @@ export default function CartPage() {
                     </div>
                   </div>
 
-                  <div className="text-right flex-shrink-0">
+                  <div className="col-span-2 text-right flex-shrink-0">
                     <span className="text-lg font-bold text-foreground">
                       {(item.price * item.quantity).toLocaleString()} ₽
                     </span>
@@ -471,7 +471,7 @@ export default function CartPage() {
               ))}
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap gap-3 items-center justify-between">
               <button
                 onClick={handleClearCart}
                 className="text-sm text-muted-foreground hover:text-red-500 transition flex items-center gap-1"
@@ -491,8 +491,8 @@ export default function CartPage() {
           </div>
 
           {/* ПРАВАЯ КОЛОНКА — ОФОРМЛЕНИЕ */}
-          <div className="lg:col-span-1">
-            <div className="bg-card border border-border rounded-2xl p-6 sticky top-32">
+          <div className="min-w-0 lg:col-span-1">
+            <div className="bg-card border border-border rounded-2xl p-4 sm:p-6 sticky top-32">
               <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
                 <CreditCard className="w-5 h-5 text-muted-foreground" />
                 Оформление заказа

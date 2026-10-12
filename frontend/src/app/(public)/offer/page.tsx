@@ -190,5 +190,7 @@ function Section({ n, title, children }: { n: string; title: string; children: R
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
-  return <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-border/50 last:border-0"><span>{label}</span><span className="text-foreground font-medium">{value}</span></div>;
+  const contact = [SITE_CONTACTS.operator, SITE_CONTACTS.manager].find(item => item.phone === value || item.email === value);
+  const href = contact ? (contact.phone === value ? contact.tel : contact.mailto) : undefined;
+  return <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2 border-b border-border/50 last:border-0"><span>{label}</span><span className="text-foreground font-medium">{href ? <a href={href}>{value}</a> : value}</span></div>;
 }

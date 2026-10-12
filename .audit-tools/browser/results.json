@@ -1,0 +1,1427 @@
+{
+  "results": [
+    {
+      "width": 320,
+      "url": "/",
+      "document": 320,
+      "body": 320,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "url": "/catalog",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/catalog/134",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/services",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/services/1",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/swaps",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/swaps/fixture",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/contacts",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/cart",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/login",
+      "document": 320,
+      "body": 320,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "url": "/register",
+      "document": 320,
+      "body": 320,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "url": "/privacy",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/offer",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/profile",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 320,
+      "url": "/profile/orders",
+      "document": 320,
+      "body": 320,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/",
+      "document": 360,
+      "body": 360,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 360,
+      "url": "/catalog",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/catalog/134",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/services",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/services/1",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/swaps",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/swaps/fixture",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/contacts",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/cart",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/login",
+      "document": 360,
+      "body": 360,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 360,
+      "url": "/register",
+      "document": 360,
+      "body": 360,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 360,
+      "url": "/privacy",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/offer",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/profile",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "url": "/profile/orders",
+      "document": 360,
+      "body": 360,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/",
+      "document": 375,
+      "body": 375,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 375,
+      "url": "/catalog",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/catalog/134",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/services",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/services/1",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/swaps",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/swaps/fixture",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/contacts",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/cart",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/login",
+      "document": 375,
+      "body": 375,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 375,
+      "url": "/register",
+      "document": 375,
+      "body": 375,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 375,
+      "url": "/privacy",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/offer",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/profile",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 375,
+      "url": "/profile/orders",
+      "document": 375,
+      "body": 375,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/",
+      "document": 390,
+      "body": 390,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "url": "/catalog",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/catalog/134",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/services",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/services/1",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/swaps",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/swaps/fixture",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/contacts",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/cart",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/login",
+      "document": 390,
+      "body": 390,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "url": "/register",
+      "document": 390,
+      "body": 390,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "url": "/privacy",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/offer",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/profile",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "url": "/profile/orders",
+      "document": 390,
+      "body": 390,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/",
+      "document": 412,
+      "body": 412,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 412,
+      "url": "/catalog",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/catalog/134",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/services",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/services/1",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/swaps",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/swaps/fixture",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/contacts",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/cart",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/login",
+      "document": 412,
+      "body": 412,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 412,
+      "url": "/register",
+      "document": 412,
+      "body": 412,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 412,
+      "url": "/privacy",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/offer",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/profile",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 412,
+      "url": "/profile/orders",
+      "document": 412,
+      "body": 412,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/",
+      "document": 430,
+      "body": 430,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 430,
+      "url": "/catalog",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/catalog/134",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/services",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/services/1",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/swaps",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/swaps/fixture",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/contacts",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/cart",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/login",
+      "document": 430,
+      "body": 430,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 430,
+      "url": "/register",
+      "document": 430,
+      "body": 430,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 430,
+      "url": "/privacy",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/offer",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/profile",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "url": "/profile/orders",
+      "document": 430,
+      "body": 430,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/",
+      "document": 440,
+      "body": 440,
+      "offenders": [
+        {
+          "tag": "A",
+          "cls": "group relative flex h-72 min-w-full snap-start flex-col justify-end overflow-hidden rounded-md border border-border transition hover:border-foreground/30 sm:min-w-[calc(50%-0.5rem)] lg:min-w-[calc(25%-0.75rem)]",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "IMG",
+          "cls": "object-cover object-cover transition-transform duration-500 group-hover:scale-105",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent",
+          "text": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative flex items-center justify-between gap-2 p-5",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "H3",
+          "cls": "heading-display text-base leading-tight text-foreground",
+          "text": "Сервис и тюнинг внедорожников"
+        },
+        {
+          "tag": "svg",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        },
+        {
+          "tag": "path",
+          "cls": {},
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 440,
+      "url": "/catalog",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/catalog/134",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/services",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/services/1",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/swaps",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/swaps/fixture",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/contacts",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/cart",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/login",
+      "document": 440,
+      "body": 440,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 440,
+      "url": "/register",
+      "document": 440,
+      "body": 440,
+      "offenders": [
+        {
+          "tag": "DIV",
+          "cls": "absolute bottom-1/4 left-1/4 w-[400px] h-[400px] rounded-full bg-muted/20 blur-[100px]",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "width": 440,
+      "url": "/privacy",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/offer",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/profile",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 440,
+      "url": "/profile/orders",
+      "document": 440,
+      "body": 440,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/catalog",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/catalog/134",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/services",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/services/1",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/swaps",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/swaps/fixture",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/contacts",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/cart",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/login",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/register",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/privacy",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/offer",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/profile",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "url": "/profile/orders",
+      "document": 768,
+      "body": 768,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/catalog",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/catalog/134",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/services",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/services/1",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/swaps",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/swaps/fixture",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/contacts",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/cart",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/login",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/register",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/privacy",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/offer",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/profile",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "url": "/profile/orders",
+      "document": 1024,
+      "body": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/catalog",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/catalog/134",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/services",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/services/1",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/swaps",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/swaps/fixture",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/contacts",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/cart",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/login",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/register",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/privacy",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/offer",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/profile",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "url": "/profile/orders",
+      "document": 1440,
+      "body": 1440,
+      "offenders": []
+    }
+  ],
+  "failures": [],
+  "errors": []
+}

@@ -1,0 +1,97 @@
+{
+  "/images/hero-suv4.png": {
+    "srcSet": "/images/hero/optimized/hero-suv4-640.webp 640w, /images/hero/optimized/hero-suv4-1280.webp 1280w, /images/hero/optimized/hero-suv4-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/swap1.png": {
+    "srcSet": "/images/hero/optimized/swap1-640.webp 640w, /images/hero/optimized/swap1-1280.webp 1280w, /images/hero/optimized/swap1-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/swap2.png": {
+    "srcSet": "/images/hero/optimized/swap2-640.webp 640w, /images/hero/optimized/swap2-1086.webp 1086w",
+    "width": 1086,
+    "height": 1448
+  },
+  "/images/swap3.png": {
+    "srcSet": "/images/hero/optimized/swap3-640.webp 640w, /images/hero/optimized/swap3-1280.webp 1280w, /images/hero/optimized/swap3-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/swap4.png": {
+    "srcSet": "/images/hero/optimized/swap4-640.webp 640w, /images/hero/optimized/swap4-1280.webp 1280w, /images/hero/optimized/swap4-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/hero-suv2.png": {
+    "srcSet": "/images/hero/optimized/hero-suv2-640.webp 640w, /images/hero/optimized/hero-suv2-1280.webp 1280w, /images/hero/optimized/hero-suv2-1536.webp 1536w",
+    "width": 1536,
+    "height": 1024
+  },
+  "/images/tunning2.png": {
+    "srcSet": "/images/hero/optimized/tunning2-640.webp 640w, /images/hero/optimized/tunning2-1280.webp 1280w, /images/hero/optimized/tunning2-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/tunning3.png": {
+    "srcSet": "/images/hero/optimized/tunning3-640.webp 640w, /images/hero/optimized/tunning3-1280.webp 1280w, /images/hero/optimized/tunning3-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/tunning4.png": {
+    "srcSet": "/images/hero/optimized/tunning4-640.webp 640w, /images/hero/optimized/tunning4-1280.webp 1280w, /images/hero/optimized/tunning4-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/hero-suv3.png": {
+    "srcSet": "/images/hero/optimized/hero-suv3-640.webp 640w, /images/hero/optimized/hero-suv3-1280.webp 1280w, /images/hero/optimized/hero-suv3-1402.webp 1402w",
+    "width": 1402,
+    "height": 1122
+  },
+  "/images/proizvodstvo.png": {
+    "srcSet": "/images/hero/optimized/proizvodstvo-640.webp 640w, /images/hero/optimized/proizvodstvo-1280.webp 1280w, /images/hero/optimized/proizvodstvo-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/hero-suv1.png": {
+    "srcSet": "/images/hero/optimized/hero-suv1-640.webp 640w, /images/hero/optimized/hero-suv1-1280.webp 1280w, /images/hero/optimized/hero-suv1-1536.webp 1536w",
+    "width": 1536,
+    "height": 1024
+  },
+  "/images/service1.png": {
+    "srcSet": "/images/hero/optimized/service1-640.webp 640w, /images/hero/optimized/service1-1280.webp 1280w, /images/hero/optimized/service1-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/service2.png": {
+    "srcSet": "/images/hero/optimized/service2-640.webp 640w, /images/hero/optimized/service2-1280.webp 1280w, /images/hero/optimized/service2-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/service3.png": {
+    "srcSet": "/images/hero/optimized/service3-640.webp 640w, /images/hero/optimized/service3-1280.webp 1280w, /images/hero/optimized/service3-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/hero-suv5.png": {
+    "srcSet": "/images/hero/optimized/hero-suv5-640.webp 640w, /images/hero/optimized/hero-suv5-1280.webp 1280w, /images/hero/optimized/hero-suv5-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/dorozh1.png": {
+    "srcSet": "/images/hero/optimized/dorozh1-640.webp 640w, /images/hero/optimized/dorozh1-1280.webp 1280w, /images/hero/optimized/dorozh1-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/dorozh2.png": {
+    "srcSet": "/images/hero/optimized/dorozh2-640.webp 640w, /images/hero/optimized/dorozh2-1280.webp 1280w, /images/hero/optimized/dorozh2-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  },
+  "/images/dorozh3.png": {
+    "srcSet": "/images/hero/optimized/dorozh3-640.webp 640w, /images/hero/optimized/dorozh3-1280.webp 1280w, /images/hero/optimized/dorozh3-1448.webp 1448w",
+    "width": 1448,
+    "height": 1086
+  }
+}

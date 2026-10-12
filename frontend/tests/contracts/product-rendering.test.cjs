@@ -57,8 +57,12 @@ for (const stock of [0, 10]) {
       assert.match(html, /Дроп Панара 4 дюйма/);
       if (stock === 0) {
         assert.match(html, /Под заказ/i);
-        assert.match(html, /Написать в Telegram/);
-        assert.match(html, /Написать в MAX/);
+        if (target === 'product page') {
+          assert.match(html, /Написать в Telegram/);
+          assert.match(html, /Написать в MAX/);
+        } else {
+          assert.match(html, /href="\/catalog\/134"/);
+        }
         assert.doesNotMatch(html, /Добавить в корзину/);
       } else {
         assert.match(html, /В наличии: 10 шт\./);

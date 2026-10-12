@@ -64,8 +64,8 @@ test('footer ranks categories by real counts, preserves filter name and formats 
     assert.deepEqual(result.map(c => c.productCount), [12, 10, 7, 5, 3]);
     const html = render(load('src/components/site-footer.tsx', [[], result]).SiteFooter());
     const section = html.split('>Каталог</h4>')[1].split('</ul>')[0];
-    assert.match(section, /^<ul[^>]*><li><a href="\/catalog"[^>]*>Все товары<\/a>/);
-    assert.equal((section.match(/<li>/g) || []).length, 6);
+    assert.match(section, /^<ul[^>]*><li[^>]*><a href="\/catalog"[^>]*>Все товары<\/a>/);
+    assert.equal((section.match(/<li\b/g) || []).length, 6);
     assert.ok(section.includes(`/catalog?category=${encodeURIComponent('КАТЕГОРИЯ & 3')}`));
     assert.ok(section.includes('Категория &amp; 3'));
     assert.ok(section.indexOf('Категория &amp; 3') < section.indexOf('Категория &amp; 7'));
@@ -83,9 +83,9 @@ test('footer keeps static links when both APIs fail and when lists are empty', a
       const html = render(load('src/components/site-footer.tsx', [services, categories]).SiteFooter());
       const catalog = html.split('>Каталог</h4>')[1].split('</ul>')[0];
       const service = html.split('>Услуги</h4>')[1].split('</ul>')[0];
-      assert.equal((catalog.match(/<li>/g) || []).length, 1);
+      assert.equal((catalog.match(/<li\b/g) || []).length, 1);
       assert.match(catalog, /Все товары/);
-      assert.equal((service.match(/<li>/g) || []).length, 1);
+      assert.equal((service.match(/<li\b/g) || []).length, 1);
       assert.match(service, /Свапы двигателей/);
     }
   } finally { global.fetch = original; }

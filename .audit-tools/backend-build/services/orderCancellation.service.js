@@ -1,0 +1,196 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.requestOrderCancellation = exports.acceptPreHandoffCancellation = exports.OrderCancellationError = void 0;
+const bankInvoiceDelivery_service_1 = require("./bankInvoiceDelivery.service");
+const paymentWorkflowLock_service_1 = require("./paymentWorkflowLock.service");
+const emailOutbox_service_1 = require("./emailOutbox.service");
+const prisma_1 = require("../config/prisma");
+const CANCELLATION_WINDOW_MS = 12 * 60 * 60 * 1000;
+class OrderCancellationError extends Error {
+    constructor(message, statusCode, code = 'ORDER_CANCELLATION_FORBIDDEN') {
+        super(message);
+        this.statusCode = statusCode;
+        this.code = code;
+        this.name = 'OrderCancellationError';
+    }
+}
+exports.OrderCancellationError = OrderCancellationError;
+const acceptPreHandoffCancellation = async (tx, order, attempt, reason, decisionReason = 'pre_handoff_accepted') => {
+    if (order.crmOrderId)
+        throw new Error('Pre-handoff cancellation cannot accept a CRM order');
+    const now = new Date();
+    await tx.order.update({
+        where: { id: order.id },
+        data: {
+            status: 'cancelled',
+            cancellationState: 'accepted',
+            cancellationRequestedAt: order.cancellationRequestedAt || now,
+            cancellationResolvedAt: now,
+            cancellationReason: order.cancellationReason || reason,
+            cancellationDecisionReason: decisionReason,
+        },
+    });
+    await tx.outboxEvent.updateMany({
+        where: {
+            aggregateId: order.id,
+            type: { in: ['crm_order_create_requested', 'payment_reconciliation_required'] },
+            processedAt: null,
+        },
+        data: {
+            status: 'completed', processedAt: now, lockedAt: null,
+            lastError: 'Stopped by accepted pre-handoff customer cancellation',
+        },
+    });
+    if (attempt?.reservationId) {
+        await tx.outboxEvent.upsert({
+            where: { deduplicationKey: `crm-reservation-release:${attempt.reservationId}` },
+            create: {
+                aggregateId: order.id,
+                type: 'crm_reservation_release_requested',
+                deduplicationKey: `crm-reservation-release:${attempt.reservationId}`,
+                payload: { orderId: order.id, reservationId: attempt.reservationId },
+            },
+            update: {},
+        });
+    }
+    if (attempt?.providerPaymentId && ['succeeded', 'compensation_required'].includes(attempt.status)) {
+        await tx.paymentAttempt.update({
+            where: { id: attempt.id },
+            data: {
+                status: 'compensation_required',
+                refundReason: 'pre_handoff_customer_cancellation',
+                refundRequestedAt: attempt.refundRequestedAt || now,
+                lastCheckedAt: now,
+                lastError: null,
+            },
+        });
+        await tx.outboxEvent.upsert({
+            where: { deduplicationKey: `payment-refund:${attempt.providerPaymentId}` },
+            create: {
+                aggregateId: order.id,
+                type: 'payment_refund_requested',
+                deduplicationKey: `payment-refund:${attempt.providerPaymentId}`,
+                payload: {
+                    orderId: order.id,
+                    paymentId: attempt.providerPaymentId,
+                    amountMinor: attempt.amountMinor,
+                    currency: attempt.currency,
+                    reason: 'pre_handoff_customer_cancellation',
+                },
+            },
+            update: {},
+        });
+    }
+};
+exports.acceptPreHandoffCancellation = acceptPreHandoffCancellation;
+const requestOrderCancellation = async (orderId, userId, rawReason) => prisma_1.prisma.$transaction(async (tx) => {
+    await (0, paymentWorkflowLock_service_1.lockPaymentWorkflowOrder)(tx, orderId);
+    const order = await tx.order.findUnique({ where: { id: orderId }, include: { user: { select: { firstName: true, lastName: true } } } });
+    if (!order || order.userId !== userId) {
+        throw new OrderCancellationError('Заказ не найден', 404);
+    }
+    const reason = typeof rawReason === 'string' && rawReason.trim()
+        ? rawReason.trim().slice(0, 500)
+        : 'customer_request';
+    // Once a request is durably recorded, retries remain idempotent even if the
+    // original 12-hour eligibility window expires while CRM is deciding it.
+    if (['requested', 'accepted', 'rejected'].includes(order.cancellationState)) {
+        return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
+    }
+    if (Date.now() - order.createdAt.getTime() > CANCELLATION_WINDOW_MS) {
+        throw new OrderCancellationError('Срок запроса отмены истёк (12 часов с момента создания)', 409);
+    }
+    if (order.paymentMethod === 'bank_invoice') {
+        const invoice = await tx.invoice.findUnique({ where: { orderId: order.id } });
+        if (invoice?.paymentStatus === 'paid') {
+            throw new OrderCancellationError('Оплата по счёту уже подтверждена. Для отмены оплаченного заказа свяжитесь с нами.', 409, 'BANK_INVOICE_ALREADY_PAID');
+        }
+        if (!invoice || invoice.paymentStatus !== 'unpaid') {
+            throw new OrderCancellationError('Отмена по счёту сейчас недоступна. Свяжитесь с нами.', 409);
+        }
+        await tx.order.update({ where: { id: order.id }, data: {
+                cancellationState: 'requested', cancellationRequestedAt: new Date(),
+                cancellationReason: reason, cancellationDecisionReason: 'bank_invoice_release_pending',
+            } });
+        // Release must be durable even if the intake response was lost.
+        await (0, bankInvoiceDelivery_service_1.ensureBankInvoiceRelease)(tx, order, invoice, reason);
+        return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
+    }
+    const attempt = await tx.paymentAttempt.findUnique({ where: { orderId: order.id } });
+    if (order.crmOrderId) {
+        await tx.order.update({
+            where: { id: order.id },
+            data: {
+                cancellationState: 'requested',
+                cancellationRequestedAt: order.cancellationRequestedAt || new Date(),
+                cancellationReason: order.cancellationReason || reason,
+                cancellationDecisionReason: null,
+            },
+        });
+        await tx.outboxEvent.upsert({
+            where: { deduplicationKey: `crm-order-cancellation:${order.id}` },
+            create: {
+                aggregateId: order.id,
+                type: 'crm_order_cancellation_requested',
+                deduplicationKey: `crm-order-cancellation:${order.id}`,
+                payload: {
+                    orderId: order.id,
+                    crmOrderId: order.crmOrderId,
+                    requestId: `crm-order-cancellation:${order.id}`,
+                    reason,
+                },
+            },
+            update: {},
+        });
+        const managerEmail = process.env.MANAGER_EMAIL?.trim();
+        if (managerEmail) {
+            const customerName = [order.user?.firstName, order.user?.lastName].filter(Boolean).join(' ') || order.customerEmail || order.guestEmail || 'Клиент';
+            const orderLink = `${process.env.CRM_API_URL || ''}/api/sale-documents/${encodeURIComponent(order.crmOrderId)}`;
+            await (0, emailOutbox_service_1.persistEmailEvent)(tx, {
+                eventType: 'order_cancellation_requested', aggregateId: order.id,
+                deduplicationKey: `order-cancellation-email:${order.id}`,
+                payload: {
+                    to: managerEmail,
+                    subject: `Запрос на отмену заказа #${order.orderNumber || order.id} — SWAPSERVICE38`,
+                    text: `Клиент ${customerName} запросил отмену заказа #${order.orderNumber || order.id}. Причина: ${reason}. ${orderLink}`,
+                    html: `<p><b>Запрос на отмену заказа</b></p><p>Заказ: #${order.orderNumber || order.id}</p><p>Клиент: ${customerName}</p><p>Причина: ${reason}</p><p><a href="${orderLink}">Открыть заказ в CRM</a></p>`,
+                },
+            });
+        }
+    }
+    else {
+        const handoff = await tx.outboxEvent.findFirst({
+            where: {
+                aggregateId: order.id,
+                processedAt: null,
+                OR: [
+                    {
+                        type: 'crm_order_create_requested',
+                        status: { in: ['processing', 'dispatched'] },
+                    },
+                    {
+                        type: 'payment_reconciliation_required',
+                        status: { in: ['pending', 'processing', 'dispatched'] },
+                    },
+                ],
+            },
+        });
+        if (handoff) {
+            await tx.order.update({
+                where: { id: order.id },
+                data: {
+                    cancellationState: 'requested',
+                    cancellationRequestedAt: order.cancellationRequestedAt || new Date(),
+                    cancellationReason: order.cancellationReason || reason,
+                    cancellationDecisionReason: 'handoff_in_progress',
+                },
+            });
+        }
+        else {
+            await (0, exports.acceptPreHandoffCancellation)(tx, order, attempt, reason);
+        }
+    }
+    return tx.order.findUnique({ where: { id: order.id }, include: { paymentAttempts: true, invoice: true } });
+}, { maxWait: 5000, timeout: 10000 });
+exports.requestOrderCancellation = requestOrderCancellation;
+//# sourceMappingURL=orderCancellation.service.js.map

@@ -65,7 +65,7 @@ function page(relative, { legacy = false, unavailable = false } = {}) {
     if (effects.length) { effects.splice(0).forEach(effect => effect()); return render(); }
     return tree;
   };
-  return { render, requests, redirects, consent, submit: async () => nodes(render(), 'form')[0].props.onSubmit({ preventDefault() {} }),
+  return { render, requests, redirects, consent, submit: async () => nodes(render(), 'form')[0].props.onSubmit({ preventDefault() {}, stopPropagation() {} }),
     accept: variant => { const checkbox = nodes(render(), 'consent-checkbox').find(node => node.props.variant === variant); assert.ok(checkbox, variant); checkbox.props.onChange(true); },
     fill: (id, value) => nodes(render(), 'input').find(node => node.props.id === id).props.onChange({ target: { value } }),
   };

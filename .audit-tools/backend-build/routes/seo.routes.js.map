@@ -1,0 +1,1 @@
+{"version":3,"file":"seo.routes.js","sourceRoot":"","sources":["../../../backend/src/routes/seo.routes.ts"],"names":[],"mappings":";;AAAA,qCAAiC;AACjC,kEAAkF;AAElF,MAAM,MAAM,GAAG,IAAA,gBAAM,GAAE,CAAC;AACxB,MAAM,CAAC,GAAG,CAAC,aAAa,EAAE,uBAAM,CAAC,CAAC;AAClC,MAAM,CAAC,GAAG,CAAC,cAAc,EAAE,6BAAY,CAAC,CAAC;AACzC,MAAM,CAAC,GAAG,CAAC,2BAA2B,EAAE,4BAAW,CAAC,CAAC;AACrD,kBAAe,MAAM,CAAC"}

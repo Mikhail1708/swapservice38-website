@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import { Image, Link } from '@/lib/next-shims';
 import { fetchWithCsrf } from '@/lib/csrf';
 import { 
-  ChevronRight, 
+  ChevronRight,
+  ArrowLeft,
   ArrowRight, 
   Calendar, 
   Clock, 
@@ -86,11 +87,18 @@ export default function SwapsPage() {
     <div className="min-h-screen bg-background pt-32 pb-20">
       <div className="container-custom">
         {/* Хлебные крошки */}
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground mb-6">
           <Link href="/" className="hover:text-foreground transition">Главная</Link>
           <ChevronRight className="w-4 h-4" />
-          <span className="text-foreground">Свапы двигателей</span>
+          <Link href="/services" className="hover:text-foreground transition">Услуги</Link>
+          <ChevronRight className="w-4 h-4 shrink-0" />
+          <span className="text-foreground" aria-current="page">Свапы двигателей</span>
         </div>
+
+        <Link href="/services" className="inline-flex min-h-[44px] items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition mb-6">
+          <ArrowLeft className="h-4 w-4" />
+          Все услуги
+        </Link>
 
         {/* Заголовок */}
         <div className="mb-12">

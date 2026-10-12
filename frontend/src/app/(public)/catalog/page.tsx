@@ -179,7 +179,6 @@ function ProductCard({ product }: { product: Product }) {
             </span>
           )}
         </div>
-        тзь
         {inCart && !isOutOfStock && (
           <div className="absolute bottom-3 right-3 bg-foreground/90 backdrop-blur-sm text-background text-[10px] font-medium px-3 py-1 rounded-full flex items-center gap-1">
             <Check className="w-3 h-3" />
